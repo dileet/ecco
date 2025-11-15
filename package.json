@@ -1,0 +1,33 @@
+{
+  "name": "ecco",
+  "type": "module",
+  "packageManager": "bun@1.3.0",
+  "workspaces": [
+    "packages/*",
+    "examples"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --filter='!@ecco/registry'",
+    "dev:all": "turbo run dev",
+    "dev:registry": "turbo run dev --filter=@ecco/registry",
+    "db:push": "turbo run db:push --filter=@ecco/registry",
+    "db:generate": "turbo run db:generate --filter=@ecco/registry",
+    "db:migrate": "turbo run db:migrate --filter=@ecco/registry",
+    "db:studio": "turbo run db:studio --filter=@ecco/registry",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@biomejs/biome": "^2.2.5",
+    "dotenv": "^17.2.3",
+    "effect": "^3.19.3",
+    "turbo": "^2.5.8",
+    "zod": "^4.1.12"
+  }
+}

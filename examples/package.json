@@ -1,0 +1,20 @@
+{
+  "name": "ecco-examples",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "basic": "bun run basic-node.ts",
+    "registry-agent": "bun run registry-agent.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.62",
+    "@ecco/ai-sdk": "workspace:*",
+    "@ecco/core": "workspace:*",
+    "ai": "^5.0.87"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
