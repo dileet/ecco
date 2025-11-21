@@ -3,6 +3,7 @@ import type { NodeState } from './types';
 import type { PeerInfo } from '../types';
 import type { BreakerState } from '../util/circuit-breaker';
 import type { RegistryClientState } from '../services';
+import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../auth';
 import type { PoolState } from '../connection';
 
@@ -151,4 +152,21 @@ export const subscribeToTopicRef = (
     handlers.add(handler);
     newSubscriptions.set(topic, handlers);
     return { ...state, subscriptions: newSubscriptions };
+  });
+
+export const setWalletRef = (
+  stateRef: Ref.Ref<NodeState>,
+  walletRef: Ref.Ref<WalletState>
+): Effect.Effect<void> =>
+  updateState(stateRef, (state) => ({
+    ...state,
+    walletRef,
+  }));
+
+export const getWalletRef = (
+  stateRef: Ref.Ref<NodeState>
+): Effect.Effect<Ref.Ref<WalletState> | undefined> =>
+  Effect.gen(function* () {
+    const state = yield* getState(stateRef);
+    return state.walletRef;
   });

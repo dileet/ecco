@@ -1,10 +1,10 @@
 import { Effect, Ref, Schedule, Duration } from 'effect';
 import { Auth } from '../auth';
-import { RegistryService } from '../services';
+import { RegistryService, WalletService, WalletServiceLive } from '../services';
 import { setupEventListeners } from './discovery';
 import { announceCapabilities } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
-import { setMessageAuthRef, getState, setRegistryClientRef, updateState } from './state-ref';
+import { setMessageAuthRef, getState, setRegistryClientRef, setWalletRef, updateState } from './state-ref';
 import { loadOrCreateNodeIdentity } from './identity';
 import { withTimeoutEffect } from '../util/timeout';
 import type { NodeState } from './types';
@@ -12,11 +12,12 @@ import type {
   AuthError,
   ConnectError,
   RegistryErrorType,
-  CapabilityErrorType
+  CapabilityErrorType,
+  WalletError
 } from '../errors';
 import { ConnectionError, RegistryConnectionError } from '../errors';
 
-export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, AuthError> =>
+export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, AuthError | WalletError> =>
   Effect.gen(function* () {
     const state = yield* getState(stateRef);
 
@@ -36,8 +37,19 @@ export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<
           id: identity.nodeIdFromKeys
         }));
       }
+
+      if (state.config.authentication?.walletAutoInit && identity.ethereumPrivateKey) {
+        const walletService = yield* WalletService;
+        const walletStateRef = yield* walletService.createState({
+          privateKey: identity.ethereumPrivateKey,
+          chains: [],
+          rpcUrls: state.config.authentication.walletRpcUrls,
+        });
+        yield* setWalletRef(stateRef, walletStateRef);
+        console.log('Wallet initialized with authentication keys');
+      }
     }
-  });
+  }).pipe(Effect.provide(WalletServiceLive));
 
 export const withDiscovery = (_stateRef: Ref.Ref<NodeState>): Effect.Effect<void, never> =>
   Effect.void;

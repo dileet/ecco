@@ -18,6 +18,8 @@ export {
   setCircuitBreakerRef,
   getOrCreateCircuitBreaker,
   setRegistryClientRef,
+  setWalletRef,
+  getWalletRef,
   setMessageAuthRef,
   setConnectionPoolRef,
   setNodeRef,
@@ -54,6 +56,8 @@ export {
   type EmbeddingRequest,
   type EmbeddingResponse,
 } from './services/embedding';
+export { PaymentProtocol } from './services/payment';
+export { Wallet } from './services/wallet';
 export * from './errors';
 
 // Effect-based services
@@ -62,13 +66,17 @@ export {
   MatcherService,
   RegistryService,
   CircuitBreakerService,
+  WalletService,
   AuthServiceLive,
   MatcherServiceLive,
   RegistryServiceLive,
   CircuitBreakerServiceLive,
+  WalletServiceLive,
   ServicesLive,
   type RegistryClientConfig,
   type RegistryClientState,
+  type WalletConfig,
+  type WalletState,
 } from './services';
 
 export type {
@@ -83,6 +91,10 @@ export type {
   CapabilityMatch,
   DiscoveryMethod,
   TransportConfig,
+  Pricing,
+  Invoice,
+  PaymentProof,
+  QuoteRequest,
 } from './types';
 
 export type {

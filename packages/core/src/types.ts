@@ -12,6 +12,8 @@ export interface EccoConfig {
     enabled: boolean;
     generateKeys?: boolean;
     keyPath?: string;
+    walletAutoInit?: boolean;
+    walletRpcUrls?: Record<number, string>;
   };
   retry?: {
     maxAttempts?: number;
@@ -93,7 +95,12 @@ export type MessageType =
   | 'embedding-response'
   | 'gossip'
   | 'ping'
-  | 'pong';
+  | 'pong'
+  | 'request-quote'
+  | 'invoice'
+  | 'submit-payment-proof'
+  | 'payment-verified'
+  | 'payment-failed';
 
 export interface CapabilityQuery {
   requiredCapabilities: Partial<Capability>[];
@@ -104,4 +111,32 @@ export interface CapabilityMatch {
   peer: PeerInfo;
   matchScore: number;
   matchedCapabilities: Capability[];
+}
+
+export interface Pricing {
+  chainId: number;
+  token: string;
+  amount: string;
+}
+
+export interface Invoice {
+  id: string;
+  jobId: string;
+  chainId: number;
+  amount: string;
+  token: string;
+  recipient: string;
+  validUntil: number;
+}
+
+export interface PaymentProof {
+  invoiceId: string;
+  txHash: string;
+  chainId: number;
+}
+
+export interface QuoteRequest {
+  jobType: string;
+  jobParams: Record<string, unknown>;
+  preferredChains?: number[];
 }
