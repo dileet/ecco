@@ -14,6 +14,7 @@ export interface WalletConfig {
   privateKey?: `0x${string}`;
   chains?: Chain[];
   rpcUrls?: Record<number, string>;
+  receiptTimeoutMs?: number;
 }
 
 export interface WalletState {
@@ -107,7 +108,12 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
       }
 
       return yield* Ref.make<WalletState>({
-        config: { privateKey: config.privateKey, chains: config.chains, rpcUrls: config.rpcUrls },
+        config: {
+          privateKey: config.privateKey,
+          chains: config.chains,
+          rpcUrls: config.rpcUrls,
+          receiptTimeoutMs: config.receiptTimeoutMs ?? 600000,
+        },
         account,
         publicClients,
         walletClients,
@@ -333,6 +339,27 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
         }));
       }
 
+      function isRetryableError(error: unknown): boolean {
+        if (!(error instanceof PaymentVerificationError)) {
+          return false;
+        }
+        const errorMessage = error.message.toLowerCase();
+        const isReceiptNotAvailable =
+          errorMessage.includes('not yet available') ||
+          errorMessage.includes('not found') ||
+          errorMessage.includes('could not be found') ||
+          errorMessage.includes('may not be processed');
+        const isNetworkError =
+          errorMessage.includes('failed to parse json') ||
+          errorMessage.includes('http request failed') ||
+          errorMessage.includes('network') ||
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('econnrefused') ||
+          errorMessage.includes('enotfound') ||
+          errorMessage.includes('econnreset');
+        return isReceiptNotAvailable || isNetworkError;
+      }
+
       const getReceipt = Effect.tryPromise({
         try: async () => {
           return await publicClient.getTransactionReceipt({
@@ -385,18 +412,27 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
         },
       });
 
+      const timeoutMs = state.config.receiptTimeoutMs ?? 600000;
+      const timeoutSeconds = Math.floor(timeoutMs / 1000);
+      
+      const pollSchedule = Schedule.exponential(Duration.millis(1000)).pipe(
+        Schedule.intersect(Schedule.recurs(60)),
+        Schedule.union(Schedule.spaced(Duration.millis(30000)))
+      );
+      
       const receipt = yield* getReceipt.pipe(
         Effect.retry({
-          schedule: Schedule.exponential(Duration.millis(2000)).pipe(
-            Schedule.intersect(Schedule.recurs(30)),
-            Schedule.union(Schedule.spaced(Duration.millis(10000)))
-          ),
-          while: (error) => {
-            if (error instanceof PaymentVerificationError && error.message.includes('not yet available')) {
-              return true;
-            }
-            return false;
-          },
+          schedule: pollSchedule,
+          while: isRetryableError,
+        }),
+        Effect.timeoutFail({
+          duration: Duration.millis(timeoutMs),
+          onTimeout: () =>
+            new PaymentVerificationError({
+              message: `Transaction receipt not found after ${timeoutSeconds} seconds. The transaction may still be pending or may have failed.`,
+              txHash: paymentProof.txHash,
+              chainId: paymentProof.chainId,
+            }),
         })
       );
 
@@ -434,7 +470,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
           );
         }
 
-        const tx = yield* Effect.tryPromise({
+        const getTransaction = Effect.tryPromise({
           try: async () => {
             return await publicClient.getTransaction({
               hash: paymentProof.txHash as `0x${string}`,
@@ -472,6 +508,27 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
             });
           },
         });
+
+        const txSchedule = Schedule.exponential(Duration.millis(500)).pipe(
+          Schedule.intersect(Schedule.recurs(10)),
+          Schedule.union(Schedule.spaced(Duration.millis(5000)))
+        );
+
+        const tx = yield* getTransaction.pipe(
+          Effect.retry({
+            schedule: txSchedule,
+            while: isRetryableError,
+          }),
+          Effect.timeoutFail({
+            duration: Duration.millis(30000),
+            onTimeout: () =>
+              new PaymentVerificationError({
+                message: 'Failed to get transaction details after retries. Network may be experiencing issues.',
+                txHash: paymentProof.txHash,
+                chainId: paymentProof.chainId,
+              }),
+          })
+        );
 
         if (tx.value !== expectedAmount) {
           return yield* Effect.fail(

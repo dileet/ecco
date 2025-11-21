@@ -329,6 +329,25 @@ async function requestService(
     let resultResolve: ((result: string) => void) | null = null;
     let resultReject: ((error: Error) => void) | null = null;
 
+    const resultHandler = (resultEvent: EccoEvent) => {
+      if (resultEvent.type === 'message') {
+        const messageEvent = resultEvent as MessageEvent;
+        if (
+          typeof messageEvent.payload === 'object' &&
+          messageEvent.payload !== null &&
+          'result' in messageEvent.payload &&
+          resultResolve
+        ) {
+          resultResolve((messageEvent.payload as { result: string }).result);
+          resultResolve = null;
+          resultReject = null;
+        }
+      }
+    };
+
+    Node.subscribeToTopic(agent, `result:${invoice!.id}`, resultHandler);
+    console.log(`[${Node.getId(agent)}] Subscribed to result topic: result:${invoice!.id}`);
+
     const verifiedHandler = (event: EccoEvent) => {
       if (event.type !== 'message') return;
 
@@ -340,23 +359,7 @@ async function requestService(
         'invoiceId' in message.payload &&
         (message.payload as { invoiceId: string }).invoiceId === invoice!.id
       ) {
-        const resultHandler = (resultEvent: EccoEvent) => {
-          if (resultEvent.type === 'message') {
-            const messageEvent = resultEvent as MessageEvent;
-            if (
-              typeof messageEvent.payload === 'object' &&
-              messageEvent.payload !== null &&
-              'result' in messageEvent.payload &&
-              resultResolve
-            ) {
-              resultResolve((messageEvent.payload as { result: string }).result);
-              resultResolve = null;
-              resultReject = null;
-            }
-          }
-        };
-
-        Node.subscribeToTopic(agent, `result:${invoice!.id}`, resultHandler);
+        console.log(`[${Node.getId(agent)}] Payment verified, waiting for result...`);
       }
     };
 

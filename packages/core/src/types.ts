@@ -14,6 +14,7 @@ export interface EccoConfig {
     keyPath?: string;
     walletAutoInit?: boolean;
     walletRpcUrls?: Record<number, string>;
+    walletReceiptTimeoutMs?: number;
   };
   retry?: {
     maxAttempts?: number;

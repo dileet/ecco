@@ -44,10 +44,11 @@ export namespace Node {
     if (!state._ref) {
       throw new Error('Node state does not have a ref. Did you call Node.start()?');
     }
+    const currentState = Effect.runSync(getState(state._ref));
     const { subscribe } = require('./messaging');
-    const updatedState = subscribe(state, topic, handler);
+    const updatedState = subscribe({ ...currentState, _ref: state._ref }, topic, handler);
     Effect.runSync(Ref.set(state._ref, updatedState));
-    return updatedState;
+    return { ...updatedState, _ref: state._ref };
   }
 
   export async function findPeers(

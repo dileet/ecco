@@ -39,10 +39,13 @@ export function subscribe(state: NodeState, topic: string, handler: (event: Ecco
       const detail = evt.detail;
       let incomingTopic: string | undefined;
       let incomingData: Uint8Array | undefined;
+      
       if (typeof detail === 'object' && detail !== null) {
         const d = detail as Record<string, unknown>;
+        
         const directTopic = typeof d.topic === 'string' ? d.topic : undefined;
         const directData = d.data instanceof Uint8Array ? d.data : undefined;
+        
         if (directTopic && directData) {
           incomingTopic = directTopic;
           incomingData = directData;
@@ -54,8 +57,13 @@ export function subscribe(state: NodeState, topic: string, handler: (event: Ecco
             incomingTopic = msgTopic;
             incomingData = msgData;
           }
+        } else if (detail && typeof (detail as { topic?: unknown }).topic === 'string') {
+          const msg = detail as { topic: string; data?: Uint8Array };
+          incomingTopic = msg.topic;
+          incomingData = msg.data;
         }
       }
+      
       if (incomingTopic === topic && incomingData) {
         try {
           const rawData = JSON.parse(new TextDecoder().decode(incomingData));
@@ -80,15 +88,19 @@ export function subscribe(state: NodeState, topic: string, handler: (event: Ecco
             const handlers = currentStateFromRef.subscriptions.get(topic);
             if (handlers) {
               handlers.forEach(h => h(validatedEvent));
+            } else {
+              console.warn(`[${currentState.id}] No handlers found for topic ${topic}`);
             }
           } else {
             const handlers = currentState.subscriptions.get(topic);
             if (handlers) {
               handlers.forEach(h => h(validatedEvent));
+            } else {
+              console.warn(`[${currentState.id}] No handlers found for topic ${topic}`);
             }
           }
         } catch (error) {
-          console.error('Error processing message:', error);
+          console.error(`[${currentState.id}] Error processing message on topic ${topic}:`, error);
         }
       }
     });

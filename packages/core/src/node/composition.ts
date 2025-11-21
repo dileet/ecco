@@ -44,6 +44,7 @@ export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<
           privateKey: identity.ethereumPrivateKey,
           chains: [],
           rpcUrls: state.config.authentication.walletRpcUrls,
+          receiptTimeoutMs: state.config.authentication.walletReceiptTimeoutMs,
         });
         yield* setWalletRef(stateRef, walletStateRef);
         console.log('Wallet initialized with authentication keys');
