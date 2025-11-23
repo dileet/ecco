@@ -3,9 +3,23 @@ import { createPublicClient, createWalletClient, http, type PublicClient, type W
 import { privateKeyToAccount } from 'viem/accounts';
 import { parseEther } from 'viem';
 import { sepolia, baseSepolia } from 'viem/chains';
-import type { Invoice, PaymentProof } from '../types';
+import type {
+  Invoice,
+  PaymentProof,
+  SettlementIntent,
+  PaymentLedgerEntry,
+} from '../types';
 import { WalletError, PaymentVerificationError } from '../errors';
 import type { NodeState } from '../node/types';
+import { PaymentProtocol } from './payment';
+import {
+  getState,
+  setWalletRef,
+  dequeueSettlementRef,
+  removeSettlementRef,
+  updatePaymentLedgerEntryRef,
+  updateSettlementRef,
+} from '../node/state-ref';
 
 const ETH_SEPOLIA_CHAIN_ID = 11155111;
 const BASE_SEPOLIA_CHAIN_ID = 84532;
@@ -560,7 +574,6 @@ export namespace Wallet {
       throw new Error('Node state does not have a ref. Did you call Node.start()?');
     }
 
-    const { getState } = await import('../node/state-ref');
     const currentState = await Effect.runPromise(getState(nodeState._ref));
 
     if (currentState.walletRef) {
@@ -585,7 +598,6 @@ export namespace Wallet {
       )
     );
 
-    const { setWalletRef } = await import('../node/state-ref');
     await Effect.runPromise(setWalletRef(nodeState._ref, walletStateRef));
 
     const updatedState = await Effect.runPromise(getState(nodeState._ref));
@@ -638,5 +650,119 @@ export namespace Wallet {
         Effect.provide(WalletServiceLive)
       )
     );
+  }
+
+  export async function processSettlements(
+    nodeState: NodeState,
+    maxProcess?: number
+  ): Promise<number> {
+    if (!nodeState._ref || !nodeState.walletRef) {
+      throw new Error('Wallet not initialized. Call Wallet.initialize() first.');
+    }
+
+    const state = await Effect.runPromise(getState(nodeState._ref));
+    const settlements = state.pendingSettlements
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, maxProcess ?? state.pendingSettlements.length);
+
+    let processed = 0;
+
+    for (const intent of settlements) {
+      try {
+        if (!intent.invoice) {
+          await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+          continue;
+        }
+
+        const paymentProof = await pay(nodeState, intent.invoice);
+        const verified = await verifyPayment(nodeState, paymentProof, intent.invoice);
+
+        if (verified) {
+          await Effect.runPromise(
+            updatePaymentLedgerEntryRef(nodeState._ref, intent.ledgerEntryId, (entry) =>
+              PaymentProtocol.markLedgerEntrySettled(entry, paymentProof.txHash)
+            )
+          );
+          await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+          processed++;
+        } else {
+          const updatedIntent = PaymentProtocol.incrementSettlementRetry(intent);
+          if (updatedIntent.retryCount >= updatedIntent.maxRetries) {
+            await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+          } else {
+            await Effect.runPromise(
+              updateSettlementRef(nodeState._ref, intent.id, () => updatedIntent)
+            );
+          }
+        }
+      } catch (error) {
+        const updatedIntent = PaymentProtocol.incrementSettlementRetry(intent);
+        if (updatedIntent.retryCount >= updatedIntent.maxRetries) {
+          await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+        } else {
+          await Effect.runPromise(
+            updateSettlementRef(nodeState._ref, intent.id, () => updatedIntent)
+          );
+        }
+      }
+    }
+
+    return processed;
+  }
+
+  export async function processSettlement(
+    nodeState: NodeState,
+    intentId: string
+  ): Promise<boolean> {
+    if (!nodeState._ref || !nodeState.walletRef) {
+      throw new Error('Wallet not initialized. Call Wallet.initialize() first.');
+    }
+
+    const state = await Effect.runPromise(getState(nodeState._ref));
+    const intent = state.pendingSettlements.find((s) => s.id === intentId);
+
+    if (!intent) {
+      return false;
+    }
+
+    if (!intent.invoice) {
+      await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+      return false;
+    }
+
+    try {
+      const paymentProof = await pay(nodeState, intent.invoice);
+      const verified = await verifyPayment(nodeState, paymentProof, intent.invoice);
+
+      if (verified) {
+        await Effect.runPromise(
+          updatePaymentLedgerEntryRef(nodeState._ref, intent.ledgerEntryId, (entry) =>
+            PaymentProtocol.markLedgerEntrySettled(entry, paymentProof.txHash)
+          )
+        );
+        await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+        return true;
+      } else {
+        const updatedIntent = PaymentProtocol.incrementSettlementRetry(intent);
+        if (updatedIntent.retryCount >= updatedIntent.maxRetries) {
+          await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+        } else {
+          await Effect.runPromise(
+            updateSettlementRef(nodeState._ref, intent.id, () => updatedIntent)
+          );
+        }
+        return false;
+      }
+    } catch (error) {
+      const updatedIntent = PaymentProtocol.incrementSettlementRetry(intent);
+      if (updatedIntent.retryCount >= updatedIntent.maxRetries) {
+        await Effect.runPromise(removeSettlementRef(nodeState._ref, intent.id));
+      } else {
+        await Effect.runPromise(
+          updateSettlementRef(nodeState._ref, intent.id, () => updatedIntent)
+        );
+      }
+      throw error;
+    }
   }
 }

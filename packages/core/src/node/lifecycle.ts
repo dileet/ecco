@@ -385,8 +385,21 @@ export async function findPeers(
       !!(state.node?.services.dht)
     );
 
+    const hasGossipEnabled = state.config.discovery.includes('gossip');
+    const shouldTryGossip = hasGossipEnabled && state.node?.services.pubsub;
+
     for (const strategy of strategies) {
       if (strategy === 'local') {
+        if (shouldTryGossip) {
+          const gossipMatches = yield* Effect.promise(() =>
+            PeerDiscoveryEffects.queryGossip(stateRef, query)
+          );
+          if (gossipMatches.length > 0) {
+            const existingMatchIds = new Set(matches.map(m => m.peer.id));
+            const newMatches = gossipMatches.filter(m => !existingMatchIds.has(m.peer.id));
+            matches = [...matches, ...newMatches];
+          }
+        }
         return matches;
       }
 

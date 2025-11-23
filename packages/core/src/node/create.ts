@@ -18,6 +18,12 @@ export function createNodeState(config: EccoConfig): NodeState {
     capabilityMatcher: Matcher.create(),
     circuitBreakers: new Map(),
     capabilityTrackingSetup: false,
+    paymentLedger: new Map(),
+    streamingChannels: new Map(),
+    escrowAgreements: new Map(),
+    stakePositions: new Map(),
+    swarmSplits: new Map(),
+    pendingSettlements: [],
     ...(fullConfig.connectionPool ? { connectionPool: Pool.createState(fullConfig.connectionPool) } : {}),
   };
 
