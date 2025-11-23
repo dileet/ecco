@@ -843,12 +843,13 @@ export const RegistryServiceLive = Layer.succeed(RegistryService, {
 
 export { WalletService, WalletServiceLive, type WalletConfig, type WalletState } from './services/wallet';
 import { WalletServiceLive } from './services/wallet';
+import { StorageServiceLive } from './storage';
 
-// Combined layer with all services
 export const ServicesLive = Layer.mergeAll(
   AuthServiceLive,
   MatcherServiceLive,
   CircuitBreakerServiceLive,
   RegistryServiceLive,
-  WalletServiceLive
+  WalletServiceLive,
+  StorageServiceLive
 );

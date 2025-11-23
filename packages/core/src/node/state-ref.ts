@@ -14,6 +14,8 @@ import type { RegistryClientState } from '../services';
 import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../auth';
 import type { PoolState } from '../connection';
+import { StorageService } from '../storage';
+import { ServicesLive } from '../services';
 
 export const makeStateRef = (
   initialState: NodeState
@@ -183,168 +185,253 @@ export const addPaymentLedgerEntryRef = (
   stateRef: Ref.Ref<NodeState>,
   entry: PaymentLedgerEntry
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    paymentLedger: new Map(state.paymentLedger).set(entry.id, entry),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      paymentLedger: new Map(state.paymentLedger).set(entry.id, entry),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writePaymentLedgerEntry(entry);
+  });
 
 export const updatePaymentLedgerEntryRef = (
   stateRef: Ref.Ref<NodeState>,
   entryId: string,
   updater: (entry: PaymentLedgerEntry) => PaymentLedgerEntry
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => {
-    const entry = state.paymentLedger.get(entryId);
-    if (!entry) {
-      return state;
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => {
+      const entry = state.paymentLedger.get(entryId);
+      if (!entry) {
+        return state;
+      }
+      const newLedger = new Map(state.paymentLedger);
+      newLedger.set(entryId, updater(entry));
+      return { ...state, paymentLedger: newLedger };
+    });
+    const state = yield* getState(stateRef);
+    const updatedEntry = state.paymentLedger.get(entryId);
+    if (updatedEntry) {
+      const storageService = yield* StorageService;
+      yield* storageService.updatePaymentLedgerEntry(updatedEntry);
     }
-    const newLedger = new Map(state.paymentLedger);
-    newLedger.set(entryId, updater(entry));
-    return { ...state, paymentLedger: newLedger };
   });
 
 export const setStreamingChannelRef = (
   stateRef: Ref.Ref<NodeState>,
   channel: StreamingAgreement
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    streamingChannels: new Map(state.streamingChannels).set(channel.id, channel),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      streamingChannels: new Map(state.streamingChannels).set(channel.id, channel),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writeStreamingChannel(channel);
+  });
 
 export const updateStreamingChannelRef = (
   stateRef: Ref.Ref<NodeState>,
   channelId: string,
   updater: (channel: StreamingAgreement) => StreamingAgreement
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => {
-    const channel = state.streamingChannels.get(channelId);
-    if (!channel) {
-      return state;
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => {
+      const channel = state.streamingChannels.get(channelId);
+      if (!channel) {
+        return state;
+      }
+      const newChannels = new Map(state.streamingChannels);
+      newChannels.set(channelId, updater(channel));
+      return { ...state, streamingChannels: newChannels };
+    });
+    const state = yield* getState(stateRef);
+    const updatedChannel = state.streamingChannels.get(channelId);
+    if (updatedChannel) {
+      const storageService = yield* StorageService;
+      yield* storageService.updateStreamingChannel(updatedChannel);
     }
-    const newChannels = new Map(state.streamingChannels);
-    newChannels.set(channelId, updater(channel));
-    return { ...state, streamingChannels: newChannels };
   });
 
 export const setEscrowAgreementRef = (
   stateRef: Ref.Ref<NodeState>,
   agreement: EscrowAgreement
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    escrowAgreements: new Map(state.escrowAgreements).set(agreement.id, agreement),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      escrowAgreements: new Map(state.escrowAgreements).set(agreement.id, agreement),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writeEscrowAgreement(agreement);
+  });
 
 export const updateEscrowAgreementRef = (
   stateRef: Ref.Ref<NodeState>,
   agreementId: string,
   updater: (agreement: EscrowAgreement) => EscrowAgreement
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => {
-    const agreement = state.escrowAgreements.get(agreementId);
-    if (!agreement) {
-      return state;
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => {
+      const agreement = state.escrowAgreements.get(agreementId);
+      if (!agreement) {
+        return state;
+      }
+      const newAgreements = new Map(state.escrowAgreements);
+      newAgreements.set(agreementId, updater(agreement));
+      return { ...state, escrowAgreements: newAgreements };
+    });
+    const state = yield* getState(stateRef);
+    const updatedAgreement = state.escrowAgreements.get(agreementId);
+    if (updatedAgreement) {
+      const storageService = yield* StorageService;
+      yield* storageService.updateEscrowAgreement(updatedAgreement);
     }
-    const newAgreements = new Map(state.escrowAgreements);
-    newAgreements.set(agreementId, updater(agreement));
-    return { ...state, escrowAgreements: newAgreements };
   });
 
 export const setStakePositionRef = (
   stateRef: Ref.Ref<NodeState>,
   position: StakePosition
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    stakePositions: new Map(state.stakePositions).set(position.id, position),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      stakePositions: new Map(state.stakePositions).set(position.id, position),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writeStakePosition(position);
+  });
 
 export const updateStakePositionRef = (
   stateRef: Ref.Ref<NodeState>,
   positionId: string,
   updater: (position: StakePosition) => StakePosition
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => {
-    const position = state.stakePositions.get(positionId);
-    if (!position) {
-      return state;
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => {
+      const position = state.stakePositions.get(positionId);
+      if (!position) {
+        return state;
+      }
+      const newPositions = new Map(state.stakePositions);
+      newPositions.set(positionId, updater(position));
+      return { ...state, stakePositions: newPositions };
+    });
+    const state = yield* getState(stateRef);
+    const updatedPosition = state.stakePositions.get(positionId);
+    if (updatedPosition) {
+      const storageService = yield* StorageService;
+      yield* storageService.updateStakePosition(updatedPosition);
     }
-    const newPositions = new Map(state.stakePositions);
-    newPositions.set(positionId, updater(position));
-    return { ...state, stakePositions: newPositions };
   });
 
 export const setSwarmSplitRef = (
   stateRef: Ref.Ref<NodeState>,
   split: SwarmSplit
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    swarmSplits: new Map(state.swarmSplits).set(split.id, split),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      swarmSplits: new Map(state.swarmSplits).set(split.id, split),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writeSwarmSplit(split);
+  });
 
 export const updateSwarmSplitRef = (
   stateRef: Ref.Ref<NodeState>,
   splitId: string,
   updater: (split: SwarmSplit) => SwarmSplit
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => {
-    const split = state.swarmSplits.get(splitId);
-    if (!split) {
-      return state;
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => {
+      const split = state.swarmSplits.get(splitId);
+      if (!split) {
+        return state;
+      }
+      const newSplits = new Map(state.swarmSplits);
+      newSplits.set(splitId, updater(split));
+      return { ...state, swarmSplits: newSplits };
+    });
+    const state = yield* getState(stateRef);
+    const updatedSplit = state.swarmSplits.get(splitId);
+    if (updatedSplit) {
+      const storageService = yield* StorageService;
+      yield* storageService.updateSwarmSplit(updatedSplit);
     }
-    const newSplits = new Map(state.swarmSplits);
-    newSplits.set(splitId, updater(split));
-    return { ...state, swarmSplits: newSplits };
   });
 
 export const enqueueSettlementRef = (
   stateRef: Ref.Ref<NodeState>,
   intent: SettlementIntent
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    pendingSettlements: [...state.pendingSettlements, intent],
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      pendingSettlements: [...state.pendingSettlements, intent],
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.writeSettlement(intent);
+  });
 
 export const dequeueSettlementRef = (
   stateRef: Ref.Ref<NodeState>
 ): Effect.Effect<SettlementIntent | undefined> =>
-  modifyState(stateRef, (state) => {
-    if (state.pendingSettlements.length === 0) {
-      return [undefined, state] as const;
+  Effect.gen(function* () {
+    const [first, newState] = yield* modifyState(stateRef, (state) => {
+      if (state.pendingSettlements.length === 0) {
+        return [undefined, state] as const;
+      }
+      const [first, ...rest] = state.pendingSettlements;
+      return [first, { ...state, pendingSettlements: rest }] as const;
+    });
+    if (first) {
+      const storageService = yield* StorageService;
+      yield* storageService.removeSettlement(first.id);
     }
-    const [first, ...rest] = state.pendingSettlements;
-    return [first, { ...state, pendingSettlements: rest }] as const;
+    return first;
   });
 
 export const removeSettlementRef = (
   stateRef: Ref.Ref<NodeState>,
   intentId: string
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    pendingSettlements: state.pendingSettlements.filter((intent) => intent.id !== intentId),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      pendingSettlements: state.pendingSettlements.filter((intent) => intent.id !== intentId),
+    }));
+    const storageService = yield* StorageService;
+    yield* storageService.removeSettlement(intentId);
+  });
 
 export const updateSettlementRef = (
   stateRef: Ref.Ref<NodeState>,
   intentId: string,
   updater: (intent: SettlementIntent) => SettlementIntent
 ): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    pendingSettlements: state.pendingSettlements.map((intent) =>
-      intent.id === intentId ? updater(intent) : intent
-    ),
-  }));
+  Effect.gen(function* () {
+    yield* updateState(stateRef, (state) => ({
+      ...state,
+      pendingSettlements: state.pendingSettlements.map((intent) =>
+        intent.id === intentId ? updater(intent) : intent
+      ),
+    }));
+    const state = yield* getState(stateRef);
+    const updatedSettlement = state.pendingSettlements.find((intent) => intent.id === intentId);
+    if (updatedSettlement) {
+      const storageService = yield* StorageService;
+      yield* storageService.updateSettlement(updatedSettlement);
+    }
+  });
 
 export async function setStreamingChannel(
   stateRef: Ref.Ref<NodeState>,
   channel: StreamingAgreement
 ): Promise<void> {
-  return await Effect.runPromise(setStreamingChannelRef(stateRef, channel));
+  return await Effect.runPromise(
+    setStreamingChannelRef(stateRef, channel).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function updateStreamingChannel(
@@ -352,14 +439,18 @@ export async function updateStreamingChannel(
   channelId: string,
   updater: (channel: StreamingAgreement) => StreamingAgreement
 ): Promise<void> {
-  return await Effect.runPromise(updateStreamingChannelRef(stateRef, channelId, updater));
+  return await Effect.runPromise(
+    updateStreamingChannelRef(stateRef, channelId, updater).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function setEscrowAgreement(
   stateRef: Ref.Ref<NodeState>,
   agreement: EscrowAgreement
 ): Promise<void> {
-  return await Effect.runPromise(setEscrowAgreementRef(stateRef, agreement));
+  return await Effect.runPromise(
+    setEscrowAgreementRef(stateRef, agreement).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function updateEscrowAgreement(
@@ -367,14 +458,18 @@ export async function updateEscrowAgreement(
   agreementId: string,
   updater: (agreement: EscrowAgreement) => EscrowAgreement
 ): Promise<void> {
-  return await Effect.runPromise(updateEscrowAgreementRef(stateRef, agreementId, updater));
+  return await Effect.runPromise(
+    updateEscrowAgreementRef(stateRef, agreementId, updater).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function setSwarmSplit(
   stateRef: Ref.Ref<NodeState>,
   split: SwarmSplit
 ): Promise<void> {
-  return await Effect.runPromise(setSwarmSplitRef(stateRef, split));
+  return await Effect.runPromise(
+    setSwarmSplitRef(stateRef, split).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function updateSwarmSplit(
@@ -382,21 +477,27 @@ export async function updateSwarmSplit(
   splitId: string,
   updater: (split: SwarmSplit) => SwarmSplit
 ): Promise<void> {
-  return await Effect.runPromise(updateSwarmSplitRef(stateRef, splitId, updater));
+  return await Effect.runPromise(
+    updateSwarmSplitRef(stateRef, splitId, updater).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function addPaymentLedgerEntry(
   stateRef: Ref.Ref<NodeState>,
   entry: PaymentLedgerEntry
 ): Promise<void> {
-  return await Effect.runPromise(addPaymentLedgerEntryRef(stateRef, entry));
+  return await Effect.runPromise(
+    addPaymentLedgerEntryRef(stateRef, entry).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function enqueueSettlement(
   stateRef: Ref.Ref<NodeState>,
   intent: SettlementIntent
 ): Promise<void> {
-  return await Effect.runPromise(enqueueSettlementRef(stateRef, intent));
+  return await Effect.runPromise(
+    enqueueSettlementRef(stateRef, intent).pipe(Effect.provide(ServicesLive))
+  );
 }
 
 export async function getNodeState(stateRef: Ref.Ref<NodeState>): Promise<NodeState> {

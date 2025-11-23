@@ -14,6 +14,7 @@ import { Auth } from '../auth';
 import { CircuitBreaker } from '../util/circuit-breaker';
 import { Matcher } from '../capability-matcher';
 import { RegistryService, ServicesLive } from '../services';
+import { StorageService } from '../storage';
 import { Pool, type PoolState } from '../connection';
 import { withRetry } from '../util/retry';
 import { publish } from './messaging';
@@ -26,6 +27,7 @@ import {
   addPeersRef,
   setCircuitBreakerRef,
   getOrCreateCircuitBreaker,
+  updateState,
 } from './state-ref';
 import { EventBus } from '../events';
 import {
@@ -127,6 +129,26 @@ export const createNode = (
 ): Effect.Effect<Ref.Ref<NodeState>, NodeCreationError> =>
   Effect.gen(function* () {
     const stateRef = yield* makeStateRef(state);
+
+    const storageService = yield* StorageService;
+    yield* storageService.initialize(state.id);
+
+    const escrowAgreements = yield* storageService.loadEscrowAgreements();
+    const paymentLedger = yield* storageService.loadPaymentLedger();
+    const streamingChannels = yield* storageService.loadStreamingChannels();
+    const stakePositions = yield* storageService.loadStakePositions();
+    const swarmSplits = yield* storageService.loadSwarmSplits();
+    const pendingSettlements = yield* storageService.loadPendingSettlements();
+
+    yield* updateState(stateRef, (currentState) => ({
+      ...currentState,
+      escrowAgreements,
+      paymentLedger,
+      streamingChannels,
+      stakePositions,
+      swarmSplits,
+      pendingSettlements,
+    }));
 
     yield* withAuthentication(stateRef);
     yield* withDiscovery(stateRef);

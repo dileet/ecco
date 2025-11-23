@@ -317,15 +317,6 @@ async function requestService(
 
     console.log(`[${Node.getId(agent)}] Payment sent! TX Hash: ${paymentProof.txHash}`);
 
-    const proofMessage = PaymentProtocol.createPaymentProofMessage(
-      Node.getId(agent),
-      servicePeerId,
-      paymentProof
-    );
-
-    await Node.sendMessage(agent, servicePeerId, proofMessage);
-    console.log(`[${Node.getId(agent)}] Payment proof sent`);
-
     let resultResolve: ((result: string) => void) | null = null;
     let resultReject: ((error: Error) => void) | null = null;
 
@@ -347,6 +338,15 @@ async function requestService(
 
     Node.subscribeToTopic(agent, `result:${invoice!.id}`, resultHandler);
     console.log(`[${Node.getId(agent)}] Subscribed to result topic: result:${invoice!.id}`);
+
+    const proofMessage = PaymentProtocol.createPaymentProofMessage(
+      Node.getId(agent),
+      servicePeerId,
+      paymentProof
+    );
+
+    await Node.sendMessage(agent, servicePeerId, proofMessage);
+    console.log(`[${Node.getId(agent)}] Payment proof sent`);
 
     const verifiedHandler = (event: EccoEvent) => {
       if (event.type !== 'message') return;

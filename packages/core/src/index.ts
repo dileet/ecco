@@ -83,7 +83,13 @@ export { PaymentProtocol } from './services/payment';
 export { Wallet } from './services/wallet';
 export * from './errors';
 
-// Effect-based services
+export {
+  StorageService,
+  StorageServiceLive,
+  StorageError,
+  type StorageService as StorageServiceType,
+} from './storage';
+
 export {
   AuthService,
   MatcherService,

@@ -4,8 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "basic": "bun run basic-node.ts",
-    "registry-agent": "bun run registry-agent.ts"
+    "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts",
+    "db:push:persistence-demo": "ECCO_DB_PATH=.ecco/persistence-demo-node.sqlite bun run ../packages/core/bin/db-push.ts",
+    "persistence-demo": "bun run persistence-demo.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.62",
