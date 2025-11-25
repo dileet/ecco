@@ -59,11 +59,8 @@ export {
   removeSettlementRef,
   updateSettlementRef,
   setStreamingChannel,
-  updateStreamingChannel,
   setEscrowAgreement,
-  updateEscrowAgreement,
   setSwarmSplit,
-  updateSwarmSplit,
   addPaymentLedgerEntry,
   enqueueSettlement,
   getNodeState,
@@ -72,17 +69,11 @@ export { SelectionStrategy } from './orchestrator/selection';
 export { AggregationStrategy } from './orchestrator/aggregation';
 export { LoadBalancing } from './orchestrator/load-balancing';
 export {
-  EmbeddingService,
-  isEmbeddingRequest,
-  isEmbeddingResponse,
-  type EmbeddingRequest,
-  type EmbeddingResponse,
-} from './services/embedding';
-export { PaymentProtocol } from './services/payment';
-export {
-  Wallet,
-  WalletService,
-  WalletServiceLive,
+  createWalletState,
+  getPublicClient,
+  getWalletClient,
+  pay,
+  verifyPayment,
   type WalletConfig,
   type WalletState,
 } from './services/wallet';
