@@ -88,10 +88,26 @@ export {
 } from './services/wallet';
 
 export {
-  StorageService,
-  StorageServiceLive,
-  StorageError,
-  type StorageService as StorageServiceType,
+  initialize as storageInitialize,
+  loadEscrowAgreements,
+  loadPaymentLedger,
+  loadStreamingChannels,
+  loadStakePositions,
+  loadSwarmSplits,
+  loadPendingSettlements,
+  writeEscrowAgreement,
+  updateEscrowAgreement,
+  writePaymentLedgerEntry,
+  updatePaymentLedgerEntry,
+  writeStreamingChannel,
+  updateStreamingChannel,
+  writeStakePosition,
+  updateStakePosition,
+  writeSwarmSplit,
+  updateSwarmSplit,
+  writeSettlement,
+  removeSettlement,
+  updateSettlement,
 } from './storage';
 
 export {
