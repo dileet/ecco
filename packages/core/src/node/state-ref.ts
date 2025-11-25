@@ -9,7 +9,6 @@ import type {
   SwarmSplit,
   SettlementIntent,
 } from '../types';
-import type { BreakerState } from '../util/circuit-breaker';
 import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../services/auth';
@@ -61,36 +60,6 @@ export const removePeerRef = (
     const newPeers = new Map(state.peers);
     newPeers.delete(peerId);
     return { ...state, peers: newPeers };
-  });
-
-export const setCircuitBreakerRef = (
-  stateRef: Ref.Ref<NodeState>,
-  peerId: string,
-  breaker: BreakerState
-): Effect.Effect<void> =>
-  updateState(stateRef, (state) => ({
-    ...state,
-    circuitBreakers: new Map(state.circuitBreakers).set(peerId, breaker),
-  }));
-
-export const getOrCreateCircuitBreaker = (
-  stateRef: Ref.Ref<NodeState>,
-  peerId: string,
-  defaultBreaker: () => BreakerState
-): Effect.Effect<BreakerState> =>
-  modifyState(stateRef, (state) => {
-    const existing = state.circuitBreakers.get(peerId);
-    if (existing) {
-      return [existing, state] as const;
-    }
-    const newBreaker = defaultBreaker();
-    return [
-      newBreaker,
-      {
-        ...state,
-        circuitBreakers: new Map(state.circuitBreakers).set(peerId, newBreaker),
-      },
-    ] as const;
   });
 
 export const setRegistryClientRef = (

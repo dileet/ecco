@@ -14,7 +14,6 @@ import type {
 import type { MatcherState } from '../orchestrator/capability-matcher';
 import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
-import type { BreakerState } from '../util/circuit-breaker';
 import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { EccoEvent } from '../events';
@@ -42,7 +41,6 @@ export interface NodeState {
   capabilityMatcher: MatcherState;
   messageAuth?: AuthState;
   connectionPool?: PoolState;
-  circuitBreakers: Map<string, BreakerState>;
   registryClientRef?: Ref.Ref<RegistryClientState>;
   walletRef?: Ref.Ref<WalletState>;
   capabilityTrackingSetup: boolean;

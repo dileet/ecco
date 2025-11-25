@@ -11,7 +11,6 @@ import { announceCapabilities } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
 import { setMessageAuthRef, getState, setRegistryClientRef, setWalletRef, updateState } from './state-ref';
 import { loadOrCreateNodeIdentity } from './identity';
-import { withTimeoutEffect } from '../util/timeout';
 import type { NodeState } from './types';
 import type {
   AuthError,
@@ -115,11 +114,11 @@ export const withRegistry = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, 
         timeout: 10000,
       };
 
-      const connectWithRetry = withTimeoutEffect(
-        Effect.promise(() => connectRegistry(registryConfig)),
-        10000,
-        'Registry connection timeout'
-      ).pipe(
+      const connectWithRetry = Effect.promise(() => connectRegistry(registryConfig)).pipe(
+        Effect.timeoutFail({
+          duration: Duration.millis(10000),
+          onTimeout: () => new RegistryConnectionError({ message: 'Registry connection timeout' }),
+        }),
         Effect.retry({
           schedule: Schedule.exponential(Duration.millis(2000)).pipe(
             Schedule.intersect(Schedule.recurs(2)),

@@ -15,7 +15,15 @@ export {
   type SignedMessage,
   type AuthState,
 } from './services/auth';
-export { Registry } from './registry-client';
+export {
+  connect as registryConnect,
+  disconnect as registryDisconnect,
+  register as registryRegister,
+  unregister as registryUnregister,
+  query as registryQuery,
+  setReputation as registrySetReputation,
+  incrementReputation as registryIncrementReputation,
+} from './registry-client';
 export { configDefaults, mergeConfig } from './config';
 export { validateEvent, isValidEvent } from './events';
 export { Resources } from './node/lifecycle';
@@ -27,8 +35,6 @@ export {
   modifyState,
   addPeerRef,
   removePeerRef,
-  setCircuitBreakerRef,
-  getOrCreateCircuitBreaker,
   setRegistryClientRef,
   setWalletRef,
   getWalletRef,
@@ -62,24 +68,6 @@ export {
   enqueueSettlement,
   getNodeState,
 } from './node/state-ref';
-export {
-  withRetry,
-  withTimeout,
-  sleepEffect,
-  withTimeoutEffect,
-  waitForEffect,
-  RateLimiter,
-  sleep,
-  waitFor,
-  defer,
-  lazy,
-  lazyAsync,
-  memoize,
-  AsyncQueue,
-  FIFOQueue,
-  debounce,
-  throttle,
-} from './util';
 export { SelectionStrategy } from './orchestrator/selection';
 export { AggregationStrategy } from './orchestrator/aggregation';
 export { LoadBalancing } from './orchestrator/load-balancing';
@@ -98,7 +86,6 @@ export {
   type WalletConfig,
   type WalletState,
 } from './services/wallet';
-export * from './errors';
 
 export {
   StorageService,
@@ -115,16 +102,6 @@ export {
   type MatcherState,
   type MatchWeights,
 } from './orchestrator/capability-matcher';
-
-export {
-  executeWithBreaker,
-  DEFAULT_BREAKER_CONFIG,
-  INITIAL_BREAKER_STATE,
-  type CircuitBreakerOpenError,
-  type CircuitBreakerConfig,
-  type CircuitBreakerState,
-  type BreakerState,
-} from './util/circuit-breaker';
 
 export type {
   EccoConfig,

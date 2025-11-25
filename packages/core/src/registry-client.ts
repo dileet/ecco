@@ -1,6 +1,5 @@
 import type { Capability, CapabilityQuery, PeerInfo } from './types';
 import { nanoid } from 'nanoid';
-import { withTimeout } from './util';
 import { z } from 'zod';
 
 const RegistryNodeSchema = z.object({
@@ -282,7 +281,7 @@ export async function query(state: ClientState, capabilityQuery: CapabilityQuery
   }
 
   const id = nanoid();
-  const response = await withTimeout(
+  const response = await Promise.race([
     new Promise<z.infer<typeof NodesResponseSchema>>((resolve, reject) => {
       state.messageHandlers.set(id, (res) => {
         try {
@@ -293,9 +292,10 @@ export async function query(state: ClientState, capabilityQuery: CapabilityQuery
       });
       sendWsMessage(state, id, 'query', capabilityQuery);
     }),
-    state.config.timeout!,
-    'Registry request timeout'
-  );
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Registry request timeout')), state.config.timeout!)
+    ),
+  ]);
 
   return response.data.nodes.map(toNode).sort((a, b) => (b.reputation || 0) - (a.reputation || 0));
 }

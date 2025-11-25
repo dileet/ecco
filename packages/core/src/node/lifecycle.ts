@@ -1,4 +1,4 @@
-import { Effect, Ref } from 'effect';
+import { Effect, Ref, Schedule, Duration } from 'effect';
 import { createLibp2p, type Libp2pOptions } from 'libp2p';
 import { tcp } from '@libp2p/tcp';
 import { webSockets } from '@libp2p/websockets';
@@ -11,7 +11,6 @@ import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
-import { executeWithBreaker, DEFAULT_BREAKER_CONFIG, INITIAL_BREAKER_STATE } from '../util/circuit-breaker';
 import { Matcher } from '../orchestrator/capability-matcher';
 import {
   connect as connectRegistry,
@@ -23,7 +22,6 @@ import {
 } from '../registry-client';
 import { StorageService, StorageServiceLive } from '../storage';
 import { Pool, type PoolState } from '../connection';
-import { withRetry } from '../util/retry';
 import { publish } from './messaging';
 import type { Capability } from '../types';
 import type { ConnectionPoolConfig } from '../connection/types';
@@ -32,8 +30,6 @@ import {
   getState,
   setNodeRef,
   addPeersRef,
-  setCircuitBreakerRef,
-  getOrCreateCircuitBreaker,
   updateState,
 } from './state-ref';
 import type { MessageEvent } from '../events';
@@ -495,55 +491,52 @@ export async function sendMessage(
   message: Message
 ): Promise<void> {
   const program = Effect.gen(function* () {
-    const breaker = yield* getOrCreateCircuitBreaker(
-      stateRef,
-      peerId,
-      () => ({
-        ...INITIAL_BREAKER_STATE,
-        config: { ...DEFAULT_BREAKER_CONFIG, failureThreshold: 5, resetTimeout: 60000, halfOpenRequests: 3 },
-      })
-    );
-
     const state = yield* getState(stateRef);
 
-    const { breaker: newBreaker } = yield* Effect.promise(() =>
-      executeWithBreaker(breaker, async () => {
-        await withRetry(
-          async () => {
-            let messageToSend = message;
-            if (state.messageAuth) {
-              messageToSend = await signMessage(state.messageAuth, message);
-            }
+    const maxAttempts = state.config.retry?.maxAttempts || 3;
+    const initialDelay = state.config.retry?.initialDelay || 1000;
+    const maxDelay = state.config.retry?.maxDelay || 10000;
 
-            const messageEvent: MessageEvent = {
-              type: 'message',
-              from: messageToSend.from,
-              to: messageToSend.to,
-              payload: messageToSend,
-              timestamp: Date.now(),
-            };
+    const sendEffect = Effect.tryPromise({
+      try: async () => {
+        let messageToSend = message;
+        if (state.messageAuth) {
+          messageToSend = await signMessage(state.messageAuth, message);
+        }
 
-            if (state.connectionPool) {
-              await sendMessageWithPool(state, peerId, messageEvent);
-            } else {
-              await publish(state, `peer:${peerId}`, messageEvent);
-            }
-          },
-          {
-            maxAttempts: state.config.retry?.maxAttempts || 3,
-            initialDelay: state.config.retry?.initialDelay || 1000,
-            maxDelay: state.config.retry?.maxDelay || 10000,
-          },
-          (attempt, error) => {
-            console.warn(
-              `Retry ${attempt} for message to ${peerId}: ${error.message}`
-            );
-          }
-        );
-      })
+        const messageEvent: MessageEvent = {
+          type: 'message',
+          from: messageToSend.from,
+          to: messageToSend.to,
+          payload: messageToSend,
+          timestamp: Date.now(),
+        };
+
+        if (state.connectionPool) {
+          await sendMessageWithPool(state, peerId, messageEvent);
+        } else {
+          await publish(state, `peer:${peerId}`, messageEvent);
+        }
+      },
+      catch: (error) => error as Error,
+    });
+
+    const retrySchedule = Schedule.exponential(Duration.millis(initialDelay)).pipe(
+      Schedule.intersect(Schedule.recurs(maxAttempts - 1)),
+      Schedule.whileOutput((delay) => Duration.toMillis(delay) <= maxDelay)
     );
 
-    yield* setCircuitBreakerRef(stateRef, peerId, newBreaker);
+    yield* sendEffect.pipe(
+      Effect.retry({
+        schedule: retrySchedule,
+        while: () => true,
+      }),
+      Effect.tapError((error) =>
+        Effect.sync(() => {
+          console.warn(`Failed to send message to ${peerId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        })
+      )
+    );
   });
 
   return Effect.runPromise(program);

@@ -16,7 +16,6 @@ export function createNodeState(config: EccoConfig): NodeState {
     peers: new Map(),
     subscriptions: new Map(),
     capabilityMatcher: Matcher.create(),
-    circuitBreakers: new Map(),
     capabilityTrackingSetup: false,
     paymentLedger: new Map(),
     streamingChannels: new Map(),

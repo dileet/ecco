@@ -1,6 +1,5 @@
-import { Effect, Ref } from 'effect';
+import { Effect, Ref, Duration } from 'effect';
 import { multiaddr } from '@multiformats/multiaddr';
-import { withTimeoutEffect } from '../util/timeout';
 import type { NodeState } from './types';
 import { BootstrapError } from '../errors';
 
@@ -40,11 +39,14 @@ export function connectToBootstrapPeers(
             }),
           });
 
-          const result = yield* withTimeoutEffect(
-            dialEffect,
-            bootstrapConfig.timeout || 30000,
-            `Bootstrap peer connection timeout: ${peerAddr}`
-          ).pipe(
+          const result = yield* dialEffect.pipe(
+            Effect.timeoutFail({
+              duration: Duration.millis(bootstrapConfig.timeout || 30000),
+              onTimeout: () => new BootstrapError({
+                message: `Bootstrap peer connection timeout: ${peerAddr}`,
+                peerId: peerAddr,
+              }),
+            }),
             Effect.catchAll((error) => {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error';
               console.warn(`Failed to connect to bootstrap peer ${peerAddr}: ${errorMessage}`);

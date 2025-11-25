@@ -1,6 +1,5 @@
 import type { NodeState } from './types';
 import type { PeerInfo } from '../types';
-import type { BreakerState } from '../util/circuit-breaker';
 import type { EccoEvent } from '../events';
 
 export function addPeer(state: NodeState, peer: PeerInfo): NodeState {
@@ -24,12 +23,6 @@ export function updatePeer(state: NodeState, peerId: string, updates: Partial<Pe
   const newPeers = new Map(state.peers);
   newPeers.set(peerId, { ...existing, ...updates });
   return { ...state, peers: newPeers };
-}
-
-export function setCircuitBreaker(state: NodeState, peerId: string, breaker: BreakerState): NodeState {
-  const newBreakers = new Map(state.circuitBreakers);
-  newBreakers.set(peerId, breaker);
-  return { ...state, circuitBreakers: newBreakers };
 }
 
 export function addSubscription(state: NodeState, topic: string, handler: (event: EccoEvent) => void): NodeState {
