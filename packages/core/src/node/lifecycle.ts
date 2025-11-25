@@ -10,11 +10,18 @@ import { mdns } from '@libp2p/mdns';
 import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
-import { Auth } from '../auth';
+import { signMessage } from '../services/auth';
 import { CircuitBreaker } from '../util/circuit-breaker';
-import { Matcher } from '../capability-matcher';
-import { RegistryService, ServicesLive } from '../services';
-import { StorageService } from '../storage';
+import { Matcher } from '../orchestrator/capability-matcher';
+import {
+  connect as connectRegistry,
+  disconnect as disconnectRegistry,
+  register as registerWithRegistry,
+  unregister as unregisterFromRegistry,
+  query as queryRegistryClient,
+  type ClientState as RegistryClientState,
+} from '../registry-client';
+import { StorageService, StorageServiceLive } from '../storage';
 import { Pool, type PoolState } from '../connection';
 import { withRetry } from '../util/retry';
 import { publish } from './messaging';
@@ -29,7 +36,7 @@ import {
   getOrCreateCircuitBreaker,
   updateState,
 } from './state-ref';
-import { EventBus } from '../events';
+import type { MessageEvent } from '../events';
 import {
   withAuthentication,
   withDiscovery,
@@ -43,7 +50,6 @@ import {
 } from './composition';
 import type { NodeState, EccoServices } from './types';
 import type { CapabilityQuery, CapabilityMatch, Message, PeerInfo } from '../types';
-import type { RegistryClientState } from '../services';
 import type { RegistryQueryError } from '../errors';
 import {
   LibP2PInitError,
@@ -126,7 +132,7 @@ export type NodeCreationError =
 
 export const createNode = (
   state: NodeState
-): Effect.Effect<Ref.Ref<NodeState>, NodeCreationError> =>
+): Effect.Effect<Ref.Ref<NodeState>, NodeCreationError, StorageService> =>
   Effect.gen(function* () {
     const stateRef = yield* makeStateRef(state);
 
@@ -168,34 +174,28 @@ export async function start(
   state: NodeState
 ): Promise<Ref.Ref<NodeState>> {
   const program = createNode(state).pipe(
-    Effect.provide(ServicesLive)
+    Effect.provide(StorageServiceLive)
   );
   return Effect.runPromise(program);
 }
 
 export async function stop(stateRef: Ref.Ref<NodeState>): Promise<void> {
-  const program = Effect.gen(function* () {
-    const state = yield* getState(stateRef);
+  const state = await Effect.runPromise(getState(stateRef));
 
-    if (state.registryClientRef) {
-      const registryService = yield* RegistryService;
-      yield* registryService.unregister(state.registryClientRef);
-      yield* registryService.disconnect(state.registryClientRef);
-    }
+  if (state.registryClientRef) {
+    const registryState = await Effect.runPromise(Ref.get(state.registryClientRef));
+    await unregisterFromRegistry(registryState);
+    await disconnectRegistry(registryState);
+  }
 
-    if (state.connectionPool) {
-      yield* Effect.promise(() => Pool.close(state.connectionPool!));
-    }
+  if (state.connectionPool) {
+    await Pool.close(state.connectionPool);
+  }
 
-    if (state.node) {
-      yield* Effect.promise(async () => { await state.node!.stop(); });
-      yield* Effect.sync(() => console.log('Ecco node stopped'));
-    }
-  });
-
-  return Effect.runPromise(
-    program.pipe(Effect.provide(ServicesLive))
-  );
+  if (state.node) {
+    await state.node.stop();
+    console.log('Ecco node stopped');
+  }
 }
 
 export namespace Resources {
@@ -241,22 +241,20 @@ export namespace Resources {
   ): Effect.Effect<Ref.Ref<RegistryClientState>, RegistryErrorType, import('effect/Scope').Scope> {
     return Effect.acquireRelease(
       Effect.gen(function* () {
-        const registryService = yield* RegistryService;
-        const registryClientRef = yield* registryService.createState({ url: config });
-        yield* registryService.connect(registryClientRef);
+        let clientState = yield* Effect.promise(() => connectRegistry({ url: config }));
 
         if (nodeId && capabilities && addresses) {
-          yield* registryService.register(registryClientRef, nodeId, capabilities, addresses);
+          clientState = yield* Effect.promise(() => registerWithRegistry(clientState, nodeId, capabilities, addresses));
         }
 
-        return registryClientRef;
+        return yield* Ref.make(clientState);
       }),
       (registryClientRef) =>
         Effect.gen(function* () {
-          const registryService = yield* RegistryService;
-          yield* registryService.unregister(registryClientRef);
-          yield* registryService.disconnect(registryClientRef);
-          yield* Effect.sync(() => console.log('Registry client disconnected'));
+          const clientState = yield* Ref.get(registryClientRef);
+          yield* Effect.promise(() => unregisterFromRegistry(clientState));
+          yield* Effect.promise(() => disconnectRegistry(clientState));
+          console.log('Registry client disconnected');
         }).pipe(
           Effect.catchAll((error) => {
             console.error('Error disconnecting from registry:', error);
@@ -338,8 +336,8 @@ namespace PeerDiscoveryEffects {
   ): Effect.Effect<PeerInfo[], RegistryQueryError> {
     console.log('No local matches, querying registry...');
     return Effect.gen(function* () {
-      const registryService = yield* RegistryService;
-      return yield* registryService.query(registryClientRef, query);
+      const clientState = yield* Ref.get(registryClientRef);
+      return yield* Effect.promise(() => queryRegistryClient(clientState, query));
     }).pipe(
       Effect.catchAll((error) => {
         console.error('Registry query failed:', error);
@@ -395,9 +393,11 @@ export async function findPeers(
     const peerList = Array.from(state.peers.values());
     let matches = Matcher.matchPeers(state.capabilityMatcher, peerList, query);
 
-    const registryService = yield* RegistryService;
     const isRegistryConnected = state.registryClientRef
-      ? yield* registryService.isConnected(state.registryClientRef)
+      ? yield* Effect.promise(async () => {
+          const clientState = await Effect.runPromise(Ref.get(state.registryClientRef!));
+          return clientState.connected;
+        })
       : false;
 
     const strategies = PeerDiscoveryLogic.selectDiscoveryStrategy(
@@ -484,7 +484,7 @@ export async function findPeers(
     }
 
     return matches;
-  }).pipe(Effect.provide(ServicesLive));
+  });
 
   return Effect.runPromise(program);
 }
@@ -513,14 +513,16 @@ export async function sendMessage(
           async () => {
             let messageToSend = message;
             if (state.messageAuth) {
-              messageToSend = await Auth.sign(state.messageAuth, message);
+              messageToSend = await signMessage(state.messageAuth, message);
             }
 
-            const messageEvent = EventBus.createMessage(
-              messageToSend.from,
-              messageToSend.to,
-              messageToSend
-            );
+            const messageEvent: MessageEvent = {
+              type: 'message',
+              from: messageToSend.from,
+              to: messageToSend.to,
+              payload: messageToSend,
+              timestamp: Date.now(),
+            };
 
             if (state.connectionPool) {
               await sendMessageWithPool(state, peerId, messageEvent);
@@ -548,7 +550,7 @@ export async function sendMessage(
   return Effect.runPromise(program);
 }
 
-async function sendMessageWithPool(state: NodeState, peerId: string, messageEvent: ReturnType<typeof EventBus.createMessage>): Promise<void> {
+async function sendMessageWithPool(state: NodeState, peerId: string, messageEvent: MessageEvent): Promise<void> {
   if (!state.connectionPool) {
     throw new Error('Connection pool not initialized');
   }

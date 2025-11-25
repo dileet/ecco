@@ -10,12 +10,11 @@ import type {
   SettlementIntent,
 } from '../types';
 import type { BreakerState } from '../util/circuit-breaker';
-import type { RegistryClientState } from '../services';
+import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
-import type { AuthState } from '../auth';
+import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
-import { StorageService } from '../storage';
-import { ServicesLive } from '../services';
+import { StorageService, StorageServiceLive } from '../storage';
 
 export const makeStateRef = (
   initialState: NodeState
@@ -430,7 +429,7 @@ export async function setStreamingChannel(
   channel: StreamingAgreement
 ): Promise<void> {
   return await Effect.runPromise(
-    setStreamingChannelRef(stateRef, channel).pipe(Effect.provide(ServicesLive))
+    setStreamingChannelRef(stateRef, channel).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -440,7 +439,7 @@ export async function updateStreamingChannel(
   updater: (channel: StreamingAgreement) => StreamingAgreement
 ): Promise<void> {
   return await Effect.runPromise(
-    updateStreamingChannelRef(stateRef, channelId, updater).pipe(Effect.provide(ServicesLive))
+    updateStreamingChannelRef(stateRef, channelId, updater).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -449,7 +448,7 @@ export async function setEscrowAgreement(
   agreement: EscrowAgreement
 ): Promise<void> {
   return await Effect.runPromise(
-    setEscrowAgreementRef(stateRef, agreement).pipe(Effect.provide(ServicesLive))
+    setEscrowAgreementRef(stateRef, agreement).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -459,7 +458,7 @@ export async function updateEscrowAgreement(
   updater: (agreement: EscrowAgreement) => EscrowAgreement
 ): Promise<void> {
   return await Effect.runPromise(
-    updateEscrowAgreementRef(stateRef, agreementId, updater).pipe(Effect.provide(ServicesLive))
+    updateEscrowAgreementRef(stateRef, agreementId, updater).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -468,7 +467,7 @@ export async function setSwarmSplit(
   split: SwarmSplit
 ): Promise<void> {
   return await Effect.runPromise(
-    setSwarmSplitRef(stateRef, split).pipe(Effect.provide(ServicesLive))
+    setSwarmSplitRef(stateRef, split).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -478,7 +477,7 @@ export async function updateSwarmSplit(
   updater: (split: SwarmSplit) => SwarmSplit
 ): Promise<void> {
   return await Effect.runPromise(
-    updateSwarmSplitRef(stateRef, splitId, updater).pipe(Effect.provide(ServicesLive))
+    updateSwarmSplitRef(stateRef, splitId, updater).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -487,7 +486,7 @@ export async function addPaymentLedgerEntry(
   entry: PaymentLedgerEntry
 ): Promise<void> {
   return await Effect.runPromise(
-    addPaymentLedgerEntryRef(stateRef, entry).pipe(Effect.provide(ServicesLive))
+    addPaymentLedgerEntryRef(stateRef, entry).pipe(Effect.provide(StorageServiceLive))
   );
 }
 
@@ -496,7 +495,7 @@ export async function enqueueSettlement(
   intent: SettlementIntent
 ): Promise<void> {
   return await Effect.runPromise(
-    enqueueSettlementRef(stateRef, intent).pipe(Effect.provide(ServicesLive))
+    enqueueSettlementRef(stateRef, intent).pipe(Effect.provide(StorageServiceLive))
   );
 }
 

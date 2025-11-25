@@ -1,5 +1,5 @@
 import { config as loadEnv } from 'dotenv';
-import { Node, type NodeState, EventBus } from '@ecco/core';
+import { Node, type NodeState, type CapabilityAnnouncementEvent, type MessageEvent } from '@ecco/core';
 import { createEccoProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
@@ -33,10 +33,12 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
   const startedNodeState = await Node.start(nodeState);
 
   const announceCapabilities = async () => {
-    const event = EventBus.createCapabilityAnnouncement(
-      Node.getId(startedNodeState),
-      Node.getCapabilities(startedNodeState)
-    );
+    const event: CapabilityAnnouncementEvent = {
+      type: 'capability-announcement',
+      peerId: Node.getId(startedNodeState),
+      capabilities: Node.getCapabilities(startedNodeState),
+      timestamp: Date.now(),
+    };
     await Node.publish(startedNodeState, 'ecco:capabilities', event);
   };
 
@@ -93,15 +95,17 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
       prompt,
     });
 
-    const responseEvent = EventBus.createMessage(
-      Node.getId(startedNodeState),
-      event.from,
-      {
+    const responseEvent: MessageEvent = {
+      type: 'message',
+      from: Node.getId(startedNodeState),
+      to: event.from,
+      payload: {
         text: response.text,
         finishReason: 'stop',
         usage: response.usage,
-      }
-    );
+      },
+      timestamp: Date.now(),
+    };
 
     await Node.publish(startedNodeState, `response:${message.id}`, responseEvent);
   });
@@ -184,15 +188,17 @@ async function runSeeker() {
   });
 
   console.log('[seeker] broadcasting interest in a joke agent');
-  const jokeRequestEvent = EventBus.createMessage(
-    Node.getId(startedSeekerState),
-    'broadcast',
-    {
+  const jokeRequestEvent: MessageEvent = {
+    type: 'message',
+    from: Node.getId(startedSeekerState),
+    to: 'broadcast',
+    payload: {
       seeker: Node.getId(startedSeekerState),
       target: 'joke-agent',
       reason: 'need a programming joke',
-    }
-  );
+    },
+    timestamp: Date.now(),
+  };
   await Node.publish(startedSeekerState, 'network:requests', jokeRequestEvent);
 
   await delay(2000);
@@ -205,15 +211,17 @@ async function runSeeker() {
   console.log(`[seeker] joke agent replied: ${jokeResult.text}`);
 
   console.log('[seeker] broadcasting interest in a fact agent');
-  const factRequestEvent = EventBus.createMessage(
-    Node.getId(startedSeekerState),
-    'broadcast',
-    {
+  const factRequestEvent: MessageEvent = {
+    type: 'message',
+    from: Node.getId(startedSeekerState),
+    to: 'broadcast',
+    payload: {
       seeker: Node.getId(startedSeekerState),
       target: 'fact-agent',
       reason: 'need a conversation starter',
-    }
-  );
+    },
+    timestamp: Date.now(),
+  };
   await Node.publish(startedSeekerState, 'network:requests', factRequestEvent);
 
   await delay(2000);
@@ -274,16 +282,18 @@ async function runAll() {
   });
 
   console.log('[seeker] broadcasting interest in a joke agent');
-  const jokeRequestEvent = EventBus.createMessage(
-    Node.getId(startedSeekerState),
-    'broadcast',
-    {
+  const jokeRequestEvent2: MessageEvent = {
+    type: 'message',
+    from: Node.getId(startedSeekerState),
+    to: 'broadcast',
+    payload: {
       seeker: Node.getId(startedSeekerState),
       target: 'joke-agent',
       reason: 'need a programming joke',
-    }
-  );
-  await Node.publish(startedSeekerState, 'network:requests', jokeRequestEvent);
+    },
+    timestamp: Date.now(),
+  };
+  await Node.publish(startedSeekerState, 'network:requests', jokeRequestEvent2);
 
   await delay(2000);
 
@@ -295,16 +305,18 @@ async function runAll() {
   console.log(`[seeker] joke agent replied: ${jokeResult.text}`);
 
   console.log('[seeker] broadcasting interest in a fact agent');
-  const factRequestEvent = EventBus.createMessage(
-    Node.getId(startedSeekerState),
-    'broadcast',
-    {
+  const factRequestEvent2: MessageEvent = {
+    type: 'message',
+    from: Node.getId(startedSeekerState),
+    to: 'broadcast',
+    payload: {
       seeker: Node.getId(startedSeekerState),
       target: 'fact-agent',
       reason: 'need a conversation starter',
-    }
-  );
-  await Node.publish(startedSeekerState, 'network:requests', factRequestEvent);
+    },
+    timestamp: Date.now(),
+  };
+  await Node.publish(startedSeekerState, 'network:requests', factRequestEvent2);
 
   await delay(2000);
 

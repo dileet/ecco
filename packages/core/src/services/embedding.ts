@@ -3,10 +3,10 @@ import type { NodeState } from '../node/types';
 import { Node } from '../node';
 import { updatePeer } from '../node/state-helpers';
 import type { CapabilityQuery, PeerInfo } from '../types';
-import { EventBus } from '../events';
+import type { MessageEvent } from '../events';
 import { recordSuccess, getMetrics, calculatePerformanceScore } from '../node/peer-performance';
 import { isBlockedPeer } from '../node/bad-behavior-sketch';
-import { Registry } from '../registry-client';
+import { incrementReputation } from '../registry-client';
 
 export interface EmbeddingRequest {
   type: 'embedding-request';
@@ -244,11 +244,14 @@ export namespace EmbeddingService {
             }
           );
 
-          Node.publish(
-            stateWithPeerSub,
-            `peer:${targetPeerId}`,
-            EventBus.createMessage(Node.getId(stateWithPeerSub), targetPeerId, request)
-          );
+          const messageEvent: MessageEvent = {
+            type: 'message',
+            from: Node.getId(stateWithPeerSub),
+            to: targetPeerId,
+            payload: request,
+            timestamp: Date.now(),
+          };
+          Node.publish(stateWithPeerSub, `peer:${targetPeerId}`, messageEvent);
         });
 
         const startTime = Date.now();
@@ -282,9 +285,9 @@ export namespace EmbeddingService {
           yield* recordSuccess(finalState.performanceTracker, targetPeerId, latency, throughput);
         }
 
-        if (finalState.registryClient && Registry.isConnected(finalState.registryClient)) {
+        if (finalState.registryClient?.connected) {
           yield* Effect.tryPromise({
-            try: () => Registry.incrementReputation(finalState.registryClient!, targetPeerId, 1),
+            try: () => incrementReputation(finalState.registryClient!, targetPeerId, 1),
             catch: () => new Error('Failed to update reputation'),
           }).pipe(Effect.catchAll(() => Effect.succeed(void 0)));
         }
@@ -442,11 +445,14 @@ export namespace EmbeddingService {
           }
         );
 
-        Node.publish(
-          stateWithPeerSub,
-          `peer:${selectedPeer.id}`,
-          EventBus.createMessage(Node.getId(stateWithSub), selectedPeer.id, request)
-        );
+        const messageEvent: MessageEvent = {
+          type: 'message',
+          from: Node.getId(stateWithSub),
+          to: selectedPeer.id,
+          payload: request,
+          timestamp: Date.now(),
+        };
+        Node.publish(stateWithPeerSub, `peer:${selectedPeer.id}`, messageEvent);
       });
 
       const startTime = Date.now();
@@ -465,9 +471,9 @@ export namespace EmbeddingService {
         yield* recordSuccess(finalState.performanceTracker, selectedPeer.id, latency, throughput);
       }
 
-      if (finalState.registryClient && Registry.isConnected(finalState.registryClient)) {
+      if (finalState.registryClient && isRegistryConnected(finalState.registryClient)) {
         yield* Effect.tryPromise({
-          try: () => Registry.incrementReputation(finalState.registryClient!, selectedPeer.id, 1),
+          try: () => incrementReputation(finalState.registryClient!, selectedPeer.id, 1),
           catch: () => new Error('Failed to update reputation'),
         }).pipe(Effect.catchAll(() => Effect.succeed(void 0)));
       }

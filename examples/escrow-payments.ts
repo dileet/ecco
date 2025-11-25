@@ -3,7 +3,6 @@ import {
   type NodeState,
   PaymentProtocol,
   Wallet,
-  EventBus,
   type EccoEvent,
   setEscrowAgreement,
   updateEscrowAgreement,

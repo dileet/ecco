@@ -3,10 +3,10 @@ import { nanoid } from 'nanoid';
 import type { NodeState } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
 import { publish, subscribe } from './messaging';
-import { Matcher } from '../capability-matcher';
+import { Matcher } from '../orchestrator/capability-matcher';
 import { updatePeer } from './state-helpers';
 import { addPeerRef, updateState, getState, setCapabilityTrackingSetupRef } from './state-ref';
-import { EventBus, type EccoEvent } from '../events';
+import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
 
 export async function announceCapabilities(state: NodeState): Promise<void> {
   await CapabilityEffects.announceCapabilities(state);
@@ -50,7 +50,12 @@ namespace CapabilityLogic {
 namespace CapabilityEffects {
   export async function announceCapabilities(state: NodeState): Promise<void> {
     if (state.config.discovery.includes('gossip') && state.node?.services.pubsub) {
-      const event = EventBus.createCapabilityAnnouncement(state.id, state.capabilities);
+      const event: CapabilityAnnouncementEvent = {
+        type: 'capability-announcement',
+        peerId: state.id,
+        capabilities: state.capabilities,
+        timestamp: Date.now(),
+      };
       await publish(state, 'ecco:capabilities', event);
     }
 
@@ -71,7 +76,13 @@ namespace CapabilityEffects {
     requestId: string,
     from: string
   ): Promise<void> {
-    const event = EventBus.createCapabilityResponse(requestId, state.id, state.capabilities);
+    const event: CapabilityResponseEvent = {
+      type: 'capability-response',
+      requestId,
+      peerId: state.id,
+      capabilities: state.capabilities,
+      timestamp: Date.now(),
+    };
     await publish(state, 'ecco:capability-response', event);
     console.log(`Responded to capability request from ${from}`);
   }
@@ -249,12 +260,14 @@ export function requestCapabilities(
     state = subscribe(state, 'ecco:capability-response', responseHandler);
     yield* Ref.set(stateRef, state);
 
-    const requestEvent = EventBus.createCapabilityRequest(
+    const requestEvent: CapabilityRequestEvent = {
+      type: 'capability-request',
       requestId,
-      state.id,
-      query.requiredCapabilities,
-      query.preferredPeers
-    );
+      from: state.id,
+      requiredCapabilities: query.requiredCapabilities,
+      preferredPeers: query.preferredPeers,
+      timestamp: Date.now(),
+    };
 
     yield* Effect.promise(() => publish(state, 'ecco:capability-request', requestEvent)).pipe(
       Effect.catchAll((error) => {

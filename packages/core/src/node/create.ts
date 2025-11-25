@@ -1,12 +1,12 @@
 import { nanoid } from 'nanoid';
-import { Matcher } from '../capability-matcher';
+import { Matcher } from '../orchestrator/capability-matcher';
 import { Pool } from '../connection';
-import { Config } from '../config';
+import { configDefaults, mergeConfig } from '../config';
 import type { EccoConfig } from '../types';
 import type { NodeState } from './types';
 
 export function createNodeState(config: EccoConfig): NodeState {
-  const fullConfig = Config.merge(Config.defaults, config);
+  const fullConfig = mergeConfig(configDefaults, config);
 
   const state: NodeState = {
     id: fullConfig.nodeId || nanoid(),

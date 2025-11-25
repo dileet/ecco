@@ -1,6 +1,6 @@
 import { embed } from 'ai';
 import type { EmbeddingModel } from 'ai';
-import { Node, EventBus, EmbeddingService, isEmbeddingRequest, type NodeState } from '@ecco/core';
+import { Node, EmbeddingService, isEmbeddingRequest, type NodeState, type MessageEvent } from '@ecco/core';
 
 export interface EmbeddingProviderConfig {
   nodeState: NodeState;
@@ -60,11 +60,13 @@ export function setupEmbeddingProvider(config: EmbeddingProviderConfig): NodeSta
               totalChunks: numChunks,
             };
 
-            const responseEvent = EventBus.createMessage(
-              Node.getId(nodeState),
-              event.from,
-              embeddingResponse
-            );
+            const responseEvent: MessageEvent = {
+              type: 'message',
+              from: Node.getId(nodeState),
+              to: event.from,
+              payload: embeddingResponse,
+              timestamp: Date.now(),
+            };
 
             const serializedSize = JSON.stringify(embeddingResponse).length;
             console.log(`[${Node.getId(nodeState)}] Chunk ${chunkIdx}/${numChunks}: ${chunk.length} floats, serialized size: ${serializedSize} bytes`);

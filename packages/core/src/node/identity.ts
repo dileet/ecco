@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { generatePrivateKey } from 'viem/accounts';
-import { Auth } from '../auth';
+import { importPrivateKey, importPublicKey, generateKeyPair, exportPrivateKey, exportPublicKey } from '../services/auth';
 import type { EccoConfig } from '../types';
 
 interface PersistedKeyFile {
@@ -62,8 +62,8 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
   if (exists) {
     const raw = await fs.readFile(keyFilePath, 'utf8');
     const parsed: PersistedKeyFile = JSON.parse(raw) as PersistedKeyFile;
-    const privateKey = await Auth.importPrivateKey(parsed.privateKey);
-    const publicKey = await Auth.importPublicKey(parsed.publicKey);
+    const privateKey = await importPrivateKey(parsed.privateKey);
+    const publicKey = await importPublicKey(parsed.publicKey);
     const fingerprint = await computePublicKeyFingerprint(publicKey);
     
     let ethereumPrivateKey = parsed.ethereumPrivateKey;
@@ -90,9 +90,9 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
     throw new Error('Authentication generateKeys=false and no key file present');
   }
 
-  const { privateKey, publicKey } = await Auth.generateKeyPair();
-  const privateKeyStr = await Auth.exportPrivateKey(privateKey);
-  const publicKeyStr = await Auth.exportPublicKey(publicKey);
+  const { privateKey, publicKey } = await generateKeyPair();
+  const privateKeyStr = await exportPrivateKey(privateKey);
+  const publicKeyStr = await exportPublicKey(publicKey);
   const ethereumPrivateKey = generatePrivateKey();
   const persist: PersistedKeyFile = {
     algorithm: 'ECDSA-P-256',

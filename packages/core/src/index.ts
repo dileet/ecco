@@ -1,11 +1,23 @@
 export { Node } from './node';
 export { Pool } from './connection';
 export { Orchestrator } from './orchestrator';
-export { Matcher } from './capability-matcher';
-export { Auth } from './auth';
+export { Matcher } from './orchestrator/capability-matcher';
+export {
+  generateKeyPair,
+  exportPublicKey,
+  importPublicKey,
+  exportPrivateKey,
+  importPrivateKey,
+  signMessage,
+  verifyMessage,
+  isMessageFresh,
+  type AuthConfig,
+  type SignedMessage,
+  type AuthState,
+} from './services/auth';
 export { Registry } from './registry-client';
-export { Config } from './config';
-export { EventBus } from './events';
+export { configDefaults, mergeConfig } from './config';
+export { validateEvent, isValidEvent } from './events';
 export { Resources } from './node/lifecycle';
 export {
   makeStateRef,
@@ -80,7 +92,13 @@ export {
   type EmbeddingResponse,
 } from './services/embedding';
 export { PaymentProtocol } from './services/payment';
-export { Wallet } from './services/wallet';
+export {
+  Wallet,
+  WalletService,
+  WalletServiceLive,
+  type WalletConfig,
+  type WalletState,
+} from './services/wallet';
 export * from './errors';
 
 export {
@@ -91,22 +109,20 @@ export {
 } from './storage';
 
 export {
-  AuthService,
-  MatcherService,
-  RegistryService,
-  CircuitBreakerService,
-  WalletService,
-  AuthServiceLive,
-  MatcherServiceLive,
-  RegistryServiceLive,
-  CircuitBreakerServiceLive,
-  WalletServiceLive,
-  ServicesLive,
-  type RegistryClientConfig,
-  type RegistryClientState,
-  type WalletConfig,
-  type WalletState,
-} from './services';
+  type ClientState as RegistryClientState,
+} from './registry-client';
+
+export {
+  type MatcherState,
+  type MatchWeights,
+} from './orchestrator/capability-matcher';
+
+export {
+  CircuitBreaker,
+  type CircuitBreakerConfig,
+  type CircuitBreakerState,
+  type BreakerState,
+} from './util/circuit-breaker';
 
 export type {
   EccoConfig,

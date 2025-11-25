@@ -11,11 +11,11 @@ import type {
   SwarmSplit,
   SettlementIntent,
 } from '../types';
-import type { MatcherState } from '../capability-matcher';
-import type { AuthState } from '../auth';
+import type { MatcherState } from '../orchestrator/capability-matcher';
+import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
 import type { BreakerState } from '../util/circuit-breaker';
-import type { RegistryClientState } from '../services';
+import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';

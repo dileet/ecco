@@ -243,13 +243,18 @@ async function startSwarmJob(
   }
 
   if (clientAgent._ref) {
-    const contributions: Array<{ peerId: string; contribution: number }> = [];
+    const contributions: Array<{ peerId: string; walletAddress: string; contribution: number }> = [];
 
     for (const worker of workerPeers) {
-      const contribution = worker.contribution;
+      const walletAddr = workerWalletMap.get(worker.peer.id);
+      if (!walletAddr) {
+        console.error(`[${Node.getId(clientAgent)}] Missing wallet address for ${worker.peer.id}`);
+        continue;
+      }
       contributions.push({
         peerId: worker.peer.id,
-        contribution,
+        walletAddress: walletAddr,
+        contribution: worker.contribution,
       });
     }
 
@@ -258,8 +263,7 @@ async function startSwarmJob(
     const totalContribution = contributions.reduce((sum, c) => sum + c.contribution, 0);
     for (const c of contributions) {
       const percentage = ((c.contribution / totalContribution) * 100).toFixed(1);
-      const walletAddr = workerWalletMap.get(c.peerId) || 'unknown';
-      console.log(`  - ${c.peerId}: ${c.contribution} (${percentage}%) -> ${walletAddr}`);
+      console.log(`  - ${c.peerId}: ${c.contribution} (${percentage}%) -> ${c.walletAddress}`);
     }
 
     const swarmSplit = PaymentProtocol.createSwarmSplit(
@@ -279,15 +283,6 @@ async function startSwarmJob(
     console.log(`[${Node.getId(clientAgent)}] Participants: ${swarmSplit.participants.length}`);
 
     const distribution = PaymentProtocol.distributeSwarmSplit(swarmSplit);
-    
-    for (let i = 0; i < distribution.invoices.length; i++) {
-      const invoice = distribution.invoices[i];
-      const participant = swarmSplit.participants[i];
-      const walletAddr = workerWalletMap.get(participant.peerId);
-      if (walletAddr) {
-        invoice.recipient = walletAddr;
-      }
-    }
 
     console.log(`\n[${Node.getId(clientAgent)}] Distribution amounts:`);
     for (let i = 0; i < distribution.invoices.length; i++) {

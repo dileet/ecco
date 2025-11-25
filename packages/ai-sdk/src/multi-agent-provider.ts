@@ -1,7 +1,3 @@
-/**
- * Enhanced AI SDK provider with multi-agent consensus support
- */
-
 import type {
   LanguageModelV2,
   LanguageModelV2CallOptions,
@@ -29,266 +25,329 @@ interface MultiAgentProviderConfig {
   enableMetadata?: boolean;
 }
 
-export class MultiAgentLanguageModel implements LanguageModelV2 {
-  readonly specificationVersion = 'v2' as const;
-  readonly provider = 'ecco-multi-agent';
+type MultiAgentLanguageModel = LanguageModelV2 & {
+  defaultObjectGenerationMode: 'json';
+  getLoadStatistics: () => Map<string, unknown>;
+  resetLoadStatistics: () => void;
+};
+
+interface MultiAgentLanguageModelState {
+  readonly specificationVersion: 'v2';
+  readonly provider: 'ecco-multi-agent';
   readonly modelId: string;
-  readonly defaultObjectGenerationMode = 'json' as const;
-  readonly supportedUrls = {} as const;
+  readonly defaultObjectGenerationMode: 'json';
+  readonly supportedUrls: Record<string, never>;
+  readonly config: MultiAgentProviderConfig;
+  readonly orchestratorState: OrchestratorState;
+}
 
-  private config: MultiAgentProviderConfig;
-  private orchestratorState: OrchestratorState;
+interface GenerateResult {
+  readonly content: LanguageModelV2Content[];
+  readonly finishReason: LanguageModelV2FinishReason;
+  readonly usage: LanguageModelV2Usage;
+  readonly warnings: LanguageModelV2CallWarning[];
+  readonly metadata?: Record<string, unknown>;
+}
 
-  constructor(modelId: string, config: MultiAgentProviderConfig) {
-    this.modelId = modelId;
-    this.config = config;
-    this.orchestratorState = config.orchestratorState;
+interface StreamResult {
+  readonly stream: ReadableStream<LanguageModelV2StreamPart>;
+}
+
+const VALID_FINISH_REASONS = [
+  'stop',
+  'length',
+  'content-filter',
+  'tool-calls',
+  'error',
+  'other',
+  'unknown',
+] as const;
+
+const isValidFinishReason = (value: string): value is LanguageModelV2FinishReason =>
+  VALID_FINISH_REASONS.includes(value as LanguageModelV2FinishReason);
+
+const parseFinishReason = (value: unknown): LanguageModelV2FinishReason =>
+  typeof value === 'string' && isValidFinishReason(value) ? value : 'stop';
+
+const createState = (modelId: string, config: MultiAgentProviderConfig): MultiAgentLanguageModelState => ({
+  specificationVersion: 'v2',
+  provider: 'ecco-multi-agent',
+  modelId,
+  defaultObjectGenerationMode: 'json',
+  supportedUrls: {},
+  config,
+  orchestratorState: config.orchestratorState,
+});
+
+const extractResult = (aggregated: AggregatedResult): {
+  text?: string;
+  finishReason: LanguageModelV2FinishReason;
+  warnings: LanguageModelV2CallWarning[];
+} => {
+  let result = aggregated.result;
+
+  if (typeof result === 'object' && result !== null && 'type' in result && result.type === 'message' && 'payload' in result) {
+    result = result.payload;
   }
 
-  async doGenerate(options: LanguageModelV2CallOptions): Promise<{
-    content: LanguageModelV2Content[];
-    finishReason: LanguageModelV2FinishReason;
-    usage: LanguageModelV2Usage;
-    warnings: LanguageModelV2CallWarning[];
-    metadata?: any;
-  }> {
-    // Build capability query
-    const query: CapabilityQuery = {
-      requiredCapabilities: [
-        {
-          type: 'agent',
-          name: this.modelId,
-        },
-      ],
+  if (typeof result === 'string') {
+    return { text: result, finishReason: 'stop', warnings: [] };
+  }
+
+  if (typeof result === 'object' && result !== null && 'ensemble' in result && result.ensemble && 'responses' in result && Array.isArray(result.responses)) {
+    const combinedText = result.responses
+      .map((r: { agentId: string; output: string }) => `[Agent ${r.agentId}]: ${r.output}`)
+      .join('\n\n');
+    return { text: combinedText, finishReason: 'stop', warnings: [] };
+  }
+
+  if (typeof result === 'object' && result !== null && 'text' in result) {
+    const finishReason = parseFinishReason('finishReason' in result ? result.finishReason : undefined);
+    const warnings: LanguageModelV2CallWarning[] =
+      'warnings' in result && Array.isArray(result.warnings) ? result.warnings : [];
+    return {
+      text: typeof result.text === 'string' ? result.text : undefined,
+      finishReason,
+      warnings,
     };
+  }
 
-    try {
-      const { result: aggregated, state: newState, nodeState: newNodeState } = await Orchestrator.execute(
-        this.config.nodeState,
-        this.orchestratorState,
-        query,
-        {
-          model: this.modelId,
-          options: options,
-        },
-        this.config.multiAgentConfig
-      );
-      this.orchestratorState = newState;
-      this.config.nodeState = newNodeState;
+  return { finishReason: 'stop', warnings: [] };
+};
 
-      // Extract result based on aggregation strategy
-      const result = this.extractResult(aggregated);
+const aggregateUsage = (aggregated: AggregatedResult): LanguageModelV2Usage => {
+  const successful = aggregated.responses.filter((r) => r.success);
 
-      // Build usage stats (aggregate from all agents)
-      const usage = this.aggregateUsage(aggregated);
+  if (successful.length === 0) {
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  }
 
-      const response: {
-        content: LanguageModelV2Content[];
-        finishReason: LanguageModelV2FinishReason;
-        usage: LanguageModelV2Usage;
-        warnings: LanguageModelV2CallWarning[];
-        metadata?: any;
-      } = {
-        content: result.text ? [{ type: 'text', text: result.text }] : [],
-        finishReason: result.finishReason || 'stop',
-        usage,
-        warnings: result.warnings || [],
-      };
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
-      // Add consensus metadata if enabled
-      if (this.config.enableMetadata) {
-        response.metadata = {
-          consensus: aggregated.consensus,
-          metrics: aggregated.metrics,
-          rankings: aggregated.rankings,
-          strategy: this.config.multiAgentConfig.aggregationStrategy,
-          agentResponses: aggregated.responses.map((r) => ({
-            agentId: r.peer.id,
-            success: r.success,
-            latency: r.latency,
-            score: r.matchScore,
-          })),
-        };
-      }
-
-      return response;
-    } catch (error) {
-      // Fallback to single provider if available
-      if (this.config.fallbackProvider) {
-        console.log('Multi-agent consensus failed, falling back to local provider');
-        return this.config.fallbackProvider.doGenerate(options);
-      }
-      throw error;
+  for (const response of successful) {
+    const usage = response.response?.usage;
+    if (usage) {
+      totalInputTokens += usage.promptTokens || usage.inputTokens || 0;
+      totalOutputTokens += usage.completionTokens || usage.outputTokens || 0;
     }
   }
 
-  async doStream(options: LanguageModelV2CallOptions): Promise<{
-    stream: ReadableStream<LanguageModelV2StreamPart>;
-  }> {
-    // For streaming, we'll use a modified approach
-    // Option 1: Stream from fastest agent (first-response strategy)
-    // Option 2: Collect all streams and merge them
-    // For simplicity, we'll use first-response here
+  const avgInputTokens = Math.ceil(totalInputTokens / successful.length);
+  const avgOutputTokens = Math.ceil(totalOutputTokens / successful.length);
 
-    const query: CapabilityQuery = {
-      requiredCapabilities: [
-        {
-          type: 'agent',
-          name: this.modelId,
-        },
-      ],
+  return {
+    inputTokens: avgInputTokens,
+    outputTokens: avgOutputTokens,
+    totalTokens: avgInputTokens + avgOutputTokens,
+  };
+};
+
+const buildMetadata = (
+  aggregated: AggregatedResult,
+  config: MultiAgentConfig
+): Record<string, unknown> => ({
+  consensus: aggregated.consensus,
+  metrics: aggregated.metrics,
+  rankings: aggregated.rankings,
+  strategy: config.aggregationStrategy,
+  agentResponses: aggregated.responses.map((r) => ({
+    agentId: r.peer.id,
+    success: r.success,
+    latency: r.latency,
+    score: r.matchScore,
+  })),
+});
+
+const doGenerate = async (
+  state: MultiAgentLanguageModelState,
+  options: LanguageModelV2CallOptions
+): Promise<{ result: GenerateResult; state: MultiAgentLanguageModelState }> => {
+  const query: CapabilityQuery = {
+    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
+  };
+
+  try {
+    const { result: aggregated, state: newOrchestratorState, nodeState: newNodeState } = await Orchestrator.execute(
+      state.config.nodeState,
+      state.orchestratorState,
+      query,
+      { model: state.modelId, options },
+      state.config.multiAgentConfig
+    );
+
+    const newState: MultiAgentLanguageModelState = {
+      ...state,
+      orchestratorState: newOrchestratorState,
+      config: { ...state.config, nodeState: newNodeState },
     };
 
-    // Use first-response strategy for streaming
-    const streamConfig: MultiAgentConfig = {
-      ...this.config.multiAgentConfig,
-      aggregationStrategy: 'first-response',
-      agentCount: 1, // Only stream from one agent
+    const extracted = extractResult(aggregated);
+    const usage = aggregateUsage(aggregated);
+
+    const result: GenerateResult = {
+      content: extracted.text ? [{ type: 'text', text: extracted.text }] : [],
+      finishReason: extracted.finishReason,
+      usage,
+      warnings: extracted.warnings,
+      ...(state.config.enableMetadata && {
+        metadata: buildMetadata(aggregated, state.config.multiAgentConfig),
+      }),
     };
 
-    const { matches, state: updatedNodeState } = await Node.findPeers(this.config.nodeState, query);
-    this.config.nodeState = updatedNodeState;
-
-    if (matches.length === 0) {
-      if (this.config.fallbackProvider) {
-        console.log('No peers found, falling back to local provider');
-        return this.config.fallbackProvider.doStream(options);
-      }
-      throw new Error(`No peers found with capability: ${this.modelId}`);
+    return { result, state: newState };
+  } catch (error) {
+    if (state.config.fallbackProvider) {
+      const result = await state.config.fallbackProvider.doGenerate(options);
+      return { result, state };
     }
+    throw error;
+  }
+};
 
-    const stream = new ReadableStream<LanguageModelV2StreamPart>({
-      start: async (controller) => {
-        const requestId = `stream-${Date.now()}`;
-        const bestMatch = matches[0];
+const doStream = async (
+  state: MultiAgentLanguageModelState,
+  options: LanguageModelV2CallOptions
+): Promise<{ result: StreamResult; state: MultiAgentLanguageModelState }> => {
+  const query: CapabilityQuery = {
+    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
+  };
 
-        this.config.nodeState = Node.subscribeToTopic(this.config.nodeState, `response:${requestId}`, (data: unknown) => {
-          if (typeof data === 'object' && data !== null && 'type' in data) {
-            if (data.type === 'chunk' && 'text' in data) {
-              controller.enqueue({
-                type: 'text-delta',
-                id: requestId,
-                delta: typeof data.text === 'string' ? data.text : '',
-              });
-            } else if (data.type === 'done') {
-              const finishReason = 'finishReason' in data && typeof data.finishReason === 'string'
-                ? data.finishReason
-                : 'stop';
-              const usage = 'usage' in data ? data.usage : undefined;
+  const { matches, state: updatedNodeState } = await Node.findPeers(state.config.nodeState, query);
 
-              controller.enqueue({
-                type: 'finish',
-                finishReason: finishReason as LanguageModelV2FinishReason,
-                usage: usage as LanguageModelV2Usage,
-              });
-              controller.close();
+  const stateAfterFind: MultiAgentLanguageModelState = {
+    ...state,
+    config: { ...state.config, nodeState: updatedNodeState },
+  };
+
+  if (matches.length === 0) {
+    if (stateAfterFind.config.fallbackProvider) {
+      const result = await stateAfterFind.config.fallbackProvider.doStream(options);
+      return { result, state: stateAfterFind };
+    }
+    throw new Error(`No peers found with capability: ${state.modelId}`);
+  }
+
+  const requestId = `stream-${Date.now()}`;
+  const bestMatch = matches[0];
+
+  const subscribedNodeState = Node.subscribeToTopic(
+    stateAfterFind.config.nodeState,
+    `response:${requestId}`,
+    () => {}
+  );
+
+  const stateAfterSubscribe: MultiAgentLanguageModelState = {
+    ...stateAfterFind,
+    config: { ...stateAfterFind.config, nodeState: subscribedNodeState },
+  };
+
+  const nodeStateAfterSend = await Node.sendMessage(
+    stateAfterSubscribe.config.nodeState,
+    bestMatch.peer.id,
+    {
+      id: requestId,
+      from: Node.getId(stateAfterSubscribe.config.nodeState),
+      to: bestMatch.peer.id,
+      type: 'agent-request' as const,
+      payload: { model: state.modelId, options, stream: true },
+      timestamp: Date.now(),
+    }
+  );
+
+  const finalState: MultiAgentLanguageModelState = {
+    ...stateAfterSubscribe,
+    config: { ...stateAfterSubscribe.config, nodeState: nodeStateAfterSend },
+  };
+
+  const stream = new ReadableStream<LanguageModelV2StreamPart>({
+    start(controller) {
+      Node.subscribeToTopic(finalState.config.nodeState, `response:${requestId}`, (data: unknown) => {
+        if (typeof data === 'object' && data !== null && 'type' in data) {
+          if (data.type === 'chunk' && 'text' in data) {
+            controller.enqueue({
+              type: 'text-delta',
+              id: requestId,
+              delta: typeof data.text === 'string' ? data.text : '',
+            });
+          } else if (data.type === 'done') {
+            const finishReason = parseFinishReason('finishReason' in data ? data.finishReason : undefined);
+            let usage: LanguageModelV2Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+            if ('usage' in data && typeof data.usage === 'object' && data.usage !== null) {
+              const usageObj = data.usage;
+              const inputTokens = 'inputTokens' in usageObj && typeof usageObj.inputTokens === 'number' ? usageObj.inputTokens : 0;
+              const outputTokens = 'outputTokens' in usageObj && typeof usageObj.outputTokens === 'number' ? usageObj.outputTokens : 0;
+              usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
             }
+
+            controller.enqueue({ type: 'finish', finishReason, usage });
+            controller.close();
           }
-        });
+        }
+      });
+    },
+  });
 
-        this.config.nodeState = await Node.sendMessage(this.config.nodeState, bestMatch.peer.id, {
-          id: requestId,
-          from: Node.getId(this.config.nodeState),
-          to: bestMatch.peer.id,
-          type: 'agent-request' as const,
-          payload: {
-            model: this.modelId,
-            options: options,
-            stream: true,
-          },
-          timestamp: Date.now(),
-        });
-      },
-    });
+  return { result: { stream }, state: finalState };
+};
 
-    return { stream };
-  }
+const getLoadStatistics = (state: MultiAgentLanguageModelState): Map<string, unknown> =>
+  Orchestrator.getLoadStatistics(state.orchestratorState);
 
-  private extractResult(aggregated: AggregatedResult): { text?: string; finishReason: LanguageModelV2FinishReason; warnings: LanguageModelV2CallWarning[] } {
-    let result = aggregated.result;
+const resetLoadStatistics = (state: MultiAgentLanguageModelState): MultiAgentLanguageModelState => ({
+  ...state,
+  orchestratorState: Orchestrator.resetLoadStatistics(state.orchestratorState),
+});
 
-    // Unwrap MessageEvent if present
-    if (typeof result === 'object' && result !== null && 'type' in result && result.type === 'message' && 'payload' in result) {
-      result = result.payload;
-    }
-
-    if (typeof result === 'string') {
-      return { text: result, finishReason: 'stop', warnings: [] };
-    }
-
-    if (typeof result === 'object' && result !== null && 'ensemble' in result && result.ensemble && 'responses' in result && Array.isArray(result.responses)) {
-      const combinedText = result.responses
-        .map((r: { agentId: string; output: string }) => `[Agent ${r.agentId}]: ${r.output}`)
-        .join('\n\n');
-
-      return {
-        text: combinedText,
-        finishReason: 'stop',
-        warnings: [],
-      };
-    }
-
-    if (typeof result === 'object' && result !== null && 'text' in result) {
-      const finishReason: LanguageModelV2FinishReason =
-        ('finishReason' in result && typeof result.finishReason === 'string' &&
-         ['stop', 'length', 'content-filter', 'tool-calls', 'error', 'other', 'unknown'].includes(result.finishReason))
-          ? result.finishReason
-          : 'stop';
-
-      const warnings: LanguageModelV2CallWarning[] =
-        ('warnings' in result && Array.isArray(result.warnings)) ? result.warnings : [];
-
-      return {
-        text: typeof result.text === 'string' ? result.text : undefined,
-        finishReason,
-        warnings,
-      };
-    }
-
-    return { finishReason: 'stop', warnings: [] };
-  }
-
-  /**
-   * Aggregate usage statistics from all agents
-   */
-  private aggregateUsage(aggregated: AggregatedResult): LanguageModelV2Usage {
-    const successful = aggregated.responses.filter((r) => r.success);
-
-    // Sum up usage from all successful responses
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-
-    for (const response of successful) {
-      const usage = response.response?.usage;
-      if (usage) {
-        totalInputTokens += usage.promptTokens || usage.inputTokens || 0;
-        totalOutputTokens += usage.completionTokens || usage.outputTokens || 0;
-      }
-    }
-
-    // Average the usage (since we're aggregating results, not summing costs)
-    const avgInputTokens = Math.ceil(totalInputTokens / successful.length);
-    const avgOutputTokens = Math.ceil(totalOutputTokens / successful.length);
+const createMultiAgentProvider = (config: MultiAgentProviderConfig) => ({
+  languageModel: (modelId: string): MultiAgentLanguageModel => {
+    let state = createState(modelId, config);
 
     return {
-      inputTokens: avgInputTokens,
-      outputTokens: avgOutputTokens,
-      totalTokens: avgInputTokens + avgOutputTokens,
+      specificationVersion: state.specificationVersion,
+      provider: state.provider,
+      modelId: state.modelId,
+      defaultObjectGenerationMode: state.defaultObjectGenerationMode,
+      supportedUrls: state.supportedUrls,
+
+      async doGenerate(options) {
+        const { result, state: newState } = await doGenerate(state, options);
+        state = newState;
+        return result;
+      },
+
+      async doStream(options) {
+        const { result, state: newState } = await doStream(state, options);
+        state = newState;
+        return result;
+      },
+
+      getLoadStatistics: () => getLoadStatistics(state),
+
+      resetLoadStatistics() {
+        state = resetLoadStatistics(state);
+      },
     };
-  }
+  },
+});
 
-  getLoadStatistics() {
-    return Orchestrator.getLoadStatistics(this.orchestratorState);
-  }
+export {
+  createState,
+  extractResult,
+  aggregateUsage,
+  buildMetadata,
+  doGenerate,
+  doStream,
+  getLoadStatistics,
+  resetLoadStatistics,
+  createMultiAgentProvider,
+};
 
-  resetLoadStatistics() {
-    this.orchestratorState = Orchestrator.resetLoadStatistics(this.orchestratorState);
-  }
-}
-
-export function createMultiAgentProvider(config: MultiAgentProviderConfig) {
-  return {
-    languageModel: (modelId: string) =>
-      new MultiAgentLanguageModel(modelId, config),
-  };
-}
+export type {
+  MultiAgentProviderConfig,
+  MultiAgentLanguageModelState,
+  MultiAgentLanguageModel,
+  GenerateResult as MultiAgentGenerateResult,
+  StreamResult as MultiAgentStreamResult,
+};

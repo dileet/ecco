@@ -1,4 +1,4 @@
-import type { Capability, CapabilityQuery, CapabilityMatch, PeerInfo } from './types';
+import type { Capability, CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
 
 export interface MatchWeights {
   typeMatch: number;
@@ -259,3 +259,4 @@ export namespace Matcher {
     return totalCount > 0 ? matchCount / totalCount : 0;
   }
 }
+

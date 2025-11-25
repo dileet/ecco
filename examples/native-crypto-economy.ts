@@ -39,7 +39,7 @@
  *   - QuickNode: https://faucet.quicknode.com/ethereum/sepolia
  */
 
-import { Node, type NodeState, PaymentProtocol, Wallet, EventBus, type EccoEvent, type MessageEvent } from '@ecco/core';
+import { Node, type NodeState, PaymentProtocol, Wallet, type EccoEvent, type MessageEvent } from '@ecco/core';
 import type { Invoice, PaymentProof, QuoteRequest } from '@ecco/core';
 
 const BASE_SEPOLIA_CHAIN_ID = 84532;
@@ -191,10 +191,16 @@ async function createServiceAgent(
       );
       await Node.sendMessage(agent, event.from, verifiedMessage);
 
-      const resultEvent = EventBus.createMessage(Node.getId(agent), event.from, {
-        invoiceId: paymentProof.invoiceId,
-        result: joke,
-      });
+      const resultEvent: MessageEvent = {
+        type: 'message',
+        from: Node.getId(agent),
+        to: event.from,
+        payload: {
+          invoiceId: paymentProof.invoiceId,
+          result: joke,
+        },
+        timestamp: Date.now(),
+      };
 
       await Node.publish(agent, `result:${paymentProof.invoiceId}`, resultEvent);
       console.log(`[${id}] Work completed and result sent`);

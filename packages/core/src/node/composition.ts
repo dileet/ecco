@@ -1,6 +1,11 @@
 import { Effect, Ref, Schedule, Duration } from 'effect';
-import { Auth } from '../auth';
-import { RegistryService, WalletService, WalletServiceLive } from '../services';
+import type { AuthState } from '../services/auth';
+import {
+  connect as connectRegistry,
+  register as registerWithRegistry,
+  type ClientState as RegistryClientState,
+} from '../registry-client';
+import { Wallet } from '../services/wallet';
 import { setupEventListeners } from './discovery';
 import { announceCapabilities } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
@@ -25,11 +30,15 @@ export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<
       const identity = yield* Effect.promise(() => loadOrCreateNodeIdentity(state.config));
       console.log(`Message authentication enabled (${identity.created ? 'generated new keys' : 'loaded keys'})`);
 
-      yield* setMessageAuthRef(stateRef, Auth.create({
-        enabled: true,
-        privateKey: identity.privateKey,
-        publicKey: identity.publicKey,
-      }));
+      const authState: AuthState = {
+        config: {
+          enabled: true,
+          privateKey: identity.privateKey,
+          publicKey: identity.publicKey,
+        },
+        keyCache: new Map(),
+      };
+      yield* setMessageAuthRef(stateRef, authState);
 
       if (!state.config.nodeId) {
         yield* updateState(stateRef, (current) => ({
@@ -39,18 +48,19 @@ export const withAuthentication = (stateRef: Ref.Ref<NodeState>): Effect.Effect<
       }
 
       if (state.config.authentication?.walletAutoInit && identity.ethereumPrivateKey) {
-        const walletService = yield* WalletService;
-        const walletStateRef = yield* walletService.createState({
-          privateKey: identity.ethereumPrivateKey,
-          chains: [],
-          rpcUrls: state.config.authentication.walletRpcUrls,
-          receiptTimeoutMs: state.config.authentication.walletReceiptTimeoutMs,
-        });
+        const walletStateRef = yield* Effect.promise(() =>
+          Wallet.createState({
+            privateKey: identity.ethereumPrivateKey,
+            chains: [],
+            rpcUrls: state.config.authentication!.walletRpcUrls,
+            receiptTimeoutMs: state.config.authentication!.walletReceiptTimeoutMs,
+          })
+        );
         yield* setWalletRef(stateRef, walletStateRef);
         console.log('Wallet initialized with authentication keys');
       }
     }
-  }).pipe(Effect.provide(WalletServiceLive));
+  });
 
 export const withDiscovery = (_stateRef: Ref.Ref<NodeState>): Effect.Effect<void, never> =>
   Effect.void;
@@ -98,16 +108,15 @@ export const withRegistry = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, 
     const state = yield* getState(stateRef);
 
     if (state.config.registry) {
-      const registryService = yield* RegistryService;
-      const registryClientRef = yield* registryService.createState({
+      const registryConfig = {
         url: state.config.registry,
         reconnect: true,
         reconnectInterval: 5000,
         timeout: 10000,
-      });
+      };
 
       const connectWithRetry = withTimeoutEffect(
-        registryService.connect(registryClientRef),
+        Effect.promise(() => connectRegistry(registryConfig)),
         10000,
         'Registry connection timeout'
       ).pipe(
@@ -117,7 +126,7 @@ export const withRegistry = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, 
             Schedule.union(Schedule.spaced(Duration.millis(10000)))
           ),
           while: (error) => {
-            if (error instanceof RegistryConnectionError || error.message?.includes('timeout')) {
+            if (error instanceof RegistryConnectionError || (error instanceof Error && error.message?.includes('timeout'))) {
               return true;
             }
             return false;
@@ -125,34 +134,32 @@ export const withRegistry = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, 
         }),
         Effect.tapError((error) =>
           Effect.sync(() => {
-            console.warn(`Registry connection attempt failed: ${error.message}`);
+            console.warn(`Registry connection attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
           })
         )
       );
 
-      yield* connectWithRetry.pipe(
+      const connectedState = yield* connectWithRetry.pipe(
         Effect.catchAll((error) => {
           if (state.config.fallbackToP2P) {
             console.log('Failed to connect to registry, falling back to P2P discovery only');
-            return Effect.succeed(void 0);
+            return Effect.succeed(null);
           }
           return Effect.fail(error);
         })
       );
 
-      const isConnected = yield* registryService.isConnected(registryClientRef);
-      if (isConnected) {
+      if (connectedState) {
+        const registryClientRef = yield* Ref.make(connectedState);
         yield* setRegistryClientRef(stateRef, registryClientRef);
-        
+
         const updatedState = yield* getState(stateRef);
         if (updatedState.node) {
           const addresses = updatedState.node.getMultiaddrs().map(String);
-          yield* registryService.register(
-            registryClientRef,
-            updatedState.id,
-            updatedState.capabilities,
-            addresses
+          const registeredState = yield* Effect.promise(() =>
+            registerWithRegistry(connectedState, updatedState.id, updatedState.capabilities, addresses)
           );
+          yield* Ref.set(registryClientRef, registeredState);
         }
       }
     }

@@ -428,7 +428,7 @@ export namespace PaymentProtocol {
     totalAmount: string,
     chainId: number,
     token: string,
-    participants: Array<{ peerId: string; contribution: number }>
+    participants: Array<{ peerId: string; walletAddress: string; contribution: number }>
   ): SwarmSplit {
     const totalContribution = participants.reduce((sum, p) => sum + p.contribution, 0);
     const totalAmountNum = parseFloat(totalAmount);
@@ -438,6 +438,7 @@ export namespace PaymentProtocol {
       const amount = (totalAmountNum * proportion).toString();
       return {
         peerId: p.peerId,
+        walletAddress: p.walletAddress,
         contribution: p.contribution,
         amount,
       };
@@ -466,7 +467,7 @@ export namespace PaymentProtocol {
         split.chainId,
         participant.amount,
         split.token,
-        participant.peerId,
+        participant.walletAddress,
         Date.now() + 3600000
       )
     );

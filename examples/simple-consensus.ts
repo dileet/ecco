@@ -4,7 +4,7 @@
  * This is a minimal example showing how to get started with multi-agent consensus
  */
 
-import { Node, type NodeState, Orchestrator, EventBus } from '@ecco/core';
+import { Node, type NodeState, Orchestrator, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -96,11 +96,17 @@ async function createSimpleAgent(id: string, port: number): Promise<NodeState> {
         prompt: event.payload.payload.options.prompt,
       });
 
-      const responseEvent = EventBus.createMessage(id, event.from, {
-        text: result.text,
-        finishReason: 'stop',
-        usage: result.usage,
-      });
+      const responseEvent: MessageEvent = {
+        type: 'message',
+        from: id,
+        to: event.from,
+        payload: {
+          text: result.text,
+          finishReason: 'stop',
+          usage: result.usage,
+        },
+        timestamp: Date.now(),
+      };
 
       await Node.publish(startedAgentState, `response:${event.payload.id}`, responseEvent);
 

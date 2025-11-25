@@ -231,6 +231,7 @@ export interface StakePosition {
 
 export interface SwarmParticipant {
   peerId: string;
+  walletAddress: string;
   contribution: number;
   amount: string;
 }

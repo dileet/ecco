@@ -8,7 +8,7 @@
  * 4. Semantic consensus using peer embeddings
  */
 
-import { Node, type NodeState, Orchestrator, EventBus } from '@ecco/core';
+import { Node, type NodeState, Orchestrator, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest, setupEmbeddingProvider } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -189,21 +189,33 @@ async function createQuestionAnsweringAgent(
 
       const responseText = `${result.text} [from ${displayName}]`;
 
-      const responseEvent = EventBus.createMessage(id, event.from, {
-        text: responseText,
-        finishReason: 'stop',
-        usage: result.usage,
-        warnings: [],
-      });
+      const responseEvent: MessageEvent = {
+        type: 'message',
+        from: id,
+        to: event.from,
+        payload: {
+          text: responseText,
+          finishReason: 'stop',
+          usage: result.usage,
+          warnings: [],
+        },
+        timestamp: Date.now(),
+      };
 
       await Node.publish(agent, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
       console.error(`[${displayName}] Error:`, error);
-      const errorEvent = EventBus.createMessage(id, event.from, {
-        error: (error as Error).message,
-      });
+      const errorEvent: MessageEvent = {
+        type: 'message',
+        from: id,
+        to: event.from,
+        payload: {
+          error: (error as Error).message,
+        },
+        timestamp: Date.now(),
+      };
       await Node.publish(agent, `response:${event.payload.id}`, errorEvent);
     }
   });

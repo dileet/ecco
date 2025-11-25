@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { Capability, PeerInfo } from './types';
 
 const CapabilitySchema = z.object({
   type: z.string(),
@@ -79,84 +78,10 @@ export type MessageEvent = z.infer<typeof MessageEventSchema>;
 
 export type EccoEvent = z.infer<typeof EccoEventSchema>;
 
-export namespace EventBus {
-  export function validate(event: unknown): EccoEvent {
-    return EccoEventSchema.parse(event);
-  }
+export function validateEvent(event: unknown): EccoEvent {
+  return EccoEventSchema.parse(event);
+}
 
-  export function isValid(event: unknown): event is EccoEvent {
-    return EccoEventSchema.safeParse(event).success;
-  }
-
-  export function createCapabilityAnnouncement(
-    peerId: string,
-    capabilities: Capability[]
-  ): CapabilityAnnouncementEvent {
-    return {
-      type: 'capability-announcement',
-      peerId,
-      capabilities,
-      timestamp: Date.now(),
-    };
-  }
-
-  export function createCapabilityRequest(
-    requestId: string,
-    from: string,
-    requiredCapabilities: Partial<Capability>[],
-    preferredPeers?: string[]
-  ): CapabilityRequestEvent {
-    return {
-      type: 'capability-request',
-      requestId,
-      from,
-      requiredCapabilities,
-      preferredPeers,
-      timestamp: Date.now(),
-    };
-  }
-
-  export function createCapabilityResponse(
-    requestId: string,
-    peerId: string,
-    capabilities: Capability[]
-  ): CapabilityResponseEvent {
-    return {
-      type: 'capability-response',
-      requestId,
-      peerId,
-      capabilities,
-      timestamp: Date.now(),
-    };
-  }
-
-  export function createPeerDiscovered(peer: PeerInfo): PeerDiscoveredEvent {
-    return {
-      type: 'peer-discovered',
-      peer,
-      timestamp: Date.now(),
-    };
-  }
-
-  export function createPeerDisconnected(peerId: string): PeerDisconnectedEvent {
-    return {
-      type: 'peer-disconnected',
-      peerId,
-      timestamp: Date.now(),
-    };
-  }
-
-  export function createMessage(
-    from: string,
-    to: string,
-    payload: unknown
-  ): MessageEvent {
-    return {
-      type: 'message',
-      from,
-      to,
-      payload,
-      timestamp: Date.now(),
-    };
-  }
+export function isValidEvent(event: unknown): event is EccoEvent {
+  return EccoEventSchema.safeParse(event).success;
 }

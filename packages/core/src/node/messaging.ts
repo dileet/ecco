@@ -1,7 +1,7 @@
 import type { NodeState } from './types';
-import { Auth } from '../auth';
+import { verifyMessage } from '../services/auth';
 import { addSubscription } from './state-helpers';
-import { EventBus, type EccoEvent } from '../events';
+import { validateEvent, isValidEvent, type EccoEvent } from '../events';
 import { Effect } from 'effect';
 import { getState } from './state-ref';
 
@@ -10,7 +10,7 @@ export async function publish(state: NodeState, topic: string, event: EccoEvent)
     throw new Error('Gossipsub not enabled');
   }
 
-  const validatedEvent = EventBus.validate(event);
+  const validatedEvent = validateEvent(event);
   const message = new TextEncoder().encode(JSON.stringify(validatedEvent));
   console.log(`[${state.id}] Publishing to topic ${topic}, event type: ${event.type}`);
   await state.node.services.pubsub.publish(topic, message);
@@ -69,19 +69,19 @@ export function subscribe(state: NodeState, topic: string, handler: (event: Ecco
           const rawData = JSON.parse(new TextDecoder().decode(incomingData));
 
           if (messageAuth && rawData.signature) {
-            const { valid } = await Auth.verify(messageAuth, rawData);
+            const { valid } = await verifyMessage(messageAuth, rawData);
             if (!valid) {
               console.warn('Received message with invalid signature, ignoring');
               return;
             }
           }
 
-          if (!EventBus.isValid(rawData)) {
+          if (!isValidEvent(rawData)) {
             console.warn('Received invalid event, ignoring');
             return;
           }
 
-          const validatedEvent = EventBus.validate(rawData);
+          const validatedEvent = validateEvent(rawData);
 
           if (stateRef) {
             const currentStateFromRef = await Effect.runPromise(getState(stateRef));

@@ -1,4 +1,4 @@
-import { Node, type NodeState, EventBus } from '@ecco/core';
+import { Node, type NodeState, type MessageEvent } from '@ecco/core';
 import { isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -110,11 +110,14 @@ async function main() {
 
     seekerState = stateWithSub;
 
-    Node.publish(
-      seekerState,
-      peerTopic,
-      EventBus.createMessage(Node.getId(seekerState), highestRepMatch.peer.id, request)
-    );
+    const messageEvent: MessageEvent = {
+      type: 'message',
+      from: Node.getId(seekerState),
+      to: highestRepMatch.peer.id,
+      payload: request,
+      timestamp: Date.now(),
+    };
+    Node.publish(seekerState, peerTopic, messageEvent);
   });
 
   try {
@@ -174,11 +177,14 @@ async function main() {
 
       seekerState = stateWithSub;
 
-      Node.publish(
-        seekerState,
-        broadcastPeerTopic,
-        EventBus.createMessage(Node.getId(seekerState), match.peer.id, broadcastRequest)
-      );
+      const broadcastMessageEvent: MessageEvent = {
+        type: 'message',
+        from: Node.getId(seekerState),
+        to: match.peer.id,
+        payload: broadcastRequest,
+        timestamp: Date.now(),
+      };
+      Node.publish(seekerState, broadcastPeerTopic, broadcastMessageEvent);
     });
 
     try {
@@ -254,21 +260,33 @@ async function createProviderAgent(
 
       const responseText = `${result.text} [from ${displayName}]`;
 
-      const responseEvent = EventBus.createMessage(id, event.from, {
-        text: responseText,
-        finishReason: 'stop',
-        usage: result.usage,
-        warnings: [],
-      });
+      const responseEvent: MessageEvent = {
+        type: 'message',
+        from: id,
+        to: event.from,
+        payload: {
+          text: responseText,
+          finishReason: 'stop',
+          usage: result.usage,
+          warnings: [],
+        },
+        timestamp: Date.now(),
+      };
 
       await Node.publish(agent, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
       console.error(`[${displayName}] Error:`, error);
-      const errorEvent = EventBus.createMessage(id, event.from, {
-        error: (error as Error).message,
-      });
+      const errorEvent: MessageEvent = {
+        type: 'message',
+        from: id,
+        to: event.from,
+        payload: {
+          error: (error as Error).message,
+        },
+        timestamp: Date.now(),
+      };
       await Node.publish(agent, `response:${event.payload.id}`, errorEvent);
     }
   });

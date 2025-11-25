@@ -5,7 +5,7 @@ import * as json from 'multiformats/codecs/json';
 import { sha256 } from 'multiformats/hashes/sha2';
 import type { NodeState, EccoLibp2p } from './types';
 import type { Capability, PeerInfo, CapabilityQuery } from '../types';
-import { Matcher } from '../capability-matcher';
+import { Matcher } from '../orchestrator/capability-matcher';
 
 type DHTCapableNode = {
   contentRouting: EccoLibp2p['contentRouting'];

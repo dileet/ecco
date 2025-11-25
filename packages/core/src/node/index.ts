@@ -106,12 +106,8 @@ export namespace Node {
     if (!state._ref || !state.registryClientRef) {
       return false;
     }
-    const { RegistryService, ServicesLive } = await import('../services');
-    const program = Effect.gen(function* () {
-      const registryService = yield* RegistryService;
-      return yield* registryService.isConnected(state.registryClientRef!);
-    }).pipe(Effect.provide(ServicesLive));
-    return Effect.runPromise(program);
+    const registryState = await Effect.runPromise(Ref.get(state.registryClientRef));
+    return registryState.connected;
   }
 
   export async function setRegistryReputation(
@@ -122,9 +118,9 @@ export namespace Node {
     if (!state._ref || !state.registryClientRef) {
       throw new Error('Node not connected to registry');
     }
-    const { Registry } = await import('../registry-client');
+    const { setReputation } = await import('../registry-client');
     const registryState = await Effect.runPromise(Ref.get(state.registryClientRef));
-    await Registry.setReputation(registryState, nodeId, value);
+    await setReputation(registryState, nodeId, value);
   }
 
   export async function incrementRegistryReputation(
@@ -135,9 +131,9 @@ export namespace Node {
     if (!state._ref || !state.registryClientRef) {
       throw new Error('Node not connected to registry');
     }
-    const { Registry } = await import('../registry-client');
+    const { incrementReputation } = await import('../registry-client');
     const registryState = await Effect.runPromise(Ref.get(state.registryClientRef));
-    await Registry.incrementReputation(registryState, nodeId, increment);
+    await incrementReputation(registryState, nodeId, increment);
   }
 }
 

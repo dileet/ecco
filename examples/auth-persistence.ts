@@ -7,7 +7,7 @@
  * Run:
  *   bun run examples/auth-persistence.ts
  */
-import { Node, EventBus, EmbeddingService, isEmbeddingRequest, getState, addPeerRef, type NodeState } from '@ecco/core';
+import { Node, EmbeddingService, isEmbeddingRequest, getState, addPeerRef, type NodeState, type MessageEvent } from '@ecco/core';
 import { Effect, Ref } from 'effect';
 import { promises as fs } from 'fs';
 
@@ -98,7 +98,13 @@ async function createEmbeddingProviderNode(): Promise<NodeState> {
         model: 'dummy',
         dimensions: 4,
       };
-      const responseEvent = EventBus.createMessage(Node.getId(provider), event.from, response);
+      const responseEvent: MessageEvent = {
+        type: 'message',
+        from: Node.getId(provider),
+        to: event.from,
+        payload: response,
+        timestamp: Date.now(),
+      };
       // Publish on both an ephemeral response topic and the seeker's peer topic to avoid
       // race conditions with topic subscription propagation.
       await Node.publish(provider, `embedding-response:${requestId}`, responseEvent);
