@@ -44,7 +44,7 @@ export interface NodeState {
   registryClientRef?: Ref.Ref<RegistryClientState>;
   walletRef?: Ref.Ref<WalletState>;
   capabilityTrackingSetup: boolean;
-  performanceTracker?: Ref.Ref<PeerPerformanceState>;
+  performanceTracker?: PeerPerformanceState;
   badBehaviorTracker?: BadBehaviorTracker;
   paymentLedger: Map<string, PaymentLedgerEntry>;
   streamingChannels: Map<string, StreamingAgreement>;
