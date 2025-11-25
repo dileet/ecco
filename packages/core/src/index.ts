@@ -68,7 +68,6 @@ export {
   sleepEffect,
   withTimeoutEffect,
   waitForEffect,
-  CircuitBreaker,
   RateLimiter,
   sleep,
   waitFor,
@@ -118,7 +117,10 @@ export {
 } from './orchestrator/capability-matcher';
 
 export {
-  CircuitBreaker,
+  executeWithBreaker,
+  DEFAULT_BREAKER_CONFIG,
+  INITIAL_BREAKER_STATE,
+  type CircuitBreakerOpenError,
   type CircuitBreakerConfig,
   type CircuitBreakerState,
   type BreakerState,

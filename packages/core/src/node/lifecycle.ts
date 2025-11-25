@@ -11,7 +11,7 @@ import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
-import { CircuitBreaker } from '../util/circuit-breaker';
+import { executeWithBreaker, DEFAULT_BREAKER_CONFIG, INITIAL_BREAKER_STATE } from '../util/circuit-breaker';
 import { Matcher } from '../orchestrator/capability-matcher';
 import {
   connect as connectRegistry,
@@ -498,17 +498,16 @@ export async function sendMessage(
     const breaker = yield* getOrCreateCircuitBreaker(
       stateRef,
       peerId,
-      () => CircuitBreaker.create({
-        failureThreshold: 5,
-        resetTimeout: 60000,
-        halfOpenRequests: 3,
+      () => ({
+        ...INITIAL_BREAKER_STATE,
+        config: { ...DEFAULT_BREAKER_CONFIG, failureThreshold: 5, resetTimeout: 60000, halfOpenRequests: 3 },
       })
     );
 
     const state = yield* getState(stateRef);
 
     const { breaker: newBreaker } = yield* Effect.promise(() =>
-      CircuitBreaker.execute(breaker, async () => {
+      executeWithBreaker(breaker, async () => {
         await withRetry(
           async () => {
             let messageToSend = message;
