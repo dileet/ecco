@@ -36,7 +36,11 @@ import {
   type RegistryErrorType,
   CircuitBreakerOpenError,
   CircuitBreakerError,
+  WalletError,
+  PaymentVerificationError,
+  type PaymentErrorType,
 } from './errors';
+import type { Invoice, PaymentProof } from './types';
 
 // ============================================================================
 // Auth Service
@@ -833,10 +837,19 @@ export const RegistryServiceLive = Layer.succeed(RegistryService, {
     }),
 });
 
-// Combined layer with all services
+// ============================================================================
+// Wallet Service
+// ============================================================================
+
+export { WalletService, WalletServiceLive, type WalletConfig, type WalletState } from './services/wallet';
+import { WalletServiceLive } from './services/wallet';
+import { StorageServiceLive } from './storage';
+
 export const ServicesLive = Layer.mergeAll(
   AuthServiceLive,
   MatcherServiceLive,
   CircuitBreakerServiceLive,
-  RegistryServiceLive
+  RegistryServiceLive,
+  WalletServiceLive,
+  StorageServiceLive
 );

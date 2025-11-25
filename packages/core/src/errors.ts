@@ -232,6 +232,32 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly constraint: string;
 }> {}
 
+export class PaymentError extends Data.TaggedError("PaymentError")<{
+  readonly message: string;
+  readonly invoiceId?: string;
+  readonly cause?: unknown;
+}> {}
+
+export class PaymentVerificationError extends Data.TaggedError("PaymentVerificationError")<{
+  readonly message: string;
+  readonly txHash: string;
+  readonly chainId: number;
+  readonly cause?: unknown;
+}> {}
+
+export class InvoiceExpiredError extends Data.TaggedError("InvoiceExpiredError")<{
+  readonly message: string;
+  readonly invoiceId: string;
+  readonly validUntil: number;
+  readonly currentTime: number;
+}> {}
+
+export class WalletError extends Data.TaggedError("WalletError")<{
+  readonly message: string;
+  readonly operation?: 'createState' | 'pay' | 'verify' | 'getClient' | 'getAddress';
+  readonly cause?: unknown;
+}> {}
+
 export type AuthError =
   | AuthenticationError
   | KeyGenerationError
@@ -282,6 +308,12 @@ export type NodeLifecycleError =
   | BootstrapError
   | TimeoutError;
 
+export type PaymentErrorType =
+  | PaymentError
+  | PaymentVerificationError
+  | InvoiceExpiredError
+  | WalletError;
+
 export type EccoError =
   | AuthError
   | ConnectError
@@ -294,4 +326,5 @@ export type EccoError =
   | PoolError
   | PoolExhaustedError
   | ConfigError
-  | ValidationError;
+  | ValidationError
+  | PaymentErrorType;

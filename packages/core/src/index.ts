@@ -18,12 +18,37 @@ export {
   setCircuitBreakerRef,
   getOrCreateCircuitBreaker,
   setRegistryClientRef,
+  setWalletRef,
+  getWalletRef,
   setMessageAuthRef,
   setConnectionPoolRef,
   setNodeRef,
   setCapabilityTrackingSetupRef,
   addPeersRef,
   subscribeToTopicRef,
+  addPaymentLedgerEntryRef,
+  updatePaymentLedgerEntryRef,
+  setStreamingChannelRef,
+  updateStreamingChannelRef,
+  setEscrowAgreementRef,
+  updateEscrowAgreementRef,
+  setStakePositionRef,
+  updateStakePositionRef,
+  setSwarmSplitRef,
+  updateSwarmSplitRef,
+  enqueueSettlementRef,
+  dequeueSettlementRef,
+  removeSettlementRef,
+  updateSettlementRef,
+  setStreamingChannel,
+  updateStreamingChannel,
+  setEscrowAgreement,
+  updateEscrowAgreement,
+  setSwarmSplit,
+  updateSwarmSplit,
+  addPaymentLedgerEntry,
+  enqueueSettlement,
+  getNodeState,
 } from './node/state-ref';
 export {
   withRetry,
@@ -54,21 +79,33 @@ export {
   type EmbeddingRequest,
   type EmbeddingResponse,
 } from './services/embedding';
+export { PaymentProtocol } from './services/payment';
+export { Wallet } from './services/wallet';
 export * from './errors';
 
-// Effect-based services
+export {
+  StorageService,
+  StorageServiceLive,
+  StorageError,
+  type StorageService as StorageServiceType,
+} from './storage';
+
 export {
   AuthService,
   MatcherService,
   RegistryService,
   CircuitBreakerService,
+  WalletService,
   AuthServiceLive,
   MatcherServiceLive,
   RegistryServiceLive,
   CircuitBreakerServiceLive,
+  WalletServiceLive,
   ServicesLive,
   type RegistryClientConfig,
   type RegistryClientState,
+  type WalletConfig,
+  type WalletState,
 } from './services';
 
 export type {
@@ -83,6 +120,20 @@ export type {
   CapabilityMatch,
   DiscoveryMethod,
   TransportConfig,
+  Pricing,
+  Invoice,
+  PaymentProof,
+  QuoteRequest,
+  PaymentLedgerStatus,
+  PaymentLedgerEntry,
+  StreamingAgreement,
+  EscrowAgreement,
+  EscrowMilestone,
+  StakeRequirement,
+  StakePosition,
+  SwarmSplit,
+  SwarmParticipant,
+  SettlementIntent,
 } from './types';
 
 export type {

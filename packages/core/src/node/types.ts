@@ -1,11 +1,22 @@
 import type { Libp2p } from 'libp2p';
 import type { Ref } from 'effect';
-import type { Capability, EccoConfig, PeerInfo } from '../types';
+import type {
+  Capability,
+  EccoConfig,
+  PeerInfo,
+  PaymentLedgerEntry,
+  StreamingAgreement,
+  EscrowAgreement,
+  StakePosition,
+  SwarmSplit,
+  SettlementIntent,
+} from '../types';
 import type { MatcherState } from '../capability-matcher';
 import type { AuthState } from '../auth';
 import type { PoolState } from '../connection';
 import type { BreakerState } from '../util/circuit-breaker';
 import type { RegistryClientState } from '../services';
+import type { WalletState } from '../services/wallet';
 import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';
 import type { GossipSub } from '@libp2p/gossipsub';
@@ -33,8 +44,15 @@ export interface NodeState {
   connectionPool?: PoolState;
   circuitBreakers: Map<string, BreakerState>;
   registryClientRef?: Ref.Ref<RegistryClientState>;
+  walletRef?: Ref.Ref<WalletState>;
   capabilityTrackingSetup: boolean;
   performanceTracker?: Ref.Ref<PeerPerformanceState>;
   badBehaviorTracker?: BadBehaviorTracker;
+  paymentLedger: Map<string, PaymentLedgerEntry>;
+  streamingChannels: Map<string, StreamingAgreement>;
+  escrowAgreements: Map<string, EscrowAgreement>;
+  stakePositions: Map<string, StakePosition>;
+  swarmSplits: Map<string, SwarmSplit>;
+  pendingSettlements: SettlementIntent[];
   _ref?: Ref.Ref<NodeState>;
 }

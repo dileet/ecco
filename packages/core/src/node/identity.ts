@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { generatePrivateKey } from 'viem/accounts';
 import { Auth } from '../auth';
 import type { EccoConfig } from '../types';
 
@@ -8,6 +9,7 @@ interface PersistedKeyFile {
   algorithm: 'ECDSA-P-256';
   privateKey: string;
   publicKey: string;
+  ethereumPrivateKey?: `0x${string}`;
 }
 
 function toBase64Url(input: Uint8Array): string {
@@ -49,6 +51,7 @@ async function ensureDir(dirPath: string): Promise<void> {
 export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
   privateKey: CryptoKey;
   publicKey: CryptoKey;
+  ethereumPrivateKey?: `0x${string}`;
   nodeIdFromKeys: string;
   keyFilePath: string;
   created: boolean;
@@ -62,9 +65,21 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
     const privateKey = await Auth.importPrivateKey(parsed.privateKey);
     const publicKey = await Auth.importPublicKey(parsed.publicKey);
     const fingerprint = await computePublicKeyFingerprint(publicKey);
+    
+    let ethereumPrivateKey = parsed.ethereumPrivateKey;
+    if (!ethereumPrivateKey) {
+      ethereumPrivateKey = generatePrivateKey();
+      const updatedPersist: PersistedKeyFile = {
+        ...parsed,
+        ethereumPrivateKey,
+      };
+      await fs.writeFile(keyFilePath, JSON.stringify(updatedPersist), 'utf8');
+    }
+    
     return {
       privateKey,
       publicKey,
+      ethereumPrivateKey,
       nodeIdFromKeys: `pk-${fingerprint}`,
       keyFilePath,
       created: false,
@@ -78,10 +93,12 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
   const { privateKey, publicKey } = await Auth.generateKeyPair();
   const privateKeyStr = await Auth.exportPrivateKey(privateKey);
   const publicKeyStr = await Auth.exportPublicKey(publicKey);
+  const ethereumPrivateKey = generatePrivateKey();
   const persist: PersistedKeyFile = {
     algorithm: 'ECDSA-P-256',
     privateKey: privateKeyStr,
     publicKey: publicKeyStr,
+    ethereumPrivateKey,
   };
   await ensureDir(path.dirname(keyFilePath));
   await fs.writeFile(keyFilePath, JSON.stringify(persist), 'utf8');
@@ -90,6 +107,7 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
   return {
     privateKey,
     publicKey,
+    ethereumPrivateKey,
     nodeIdFromKeys: `pk-${fingerprint}`,
     keyFilePath,
     created: true,
