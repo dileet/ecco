@@ -31,44 +31,7 @@ export {
 export { configDefaults, mergeConfig } from './config';
 export { validateEvent, isValidEvent } from './events';
 export { Resources } from './node/lifecycle';
-export {
-  makeStateRef,
-  getState,
-  updateState,
-  setState,
-  modifyState,
-  addPeerRef,
-  removePeerRef,
-  setRegistryClientRef,
-  setWalletRef,
-  getWalletRef,
-  setMessageAuthRef,
-  setConnectionPoolRef,
-  setNodeRef,
-  setCapabilityTrackingSetupRef,
-  addPeersRef,
-  subscribeToTopicRef,
-  addPaymentLedgerEntryRef,
-  updatePaymentLedgerEntryRef,
-  setStreamingChannelRef,
-  updateStreamingChannelRef,
-  setEscrowAgreementRef,
-  updateEscrowAgreementRef,
-  setStakePositionRef,
-  updateStakePositionRef,
-  setSwarmSplitRef,
-  updateSwarmSplitRef,
-  enqueueSettlementRef,
-  dequeueSettlementRef,
-  removeSettlementRef,
-  updateSettlementRef,
-  setStreamingChannel,
-  setEscrowAgreement,
-  setSwarmSplit,
-  addPaymentLedgerEntry,
-  enqueueSettlement,
-  getNodeState,
-} from './node/state-ref';
+export { createInitialState, getState, setState, updateState, modifyState } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
   createWalletState,

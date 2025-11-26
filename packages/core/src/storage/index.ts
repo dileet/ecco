@@ -65,16 +65,16 @@ export const initialize = async (nodeId: string): Promise<void> => {
   dbInstance = drizzle({ client: sqliteDb });
 };
 
-export const loadEscrowAgreements = async (): Promise<Map<string, EscrowAgreement>> => {
+export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgreement>> => {
   const db = getDb();
   if (!db) {
-    return new Map();
+    return {};
   }
   try {
     const rows = db.select().from(escrowAgreements).all();
-    const map = new Map<string, EscrowAgreement>();
+    const result: Record<string, EscrowAgreement> = {};
     for (const row of rows) {
-      map.set(row.id, {
+      result[row.id] = {
         id: row.id,
         jobId: row.jobId,
         payer: row.payer,
@@ -87,27 +87,27 @@ export const loadEscrowAgreements = async (): Promise<Map<string, EscrowAgreemen
         createdAt: row.createdAt,
         requiresApproval: row.requiresApproval,
         approver: row.approver || undefined,
-      });
+      };
     }
-    return map;
+    return result;
   } catch (error) {
     if (isNoSuchTableError(error)) {
-      return new Map();
+      return {};
     }
     throw new Error('Failed to load escrow agreements');
   }
 };
 
-export const loadPaymentLedger = async (): Promise<Map<string, PaymentLedgerEntry>> => {
+export const loadPaymentLedger = async (): Promise<Record<string, PaymentLedgerEntry>> => {
   const db = getDb();
   if (!db) {
-    return new Map();
+    return {};
   }
   try {
     const rows = db.select().from(paymentLedger).all();
-    const map = new Map<string, PaymentLedgerEntry>();
+    const result: Record<string, PaymentLedgerEntry> = {};
     for (const row of rows) {
-      map.set(row.id, {
+      result[row.id] = {
         id: row.id,
         type: row.type as PaymentLedgerEntry['type'],
         status: row.status as PaymentLedgerEntry['status'],
@@ -121,27 +121,27 @@ export const loadPaymentLedger = async (): Promise<Map<string, PaymentLedgerEntr
         settledAt: row.settledAt || undefined,
         txHash: row.txHash || undefined,
         metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-      });
+      };
     }
-    return map;
+    return result;
   } catch (error) {
     if (isNoSuchTableError(error)) {
-      return new Map();
+      return {};
     }
     throw new Error('Failed to load payment ledger');
   }
 };
 
-export const loadStreamingChannels = async (): Promise<Map<string, StreamingAgreement>> => {
+export const loadStreamingChannels = async (): Promise<Record<string, StreamingAgreement>> => {
   const db = getDb();
   if (!db) {
-    return new Map();
+    return {};
   }
   try {
     const rows = db.select().from(streamingChannels).all();
-    const map = new Map<string, StreamingAgreement>();
+    const result: Record<string, StreamingAgreement> = {};
     for (const row of rows) {
-      map.set(row.id, {
+      result[row.id] = {
         id: row.id,
         jobId: row.jobId,
         payer: row.payer,
@@ -154,27 +154,27 @@ export const loadStreamingChannels = async (): Promise<Map<string, StreamingAgre
         status: row.status as StreamingAgreement['status'],
         createdAt: row.createdAt,
         closedAt: row.closedAt || undefined,
-      });
+      };
     }
-    return map;
+    return result;
   } catch (error) {
     if (isNoSuchTableError(error)) {
-      return new Map();
+      return {};
     }
     throw new Error('Failed to load streaming channels');
   }
 };
 
-export const loadStakePositions = async (): Promise<Map<string, StakePosition>> => {
+export const loadStakePositions = async (): Promise<Record<string, StakePosition>> => {
   const db = getDb();
   if (!db) {
-    return new Map();
+    return {};
   }
   try {
     const rows = db.select().from(stakePositions).all();
-    const map = new Map<string, StakePosition>();
+    const result: Record<string, StakePosition> = {};
     for (const row of rows) {
-      map.set(row.id, {
+      result[row.id] = {
         id: row.id,
         stakeRequirementId: row.stakeRequirementId,
         jobId: row.jobId,
@@ -189,27 +189,27 @@ export const loadStakePositions = async (): Promise<Map<string, StakePosition>> 
         txHash: row.txHash || undefined,
         releaseTxHash: row.releaseTxHash || undefined,
         slashTxHash: row.slashTxHash || undefined,
-      });
+      };
     }
-    return map;
+    return result;
   } catch (error) {
     if (isNoSuchTableError(error)) {
-      return new Map();
+      return {};
     }
     throw new Error('Failed to load stake positions');
   }
 };
 
-export const loadSwarmSplits = async (): Promise<Map<string, SwarmSplit>> => {
+export const loadSwarmSplits = async (): Promise<Record<string, SwarmSplit>> => {
   const db = getDb();
   if (!db) {
-    return new Map();
+    return {};
   }
   try {
     const rows = db.select().from(swarmSplits).all();
-    const map = new Map<string, SwarmSplit>();
+    const result: Record<string, SwarmSplit> = {};
     for (const row of rows) {
-      map.set(row.id, {
+      result[row.id] = {
         id: row.id,
         jobId: row.jobId,
         payer: row.payer,
@@ -220,12 +220,12 @@ export const loadSwarmSplits = async (): Promise<Map<string, SwarmSplit>> => {
         status: row.status as SwarmSplit['status'],
         createdAt: row.createdAt,
         distributedAt: row.distributedAt || undefined,
-      });
+      };
     }
-    return map;
+    return result;
   } catch (error) {
     if (isNoSuchTableError(error)) {
-      return new Map();
+      return {};
     }
     throw new Error('Failed to load swarm splits');
   }

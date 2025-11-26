@@ -7,15 +7,14 @@ import type {
   Message,
   PeerInfo,
 } from '../types';
-import { createNodeState } from './create';
+import { createInitialState } from './state';
 import * as lifecycle from './lifecycle';
-import { getState } from './state-ref';
 import type { NodeState } from './types';
 import type { EccoEvent } from '../events';
 
 export namespace Node {
   export function create(config: EccoConfig): NodeState {
-    return createNodeState(config);
+    return createInitialState(config);
   }
 
   export async function start(state: NodeState): Promise<NodeState> {

@@ -1,5 +1,4 @@
 import type { Libp2p } from 'libp2p';
-import type { Ref } from 'effect';
 import type {
   Capability,
   EccoConfig,
@@ -21,6 +20,10 @@ import type { GossipSub } from '@libp2p/gossipsub';
 import type { PeerPerformanceState } from './peer-performance';
 import type { BadBehaviorTracker } from './bad-behavior-sketch';
 
+export type StateRef<T> = { current: T };
+
+export type EventHandler = (event: EccoEvent) => void;
+
 export interface EccoServices extends Record<string, unknown> {
   identify: unknown;
   ping: unknown;
@@ -35,20 +38,19 @@ export interface NodeState {
   config: EccoConfig;
   node: EccoLibp2p | null;
   capabilities: Capability[];
-  peers: Map<string, PeerInfo>;
-  subscriptions: Map<string, Set<(event: EccoEvent) => void>>;
+  peers: Record<string, PeerInfo>;
+  subscriptions: Record<string, EventHandler[]>;
   messageAuth?: AuthState;
   connectionPool?: PoolState;
-  registryClientRef?: Ref.Ref<RegistryClientState>;
-  walletRef?: Ref.Ref<WalletState>;
+  registryClient?: RegistryClientState;
+  wallet?: WalletState;
   capabilityTrackingSetup: boolean;
   performanceTracker?: PeerPerformanceState;
   badBehaviorTracker?: BadBehaviorTracker;
-  paymentLedger: Map<string, PaymentLedgerEntry>;
-  streamingChannels: Map<string, StreamingAgreement>;
-  escrowAgreements: Map<string, EscrowAgreement>;
-  stakePositions: Map<string, StakePosition>;
-  swarmSplits: Map<string, SwarmSplit>;
+  paymentLedger: Record<string, PaymentLedgerEntry>;
+  streamingChannels: Record<string, StreamingAgreement>;
+  escrowAgreements: Record<string, EscrowAgreement>;
+  stakePositions: Record<string, StakePosition>;
+  swarmSplits: Record<string, SwarmSplit>;
   pendingSettlements: SettlementIntent[];
-  _ref?: Ref.Ref<NodeState>;
 }
