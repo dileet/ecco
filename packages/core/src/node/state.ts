@@ -13,6 +13,7 @@ import type {
 import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../services/auth';
+import type { MessageBridgeState } from '../transport/message-bridge';
 import { DEFAULT_CONFIG, type PoolState } from '../connection';
 import { configDefaults, mergeConfig } from '../config';
 import * as storage from '../storage';
@@ -135,6 +136,20 @@ export const setWallet = (state: NodeState, wallet: WalletState): NodeState => (
 });
 
 export const getWallet = (state: NodeState): WalletState | undefined => state.wallet;
+
+export const setTransport = (state: NodeState, transport: NodeState['transport']): NodeState => ({
+  ...state,
+  transport,
+});
+
+export const getTransport = (state: NodeState): NodeState['transport'] => state.transport;
+
+export const setMessageBridge = (state: NodeState, messageBridge: MessageBridgeState): NodeState => ({
+  ...state,
+  messageBridge,
+});
+
+export const getMessageBridge = (state: NodeState): MessageBridgeState | undefined => state.messageBridge;
 
 export const addPaymentLedgerEntry = async (
   state: NodeState,

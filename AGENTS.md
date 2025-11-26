@@ -3,6 +3,7 @@
 - Do NOT write documentation 
 - Never self call functions
 - Don't add packages directly. Make sure to run bun add or bun remove
+- Follow functional patterns, DO NOT write OOP
 
 ## Typescript
 - Never use the "any" type

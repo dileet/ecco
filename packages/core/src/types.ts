@@ -1,4 +1,11 @@
-export type DiscoveryMethod = 'mdns' | 'dht' | 'gossip' | 'registry';
+export type DiscoveryMethod = 
+  | 'mdns' 
+  | 'dht' 
+  | 'gossip' 
+  | 'registry'
+  | 'bluetooth'
+  | 'wifi-direct'
+  | 'nfc';
 
 export interface EccoConfig {
   discovery: DiscoveryMethod[];
@@ -10,6 +17,7 @@ export interface EccoConfig {
   capabilities?: Capability[];
   transport?: TransportConfig;
   bootstrap?: BootstrapConfig;
+  proximity?: ProximityConfig;
   authentication?: {
     enabled: boolean;
     generateKeys?: boolean;
@@ -36,6 +44,29 @@ export interface BootstrapConfig {
   minPeers?: number;
 }
 
+export interface ProximityConfig {
+  bluetooth?: {
+    enabled: boolean;
+    advertise?: boolean;
+    scan?: boolean;
+    serviceUUID?: string;
+  };
+  wifiDirect?: {
+    enabled: boolean;
+  };
+  nfc?: {
+    enabled: boolean;
+  };
+  autoConnect?: boolean;
+  signalThreshold?: number;
+  localContext?: {
+    locationId?: string;
+    locationName?: string;
+    capabilities?: string[];
+    metadata?: Record<string, unknown>;
+  };
+}
+
 export interface TransportConfig {
   websocket?: {
     enabled: boolean;
@@ -43,6 +74,12 @@ export interface TransportConfig {
   };
   webrtc?: {
     enabled: boolean;
+    signalingServer?: string;
+    iceServers?: Array<{
+      urls: string | string[];
+      username?: string;
+      credential?: string;
+    }>;
   };
 }
 

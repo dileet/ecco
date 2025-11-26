@@ -4,13 +4,14 @@ import * as os from 'os';
 import { generatePrivateKey } from 'viem/accounts';
 import { importPrivateKey, importPublicKey, generateKeyPair, exportPrivateKey, exportPublicKey } from '../services/auth';
 import type { EccoConfig } from '../types';
+import { z } from 'zod';
 
-interface PersistedKeyFile {
-  algorithm: 'ECDSA-P-256';
-  privateKey: string;
-  publicKey: string;
-  ethereumPrivateKey?: `0x${string}`;
-}
+const PersistedKeyFileSchema = z.object({
+  algorithm: z.literal('ECDSA-P-256'),
+  privateKey: z.string(),
+  publicKey: z.string(),
+  ethereumPrivateKey: z.string().startsWith('0x').optional() as z.ZodType<`0x${string}` | undefined>,
+});
 
 function toBase64Url(input: Uint8Array): string {
   const base64 = Buffer.from(input).toString('base64');
@@ -61,7 +62,13 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
 
   if (exists) {
     const raw = await fs.readFile(keyFilePath, 'utf8');
-    const parsed: PersistedKeyFile = JSON.parse(raw) as PersistedKeyFile;
+    const result = PersistedKeyFileSchema.safeParse(JSON.parse(raw));
+    
+    if (!result.success) {
+      throw new Error(`Invalid key file format at ${keyFilePath}: ${result.error.message}`);
+    }
+    
+    const parsed = result.data;
     const privateKey = await importPrivateKey(parsed.privateKey);
     const publicKey = await importPublicKey(parsed.publicKey);
     const fingerprint = await computePublicKeyFingerprint(publicKey);
@@ -69,7 +76,7 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
     let ethereumPrivateKey = parsed.ethereumPrivateKey;
     if (!ethereumPrivateKey) {
       ethereumPrivateKey = generatePrivateKey();
-      const updatedPersist: PersistedKeyFile = {
+      const updatedPersist = {
         ...parsed,
         ethereumPrivateKey,
       };

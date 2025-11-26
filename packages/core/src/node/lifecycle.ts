@@ -35,10 +35,36 @@ import {
   setMessageAuth,
   setWallet,
   setRegistryClient,
+  setTransport,
+  setMessageBridge,
 } from './state';
 import type { NodeState, EccoServices, StateRef } from './types';
 import type { Message } from '../types';
 import type { MessageEvent } from '../events';
+import {
+  createHybridDiscovery,
+  registerAdapter as registerHybridAdapter,
+  startDiscovery as startHybridDiscovery,
+  stopDiscovery as stopHybridDiscovery,
+  onMessage as onHybridMessage,
+} from '../transport/hybrid-discovery';
+import { createLibp2pAdapter, toAdapter as toLibp2pAdapter, initialize as initLibp2pAdapter } from '../transport/adapters/libp2p';
+import {
+  createBLEAdapter,
+  toAdapter as toBLEAdapter,
+  setLocalContext as setBLELocalContext,
+} from '../transport/adapters/bluetooth-le';
+import {
+  createWebRTCAdapter,
+  toAdapter as toWebRTCAdapter,
+  initialize as initWebRTCAdapter,
+} from '../transport/adapters/webrtc';
+import {
+  createMessageBridge,
+  setAuthState as setMessageBridgeAuth,
+  handleIncomingBroadcast,
+} from '../transport/message-bridge';
+import type { LocalContext } from '../transport/types';
 
 function buildListenAddresses(config: NodeState['config']): string[] {
   if (config.listenAddresses && config.listenAddresses.length > 0) {
@@ -258,6 +284,98 @@ async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
   }));
 }
 
+async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
+  
+  if (!state.node) {
+    return;
+  }
+
+  const hasProximityConfig = state.config.proximity?.bluetooth?.enabled ||
+                             state.config.proximity?.wifiDirect?.enabled ||
+                             state.config.proximity?.nfc?.enabled;
+  
+  const hasWebRTCConfig = state.config.transport?.webrtc?.enabled;
+  
+  const shouldSetupTransport = hasProximityConfig || 
+                               hasWebRTCConfig ||
+                               state.config.discovery.includes('bluetooth');
+
+  if (!shouldSetupTransport) {
+    return;
+  }
+
+  let messageBridge = createMessageBridge({
+    nodeId: state.id,
+    authEnabled: state.config.authentication?.enabled ?? false,
+  });
+
+  if (state.messageAuth) {
+    messageBridge = setMessageBridgeAuth(messageBridge, state.messageAuth);
+  }
+
+  updateState(stateRef, (s) => setMessageBridge(s, messageBridge));
+
+  let hybridDiscovery = createHybridDiscovery({
+    phases: ['proximity', 'local', 'internet', 'fallback'],
+    phaseTimeout: 5000,
+    autoEscalate: true,
+    preferProximity: true,
+  });
+
+  const libp2pAdapterState = createLibp2pAdapter({ node: state.node });
+  const initializedAdapter = initLibp2pAdapter(libp2pAdapterState);
+  hybridDiscovery = registerHybridAdapter(hybridDiscovery, toLibp2pAdapter(initializedAdapter));
+
+  if (state.config.proximity?.bluetooth?.enabled) {
+    const localContext: LocalContext = {
+      locationId: state.config.proximity.localContext?.locationId,
+      locationName: state.config.proximity.localContext?.locationName,
+      capabilities: state.config.proximity.localContext?.capabilities ?? 
+                    state.capabilities.map(c => c.name),
+      metadata: state.config.proximity.localContext?.metadata,
+    };
+
+    let bleAdapterState = createBLEAdapter({
+      serviceUUID: state.config.proximity.bluetooth.serviceUUID,
+      advertise: state.config.proximity.bluetooth.advertise ?? true,
+      scan: state.config.proximity.bluetooth.scan ?? true,
+    });
+    
+    bleAdapterState = setBLELocalContext(bleAdapterState, localContext);
+    hybridDiscovery = registerHybridAdapter(hybridDiscovery, toBLEAdapter(bleAdapterState));
+    console.log('BLE adapter registered for proximity discovery');
+  }
+
+  if (state.config.transport?.webrtc?.enabled) {
+    const webrtcAdapterState = createWebRTCAdapter(state.id, {
+      signalingServer: state.config.transport.webrtc.signalingServer,
+      iceServers: state.config.transport.webrtc.iceServers,
+    });
+    
+    const initializedWebRTC = await initWebRTCAdapter(webrtcAdapterState);
+    hybridDiscovery = registerHybridAdapter(hybridDiscovery, toWebRTCAdapter(initializedWebRTC));
+    console.log('WebRTC adapter registered for internet-phase discovery');
+  }
+
+  hybridDiscovery = await startHybridDiscovery(hybridDiscovery);
+
+  onHybridMessage(hybridDiscovery, async (peerId, transportMessage) => {
+    const currentState = getState(stateRef);
+    if (currentState.messageBridge) {
+      const updatedBridge = await handleIncomingBroadcast(
+        currentState.messageBridge,
+        peerId,
+        transportMessage
+      );
+      updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
+    }
+  });
+
+  updateState(stateRef, (s) => setTransport(s, hybridDiscovery));
+  console.log('Transport layer initialized with hybrid discovery');
+}
+
 export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   const stateRef = createStateRef(state);
 
@@ -267,6 +385,7 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   setupEventListeners(getState(stateRef), stateRef);
   await setupBootstrap(stateRef);
   await setupRegistry(stateRef);
+  await setupTransport(stateRef);
   await announceCapabilities(getState(stateRef));
 
   return stateRef;
@@ -274,6 +393,10 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
 
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   const state = getState(stateRef);
+
+  if (state.transport) {
+    await stopHybridDiscovery(state.transport);
+  }
 
   if (state.registryClient) {
     await unregisterFromRegistry(state.registryClient);
@@ -304,9 +427,17 @@ export async function sendMessage(
   try {
     await retryWithBackoff(
       async () => {
+        const currentState = getState(stateRef);
+        
+        if (currentState.messageBridge && currentState.transport) {
+          const { publishDirect } = await import('./messaging');
+          await publishDirect(currentState, peerId, message);
+          return;
+        }
+
         let messageToSend = message;
-        if (state.messageAuth) {
-          messageToSend = await signMessage(state.messageAuth, message);
+        if (currentState.messageAuth) {
+          messageToSend = await signMessage(currentState.messageAuth, message);
         }
 
         const messageEvent: MessageEvent = {
@@ -317,7 +448,7 @@ export async function sendMessage(
           timestamp: Date.now(),
         };
 
-        await publish(state, `peer:${peerId}`, messageEvent);
+        await publish(currentState, `peer:${peerId}`, messageEvent);
       },
       {
         maxAttempts,

@@ -130,6 +130,7 @@ export type {
   CapabilityMatch,
   DiscoveryMethod,
   TransportConfig,
+  ProximityConfig,
   Pricing,
   Invoice,
   PaymentProof,
@@ -177,3 +178,64 @@ export {
   retryWithBackoff,
   type RetryOptions,
 } from './utils';
+
+export {
+  createHybridDiscovery,
+  registerAdapter as registerTransportAdapter,
+  setPhaseMapping,
+  startDiscovery as startTransportDiscovery,
+  stopDiscovery as stopTransportDiscovery,
+  connectWithFallback,
+  sendWithFallback,
+  getDiscoveredPeers as getTransportDiscoveredPeers,
+  getProximityPeers as getTransportProximityPeers,
+  getPeersByPhase,
+  onDiscovery as onTransportDiscovery,
+  onConnection as onTransportConnection,
+  onMessage as onTransportMessage,
+  onPhaseChange,
+  getCurrentPhase,
+  forcePhase,
+  getTransportStats,
+  type HybridDiscoveryConfig,
+  type HybridDiscoveryState,
+  type DiscoveryPhase,
+  type DiscoveryResult,
+} from './transport/hybrid-discovery';
+
+export type {
+  TransportType,
+  TransportState,
+  TransportPeer,
+  TransportMessage,
+  TransportDiscoveryEvent,
+  TransportConnectionEvent,
+  TransportAdapter,
+  TransportManagerConfig,
+  ProximityInfo,
+  LocalContext,
+  BeaconConfig,
+} from './transport/types';
+
+export * as bleAdapter from './transport/adapters/bluetooth-le';
+export * as libp2pTransport from './transport/adapters/libp2p';
+export * as webrtcTransport from './transport/adapters/webrtc';
+
+export {
+  createMessageBridge,
+  setAuthState as setMessageBridgeAuth,
+  serializeMessage,
+  deserializeMessage,
+  createMessage,
+  subscribeToTopic as bridgeSubscribeToTopic,
+  unsubscribeFromTopic as bridgeUnsubscribeFromTopic,
+  subscribeToDirectMessages,
+  subscribeToAllDirectMessages,
+  handleIncomingTransportMessage,
+  serializeTopicMessage,
+  handleIncomingBroadcast,
+  getSubscribedTopics,
+  type MessageBridgeConfig,
+  type MessageBridgeState,
+  type TopicMessage,
+} from './transport/message-bridge';

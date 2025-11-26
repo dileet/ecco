@@ -10,7 +10,7 @@ import * as lifecycle from './lifecycle';
 import { findPeers as findPeersImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
-import { publish as publishFn, subscribe } from './messaging';
+import { publish as publishFn, subscribe, publishDirect } from './messaging';
 import { announceCapabilities } from './capabilities';
 import { setReputation, incrementReputation } from '../registry-client';
 

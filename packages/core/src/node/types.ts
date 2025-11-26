@@ -18,6 +18,8 @@ import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';
 import type { GossipSub } from '@libp2p/gossipsub';
 import type { PeerPerformanceState } from './peer-performance';
+import type { HybridDiscoveryState } from '../transport/hybrid-discovery';
+import type { MessageBridgeState } from '../transport/message-bridge';
 
 export type StateRef<T> = { current: T };
 
@@ -51,4 +53,6 @@ export interface NodeState {
   stakePositions: Record<string, StakePosition>;
   swarmSplits: Record<string, SwarmSplit>;
   pendingSettlements: SettlementIntent[];
+  transport?: HybridDiscoveryState;
+  messageBridge?: MessageBridgeState;
 }
