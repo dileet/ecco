@@ -8,7 +8,7 @@
  * 4. Output aggregation from multiple agents
  */
 
-import { Node, type NodeState, Orchestrator, type MultiAgentConfig, type MessageEvent } from '@ecco/core';
+import { Node, type NodeState, initialOrchestratorState, type OrchestratorState, type MultiAgentConfig, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -41,8 +41,7 @@ async function main() {
 
   console.log(`\nDiscovered ${Node.getPeers(seeker).length} peers\n`);
 
-  // Create orchestrator state for multi-agent coordination
-  const orchestratorState = Orchestrator.createState();
+  const orchestratorState = initialOrchestratorState;
 
   // ==========================================
   // Example 1: Majority Vote Strategy
@@ -272,7 +271,7 @@ async function createAgent(
  */
 async function runWithStrategy(
   seeker: NodeState,
-  orchestratorState: ReturnType<typeof Orchestrator.createState>,
+  orchestratorState: OrchestratorState,
   config: MultiAgentConfig,
   showLoadStats = false
 ) {
@@ -309,13 +308,13 @@ async function runWithStrategy(
     if (showLoadStats) {
       const stats = model.getLoadStatistics();
       console.log('\nLoad Statistics:');
-      stats.forEach((stat, peerId) => {
+      for (const [peerId, stat] of Object.entries(stats)) {
         console.log(`  ${peerId}:`);
         console.log(`    Active: ${stat.activeRequests}`);
         console.log(`    Total: ${stat.totalRequests}`);
         console.log(`    Success Rate: ${(stat.successRate * 100).toFixed(1)}%`);
         console.log(`    Avg Latency: ${stat.averageLatency.toFixed(0)}ms`);
-      });
+      }
     }
   } catch (error) {
     console.error('Error:', (error as Error).message);

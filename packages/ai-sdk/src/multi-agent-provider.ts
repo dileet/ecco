@@ -9,7 +9,9 @@ import type {
 } from '@ai-sdk/provider';
 import {
   Node,
-  Orchestrator,
+  executeOrchestration,
+  getLoadStatistics as getOrchestratorLoadStatistics,
+  resetLoadStatistics as resetOrchestratorLoadStatistics,
   type NodeState,
   type OrchestratorState,
   type CapabilityQuery,
@@ -27,7 +29,7 @@ interface MultiAgentProviderConfig {
 
 type MultiAgentLanguageModel = LanguageModelV2 & {
   defaultObjectGenerationMode: 'json';
-  getLoadStatistics: () => Map<string, unknown>;
+  getLoadStatistics: () => Record<string, unknown>;
   resetLoadStatistics: () => void;
 };
 
@@ -168,7 +170,7 @@ const doGenerate = async (
   };
 
   try {
-    const { result: aggregated, state: newOrchestratorState, nodeState: newNodeState } = await Orchestrator.execute(
+    const { result: aggregated, state: newOrchestratorState, nodeState: newNodeState } = await executeOrchestration(
       state.config.nodeState,
       state.orchestratorState,
       query,
@@ -292,12 +294,12 @@ const doStream = async (
   return { result: { stream }, state: finalState };
 };
 
-const getLoadStatistics = (state: MultiAgentLanguageModelState): Map<string, unknown> =>
-  Orchestrator.getLoadStatistics(state.orchestratorState);
+const getLoadStatistics = (state: MultiAgentLanguageModelState): Record<string, unknown> =>
+  getOrchestratorLoadStatistics(state.orchestratorState);
 
 const resetLoadStatistics = (state: MultiAgentLanguageModelState): MultiAgentLanguageModelState => ({
   ...state,
-  orchestratorState: Orchestrator.resetLoadStatistics(state.orchestratorState),
+  orchestratorState: resetOrchestratorLoadStatistics(state.orchestratorState),
 });
 
 const createMultiAgentProvider = (config: MultiAgentProviderConfig) => ({

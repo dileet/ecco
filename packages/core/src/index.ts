@@ -1,6 +1,11 @@
 export { Node } from './node';
 export { Pool } from './connection';
-export { Orchestrator } from './orchestrator';
+export {
+  initialOrchestratorState,
+  executeOrchestration,
+  getLoadStatistics,
+  resetLoadStatistics,
+} from './orchestrator';
 export {
   generateKeyPair,
   exportPublicKey,
@@ -64,9 +69,7 @@ export {
   enqueueSettlement,
   getNodeState,
 } from './node/state-ref';
-export { SelectionStrategy } from './orchestrator/selection';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
-export { LoadBalancing } from './orchestrator/load-balancing';
 export {
   createWalletState,
   getPublicClient,
@@ -160,7 +163,5 @@ export type {
   AggregationStrategy as AggregationStrategyType,
   LoadBalancingConfig,
   AgentLoadState,
-  Vote,
-  MultiAgentRequestState,
   SemanticSimilarityConfig,
 } from './orchestrator/types';

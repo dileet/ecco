@@ -4,7 +4,7 @@
  * This is a minimal example showing how to get started with multi-agent consensus
  */
 
-import { Node, type NodeState, Orchestrator, type MessageEvent } from '@ecco/core';
+import { Node, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -25,7 +25,7 @@ async function main() {
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  const orchestratorState = Orchestrator.createState();
+  const orchestratorState = initialOrchestratorState;
 
   const provider = createMultiAgentProvider({
     nodeState: startedSeekerState,

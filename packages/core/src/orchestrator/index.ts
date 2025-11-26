@@ -1,4 +1,3 @@
-import { Effect } from 'effect';
 import { nanoid } from 'nanoid';
 import type { CapabilityQuery, Message, CapabilityMatch } from '../types';
 import type { NodeState } from '../node/types';
@@ -6,366 +5,347 @@ import type {
   MultiAgentConfig,
   AgentResponse,
   AggregatedResult,
-  MultiAgentRequestState,
   AgentLoadState,
 } from './types';
-import { selectAgents } from './selection';
 import { aggregateResponses } from './aggregation';
-import { LoadBalancing } from './load-balancing';
 import { Node } from '../node';
 
 export type OrchestratorState = {
-  loadStates: Map<string, AgentLoadState>;
-  requestStates: Map<string, MultiAgentRequestState>;
+  loadStates: Record<string, AgentLoadState>;
 };
 
-namespace OrchestrationLogic {
-  export function validateAgentCount(
-    foundAgents: number,
-    minRequired: number
-  ): { valid: boolean; error?: string } {
-    if (foundAgents === 0) {
-      return { valid: false, error: 'No matching agents found' };
-    }
-    if (foundAgents < minRequired) {
-      return {
-        valid: false,
-        error: `Insufficient agents: found ${foundAgents}, required ${minRequired}`,
-      };
-    }
-    return { valid: true };
-  }
+export const initialOrchestratorState: OrchestratorState = {
+  loadStates: {},
+};
 
-  export function prepareAgentRequests(
-    selectedAgents: CapabilityMatch[],
-    requestId: string,
-    payload: unknown,
-    nodeId: string
-  ): Array<{ match: CapabilityMatch; message: Message }> {
-    return selectedAgents.map((match) => ({
-      match,
-      message: {
-        id: `${requestId}-${match.peer.id}`,
-        from: nodeId,
-        to: match.peer.id,
-        type: 'agent-request',
-        payload,
-        timestamp: Date.now(),
-      },
-    }));
-  }
+const defaultLoadState = (peerId: string): AgentLoadState => ({
+  peerId,
+  activeRequests: 0,
+  totalRequests: 0,
+  totalErrors: 0,
+  averageLatency: 0,
+  lastRequestTime: 0,
+  successRate: 1.0,
+});
 
-  export function updateLoadStatesForExecution(
-    loadStates: Map<string, AgentLoadState>,
-    selectedAgents: CapabilityMatch[]
-  ): Map<string, AgentLoadState> {
-    let newLoadStates = loadStates;
-    selectedAgents.forEach((match) => {
-      newLoadStates = LoadBalancing.incrementActiveRequests(newLoadStates, match.peer.id);
-    });
-    return newLoadStates;
-  }
+const selectAgents = (
+  matches: CapabilityMatch[],
+  config: MultiAgentConfig,
+  loadStates: Record<string, AgentLoadState>
+): CapabilityMatch[] => {
+  const n = config.agentCount || 3;
 
-  export function finalizeLoadStates(
-    loadStates: Map<string, AgentLoadState>,
-    selectedAgents: CapabilityMatch[]
-  ): Map<string, AgentLoadState> {
-    let newLoadStates = loadStates;
-    selectedAgents.forEach((match) => {
-      newLoadStates = LoadBalancing.decrementActiveRequests(newLoadStates, match.peer.id);
-    });
-    return newLoadStates;
-  }
-}
+  switch (config.selectionStrategy) {
+    case 'all':
+      return matches;
 
-namespace OrchestrationEffects {
-  export async function sendAgentRequest(
-    nodeState: NodeState,
-    message: Message,
-    timeout: number,
-    resolver: { resolve: (data: unknown) => void; reject: (error: Error) => void }
-  ): Promise<{
-    result: { response: unknown; latency: number; success: boolean; error?: Error };
-    nodeState: NodeState;
-  }> {
-    const sendTime = Date.now();
+    case 'top-n':
+      return matches.slice(0, n);
 
-    return new Promise((resolve) => {
-      let resolved = false;
-      const timer = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          resolver.reject(new Error('Request timeout'));
-          resolve({
-            result: { response: null, latency: Date.now() - sendTime, success: false, error: new Error('Request timeout') },
-            nodeState,
-          });
-        }
-      }, timeout);
-
-      const originalResolve = resolver.resolve;
-      const originalReject = resolver.reject;
-      
-      resolver.resolve = (data: unknown) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          originalResolve(data);
-          resolve({
-            result: { response: data, latency: Date.now() - sendTime, success: true },
-            nodeState,
-          });
-        }
-      };
-      
-      resolver.reject = (error: Error) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          originalReject(error);
-          resolve({
-            result: { response: null, latency: Date.now() - sendTime, success: false, error },
-            nodeState,
-          });
-        }
-      };
-      
-      Node.sendMessage(nodeState, message.to, message).catch((error) => {
-        resolver.reject(error as Error);
+    case 'round-robin': {
+      const sorted = [...matches].sort((a, b) => {
+        const loadA = loadStates[a.peer.id]?.totalRequests ?? 0;
+        const loadB = loadStates[b.peer.id]?.totalRequests ?? 0;
+        return loadA - loadB;
       });
-    });
-  }
-}
-
-export namespace Orchestrator {
-  export function createState(): OrchestratorState {
-    return {
-      loadStates: new Map(),
-      requestStates: new Map(),
-    };
-  }
-
-  async function sendToAgent(
-    nodeState: NodeState,
-    state: OrchestratorState,
-    match: CapabilityMatch,
-    message: Message,
-    config: MultiAgentConfig,
-    resolver: { resolve: (data: unknown) => void; reject: (error: Error) => void }
-  ): Promise<{ response: AgentResponse; state: OrchestratorState; nodeState: NodeState }> {
-    const { result, nodeState: updatedNodeState } = await OrchestrationEffects.sendAgentRequest(
-      nodeState,
-      message,
-      config.timeout || 30000,
-      resolver
-    );
-
-    let newLoadStates = state.loadStates;
-    if (config.loadBalancing?.enabled) {
-      newLoadStates = LoadBalancing.updateLoadState(
-        newLoadStates,
-        match.peer.id,
-        result.latency,
-        result.success
-      );
+      return sorted.slice(0, n);
     }
 
-    return {
-      response: {
-        peer: match.peer,
-        matchScore: match.matchScore,
-        response: result.response,
-        timestamp: Date.now(),
-        latency: result.latency,
-        error: result.error,
-        success: result.success,
-      },
-      state: { ...state, loadStates: newLoadStates },
-      nodeState: updatedNodeState,
-    };
-  }
+    case 'random':
+      return [...matches].sort(() => Math.random() - 0.5).slice(0, n);
 
-  export async function execute(
-    nodeState: NodeState,
-    state: OrchestratorState,
-    query: CapabilityQuery,
-    payload: unknown,
-    config: MultiAgentConfig
-  ): Promise<{ result: AggregatedResult; state: OrchestratorState; nodeState: NodeState }> {
-    const startTime = Date.now();
-    const requestId = nanoid();
+    case 'weighted': {
+      const loadWeight = config.loadBalancing?.loadWeight ?? 0.3;
+      const loadBalancingEnabled = config.loadBalancing?.enabled ?? false;
+      const selected: CapabilityMatch[] = [];
+      const available = [...matches];
 
-    const { matches: allMatches, state: updatedNodeState } = await Node.findPeers(nodeState, query);
-    let currentNodeState = updatedNodeState;
+      for (let i = 0; i < n && available.length > 0; i++) {
+        const weights = available.map((match) => {
+          const activeRequests = loadStates[match.peer.id]?.activeRequests ?? 0;
+          const loadFactor = loadBalancingEnabled ? 1 / (activeRequests + 1) : 1;
+          return match.matchScore * (1 - loadWeight) + loadFactor * loadWeight;
+        });
 
-    const validation = OrchestrationLogic.validateAgentCount(
-      allMatches.length,
-      config.minAgents || 1
-    );
-    if (!validation.valid) {
-      throw new Error(validation.error);
+        const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+        let random = Math.random() * totalWeight;
+
+        let selectedIndex = 0;
+        for (let j = 0; j < weights.length; j++) {
+          random -= weights[j];
+          if (random <= 0) {
+            selectedIndex = j;
+            break;
+          }
+        }
+
+        selected.push(available[selectedIndex]);
+        available.splice(selectedIndex, 1);
+      }
+
+      return selected;
     }
 
-    const selectedAgents = selectAgents(allMatches, config, state.loadStates);
+    default:
+      return matches.slice(0, n);
+  }
+};
 
-    const requests = OrchestrationLogic.prepareAgentRequests(
-      selectedAgents,
-      requestId,
+const validateAgentCount = (
+  foundAgents: number,
+  minRequired: number
+): { valid: boolean; error?: string } => {
+  if (foundAgents === 0) {
+    return { valid: false, error: 'No matching agents found' };
+  }
+  if (foundAgents < minRequired) {
+    return {
+      valid: false,
+      error: `Insufficient agents: found ${foundAgents}, required ${minRequired}`,
+    };
+  }
+  return { valid: true };
+};
+
+const prepareAgentRequests = (
+  selectedAgents: CapabilityMatch[],
+  requestId: string,
+  payload: unknown,
+  nodeId: string
+): Array<{ match: CapabilityMatch; message: Message }> =>
+  selectedAgents.map((match) => ({
+    match,
+    message: {
+      id: `${requestId}-${match.peer.id}`,
+      from: nodeId,
+      to: match.peer.id,
+      type: 'agent-request',
       payload,
-      Node.getId(currentNodeState)
-    );
+      timestamp: Date.now(),
+    },
+  }));
 
-    console.log(
-      `Executing multi-agent request with ${selectedAgents.length} agents using ${config.selectionStrategy} selection and ${config.aggregationStrategy} aggregation`
-    );
+const updateLoadStatesForExecution = (
+  loadStates: Record<string, AgentLoadState>,
+  selectedAgents: CapabilityMatch[]
+): Record<string, AgentLoadState> => {
+  let result = { ...loadStates };
+  for (const match of selectedAgents) {
+    const current = result[match.peer.id] ?? defaultLoadState(match.peer.id);
+    result = {
+      ...result,
+      [match.peer.id]: {
+        ...current,
+        activeRequests: current.activeRequests + 1,
+        totalRequests: current.totalRequests + 1,
+        lastRequestTime: Date.now(),
+      },
+    };
+  }
+  return result;
+};
 
-    let currentState = state;
-    if (config.loadBalancing?.enabled) {
-      const newLoadStates = OrchestrationLogic.updateLoadStatesForExecution(
-        currentState.loadStates,
-        selectedAgents
+const finalizeLoadStates = (
+  loadStates: Record<string, AgentLoadState>,
+  selectedAgents: CapabilityMatch[]
+): Record<string, AgentLoadState> => {
+  let result = { ...loadStates };
+  for (const match of selectedAgents) {
+    const current = result[match.peer.id] ?? defaultLoadState(match.peer.id);
+    result = {
+      ...result,
+      [match.peer.id]: {
+        ...current,
+        activeRequests: Math.max(0, current.activeRequests - 1),
+      },
+    };
+  }
+  return result;
+};
+
+export const executeOrchestration = async (
+  nodeState: NodeState,
+  state: OrchestratorState,
+  query: CapabilityQuery,
+  payload: unknown,
+  config: MultiAgentConfig
+): Promise<{ result: AggregatedResult; state: OrchestratorState; nodeState: NodeState }> => {
+  const startTime = Date.now();
+  const requestId = nanoid();
+
+  const { matches: allMatches, state: updatedNodeState } = await Node.findPeers(nodeState, query);
+  let currentNodeState = updatedNodeState;
+
+  const validation = validateAgentCount(allMatches.length, config.minAgents || 1);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  const selectedAgents = selectAgents(allMatches, config, state.loadStates);
+
+  const requests = prepareAgentRequests(
+    selectedAgents,
+    requestId,
+    payload,
+    Node.getId(currentNodeState)
+  );
+
+  console.log(
+    `Executing multi-agent request with ${selectedAgents.length} agents using ${config.selectionStrategy} selection and ${config.aggregationStrategy} aggregation`
+  );
+
+  let currentState = state;
+  if (config.loadBalancing?.enabled) {
+    const newLoadStates = updateLoadStatesForExecution(currentState.loadStates, selectedAgents);
+    currentState = { ...currentState, loadStates: newLoadStates };
+  }
+
+  try {
+    let stateWithSubscriptions = currentNodeState;
+    const responsePromises = new Map<string, Promise<unknown>>();
+    const responseResolvers = new Map<
+      string,
+      { resolve: (data: unknown) => void; reject: (error: Error) => void }
+    >();
+
+    for (const req of requests) {
+      const promise = new Promise<unknown>((resolve, reject) => {
+        responseResolvers.set(req.message.id, { resolve, reject });
+      });
+      responsePromises.set(req.message.id, promise);
+
+      const handler = (data: unknown) => {
+        const resolver = responseResolvers.get(req.message.id);
+        if (resolver) {
+          resolver.resolve(data);
+        }
+      };
+
+      stateWithSubscriptions = Node.subscribeToTopic(
+        stateWithSubscriptions,
+        `response:${req.message.id}`,
+        handler
       );
+    }
+
+    for (const req of requests) {
+      Node.sendMessage(stateWithSubscriptions, req.message.to, req.message).catch((error) => {
+        const resolver = responseResolvers.get(req.message.id);
+        if (resolver) {
+          resolver.reject(error as Error);
+        }
+      });
+    }
+
+    const agentPromises = requests.map(async (req): Promise<{
+      response: AgentResponse;
+      state: OrchestratorState;
+      nodeState: NodeState;
+    }> => {
+      const timeout = config.timeout || 30000;
+      const sendTime = Date.now();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), timeout);
+      });
+
+      try {
+        const response = await Promise.race([
+          responsePromises.get(req.message.id)!,
+          timeoutPromise,
+        ]);
+
+        const latency = Date.now() - sendTime;
+
+        let newLoadStates = currentState.loadStates;
+        if (config.loadBalancing?.enabled) {
+          const current = newLoadStates[req.match.peer.id] ?? defaultLoadState(req.match.peer.id);
+          newLoadStates = {
+            ...newLoadStates,
+            [req.match.peer.id]: {
+              ...current,
+              averageLatency: current.averageLatency * 0.8 + latency * 0.2,
+              successRate: (current.totalRequests - current.totalErrors) / current.totalRequests,
+            },
+          };
+        }
+
+        return {
+          response: {
+            peer: req.match.peer,
+            matchScore: req.match.matchScore,
+            response,
+            timestamp: Date.now(),
+            latency,
+            success: true,
+          },
+          state: { ...currentState, loadStates: newLoadStates },
+          nodeState: stateWithSubscriptions,
+        };
+      } catch (error) {
+        const latency = Date.now() - sendTime;
+
+        let newLoadStates = currentState.loadStates;
+        if (config.loadBalancing?.enabled) {
+          const current = newLoadStates[req.match.peer.id] ?? defaultLoadState(req.match.peer.id);
+          const totalErrors = current.totalErrors + 1;
+          newLoadStates = {
+            ...newLoadStates,
+            [req.match.peer.id]: {
+              ...current,
+              totalErrors,
+              averageLatency: current.averageLatency * 0.8 + latency * 0.2,
+              successRate: (current.totalRequests - totalErrors) / current.totalRequests,
+            },
+          };
+        }
+
+        return {
+          response: {
+            peer: req.match.peer,
+            matchScore: req.match.matchScore,
+            response: null,
+            timestamp: Date.now(),
+            latency,
+            error: error as Error,
+            success: false,
+          },
+          state: { ...currentState, loadStates: newLoadStates },
+          nodeState: stateWithSubscriptions,
+        };
+      }
+    });
+
+    const results = await Promise.all(agentPromises);
+    const responses = results.map((r) => r.response);
+
+    if (results.length > 0) {
+      currentState = results[results.length - 1].state;
+      currentNodeState = results[results.length - 1].nodeState;
+    }
+
+    const configWithState: MultiAgentConfig = {
+      ...config,
+      nodeState: currentNodeState,
+    };
+
+    const result = await aggregateResponses(responses, configWithState);
+    result.metrics.totalTime = Date.now() - startTime;
+
+    return { result, state: currentState, nodeState: currentNodeState };
+  } finally {
+    if (config.loadBalancing?.enabled) {
+      const newLoadStates = finalizeLoadStates(currentState.loadStates, selectedAgents);
       currentState = { ...currentState, loadStates: newLoadStates };
     }
-
-    try {
-      let stateWithSubscriptions = currentNodeState;
-      const responsePromises = new Map<string, Promise<unknown>>();
-      const responseResolvers = new Map<string, { resolve: (data: unknown) => void; reject: (error: Error) => void }>();
-      
-      for (const req of requests) {
-        const promise = new Promise<unknown>((resolve, reject) => {
-          responseResolvers.set(req.message.id, { resolve, reject });
-        });
-        responsePromises.set(req.message.id, promise);
-        
-        const handler = (data: unknown) => {
-          const resolver = responseResolvers.get(req.message.id);
-          if (resolver) {
-            resolver.resolve(data);
-          }
-        };
-        
-        stateWithSubscriptions = Node.subscribeToTopic(
-          stateWithSubscriptions,
-          `response:${req.message.id}`,
-          handler
-        );
-      }
-
-      for (const req of requests) {
-        Node.sendMessage(stateWithSubscriptions, req.message.to, req.message).catch((error) => {
-          const resolver = responseResolvers.get(req.message.id);
-          if (resolver) {
-            resolver.reject(error as Error);
-          }
-        });
-      }
-
-      const agentPromises = requests.map(async (req) => {
-        const timeout = config.timeout || 30000;
-        const sendTime = Date.now();
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Request timeout')), timeout);
-        });
-        
-        try {
-          const response = await Promise.race([
-            responsePromises.get(req.message.id)!,
-            timeoutPromise
-          ]);
-          
-          const latency = Date.now() - sendTime;
-          
-          let newLoadStates = currentState.loadStates;
-          if (config.loadBalancing?.enabled) {
-            newLoadStates = LoadBalancing.updateLoadState(
-              newLoadStates,
-              req.match.peer.id,
-              latency,
-              true
-            );
-          }
-          
-          return {
-            response: {
-              peer: req.match.peer,
-              matchScore: req.match.matchScore,
-              response,
-              timestamp: Date.now(),
-              latency,
-              success: true,
-            },
-            state: { ...currentState, loadStates: newLoadStates },
-            nodeState: stateWithSubscriptions,
-          };
-        } catch (error) {
-          const latency = Date.now() - sendTime;
-          
-          let newLoadStates = currentState.loadStates;
-          if (config.loadBalancing?.enabled) {
-            newLoadStates = LoadBalancing.updateLoadState(
-              newLoadStates,
-              req.match.peer.id,
-              latency,
-              false
-            );
-          }
-          
-          return {
-            response: {
-              peer: req.match.peer,
-              matchScore: req.match.matchScore,
-              response: null,
-              timestamp: Date.now(),
-              latency,
-              error: error as Error,
-              success: false,
-            },
-            state: { ...currentState, loadStates: newLoadStates },
-            nodeState: stateWithSubscriptions,
-          };
-        }
-      });
-
-      const results = await Promise.all(agentPromises);
-      const responses = results.map((r) => r.response);
-
-      if (results.length > 0) {
-        currentState = results[results.length - 1].state;
-        currentNodeState = results[results.length - 1].nodeState;
-      }
-
-      const configWithState: MultiAgentConfig = {
-        ...config,
-        nodeState: currentNodeState,
-      };
-
-      const result = await Effect.runPromise(aggregateResponses(responses, configWithState));
-      result.metrics.totalTime = Date.now() - startTime;
-
-      return { result, state: currentState, nodeState: currentNodeState };
-    } finally {
-      if (config.loadBalancing?.enabled) {
-        const newLoadStates = OrchestrationLogic.finalizeLoadStates(
-          currentState.loadStates,
-          selectedAgents
-        );
-        currentState = { ...currentState, loadStates: newLoadStates };
-      }
-    }
   }
+};
 
-  export function getLoadStatistics(state: OrchestratorState): Map<string, AgentLoadState> {
-    return LoadBalancing.getLoadStatistics(state.loadStates);
-  }
+export const getLoadStatistics = (state: OrchestratorState): Record<string, AgentLoadState> =>
+  ({ ...state.loadStates });
 
-  export function resetLoadStatistics(state: OrchestratorState): OrchestratorState {
-    return {
-      ...state,
-      loadStates: LoadBalancing.resetLoadStatistics(),
-    };
-  }
-}
+export const resetLoadStatistics = (state: OrchestratorState): OrchestratorState => ({
+  ...state,
+  loadStates: {},
+});
 
 export * from './types';

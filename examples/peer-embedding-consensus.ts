@@ -8,7 +8,7 @@
  * 4. Semantic consensus using peer embeddings
  */
 
-import { Node, type NodeState, Orchestrator, type MessageEvent } from '@ecco/core';
+import { Node, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest, setupEmbeddingProvider } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -62,7 +62,7 @@ async function main() {
 
   console.log(`Discovered ${Node.getPeers(seekerState).length} peers\n`);
 
-  const orchestratorState = Orchestrator.createState();
+  const orchestratorState = initialOrchestratorState;
 
   console.log('--- Consensus with Peer Embeddings (Reciprocal Exchange) ---\n');
 
