@@ -427,8 +427,8 @@ export async function findPeers(
     if (strategy === 'dht' && state.node?.services.dht) {
       console.log('No matches from registry, querying DHT...');
       const currentNode = state.node;
-      const { DHT } = await import('./dht');
-      const dhtPeers = await DHT.queryCapabilities(currentNode, query);
+      const { queryCapabilities } = await import('./dht');
+      const dhtPeers = await queryCapabilities(currentNode, query);
       const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, dhtPeers);
 
       updateState(stateRef, (s) => addPeers(s, newPeers));

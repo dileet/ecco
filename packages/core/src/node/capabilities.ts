@@ -38,14 +38,8 @@ export async function announceCapabilities(state: NodeState): Promise<void> {
   }
 
   if (state.config.discovery.includes('dht') && state.node?.services.dht) {
-    const { DHT } = await import('./dht');
-    const addresses = state.node.getMultiaddrs().map(String);
-    await DHT.announceCapabilities(state.node, state.id, state.capabilities, addresses, {
-      waitForReady: true,
-      minPeers: 1,
-      timeout: 10000,
-      retries: 2,
-    });
+    const { announceCapabilities: announceDHT } = await import('./dht');
+    await announceDHT(state.node, state.capabilities);
   }
 }
 
