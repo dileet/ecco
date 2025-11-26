@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { NodeState, StateRef } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
-import { publish, subscribe } from './messaging';
+import { publish, subscribeWithRef } from './messaging';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup } from './state';
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
@@ -56,13 +56,13 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     return;
   }
 
-  let currentState = state;
-
-  currentState = subscribe(currentState, 'ecco:capabilities', (event: EccoEvent) => {
+  subscribeWithRef(stateRef, 'ecco:capabilities', (event: EccoEvent) => {
     if (event.type !== 'capability-announcement') return;
     const { peerId, capabilities, timestamp } = event as CapabilityAnnouncementEvent;
 
     const current = getState(stateRef);
+    if (peerId === current.id) return;
+    
     const existingPeer = current.peers[peerId];
 
     if (existingPeer && hasCapabilitiesChanged(existingPeer.capabilities, capabilities)) {
@@ -74,7 +74,7 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     updateOrAddPeer(stateRef, peerId, capabilities, timestamp);
   });
 
-  currentState = subscribe(currentState, 'ecco:capability-request', async (event: EccoEvent) => {
+  subscribeWithRef(stateRef, 'ecco:capability-request', async (event: EccoEvent) => {
     if (event.type !== 'capability-request') return;
     const { requestId, from, requiredCapabilities, preferredPeers, timestamp } = event as CapabilityRequestEvent;
 
@@ -93,18 +93,19 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     );
 
     if (matches.length > 0) {
-      await publish(current, 'ecco:capability-response', {
+      const latestState = getState(stateRef);
+      await publish(latestState, 'ecco:capability-response', {
         type: 'capability-response',
         requestId,
-        peerId: current.id,
-        capabilities: current.capabilities,
+        peerId: latestState.id,
+        capabilities: latestState.capabilities,
         timestamp: Date.now(),
       });
-      console.log(`[${current.id}] Sent capability response to ${from}`);
+      console.log(`[${latestState.id}] Sent capability response to ${from}`);
     }
   });
 
-  currentState = subscribe(currentState, 'ecco:capability-response', (event: EccoEvent) => {
+  subscribeWithRef(stateRef, 'ecco:capability-response', (event: EccoEvent) => {
     if (event.type !== 'capability-response') return;
     const { peerId, capabilities, timestamp } = event as CapabilityResponseEvent;
 
@@ -112,7 +113,7 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     updateOrAddPeer(stateRef, peerId, capabilities, timestamp);
   });
 
-  updateState(stateRef, () => setCapabilityTrackingSetup(currentState, true));
+  updateState(stateRef, (s) => setCapabilityTrackingSetup(s, true));
 }
 
 export function findMatchingPeers(state: NodeState, query: CapabilityQuery): CapabilityMatch[] {

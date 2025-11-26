@@ -2,7 +2,6 @@ import type { Message } from '../types';
 import type { TransportMessage } from './types';
 import type { AuthState, SignedMessage } from '../services/auth';
 import { signMessage, verifyMessage } from '../services/auth';
-import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 
 const MessageSchema = z.object({
@@ -122,7 +121,7 @@ export function createMessage(
   payload: unknown
 ): Message {
   return {
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     from: state.config.nodeId,
     to,
     type,

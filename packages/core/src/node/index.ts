@@ -10,7 +10,7 @@ import * as lifecycle from './lifecycle';
 import { findPeers as findPeersImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
-import { publish as publishFn, subscribe, publishDirect } from './messaging';
+import { publish as publishFn, subscribeWithRef } from './messaging';
 import { announceCapabilities } from './capabilities';
 import { setReputation, incrementReputation } from '../registry-client';
 
@@ -31,9 +31,7 @@ export async function publish(ref: StateRef<NodeState>, topic: string, event: Ec
 }
 
 export function subscribeToTopic(ref: StateRef<NodeState>, topic: string, handler: (event: EccoEvent) => void): void {
-  const state = getState(ref);
-  const updatedState = subscribe(state, topic, handler);
-  setState(ref, updatedState);
+  subscribeWithRef(ref, topic, handler);
 }
 
 export async function findPeers(

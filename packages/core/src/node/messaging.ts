@@ -1,15 +1,16 @@
-import type { NodeState } from './types';
+import type { NodeState, StateRef } from './types';
 import type { Message } from '../types';
 import { z } from 'zod';
 import { verifyMessage, signMessage } from '../services/auth';
-import { addSubscription } from './state';
+import { addSubscription, getState, updateState } from './state';
 import { validateEvent, isValidEvent, type EccoEvent } from '../events';
 import {
   serializeTopicMessage,
   subscribeToTopic as bridgeSubscribeToTopic,
   createMessage,
 } from '../transport/message-bridge';
-import { broadcastMessage } from '../transport/manager';
+
+const subscribedTopics = new Map<string, Set<string>>();
 
 const PubSubMessageSchema = z.object({
   topic: z.string(),
@@ -26,33 +27,30 @@ function extractMessageData(detail: unknown): z.infer<typeof PubSubMessageSchema
   return result.success ? result.data : null;
 }
 
+function hasTransportLayer(state: NodeState): boolean {
+  return !!(state.transport && state.messageBridge);
+}
+
 export async function publish(state: NodeState, topic: string, event: EccoEvent): Promise<void> {
   const validatedEvent = validateEvent(event);
-  
-  if (state.node?.services.pubsub) {
-    const message = new TextEncoder().encode(JSON.stringify(validatedEvent));
-    console.log(`[${state.id}] Publishing to topic ${topic} via libp2p pubsub, event type: ${event.type}`);
-    await state.node.services.pubsub.publish(topic, message);
-    return;
-  }
 
-  if (state.messageBridge && state.transport) {
+  if (hasTransportLayer(state)) {
     console.log(`[${state.id}] Publishing to topic ${topic} via transport layer, event type: ${event.type}`);
-    
+
     const bridgeMessage = createMessage(
-      state.messageBridge,
+      state.messageBridge!,
       'broadcast',
       'gossip',
       { topic, event: validatedEvent }
     );
 
     const transportMessage = await serializeTopicMessage(
-      state.messageBridge,
+      state.messageBridge!,
       topic,
       bridgeMessage
     );
 
-    for (const adapter of state.transport.adapters.values()) {
+    for (const adapter of state.transport!.adapters.values()) {
       if (adapter.state === 'connected') {
         await adapter.broadcast(transportMessage);
       }
@@ -60,7 +58,14 @@ export async function publish(state: NodeState, topic: string, event: EccoEvent)
     return;
   }
 
-  throw new Error('No messaging transport available (neither pubsub nor transport layer)');
+  if (state.node?.services.pubsub) {
+    const message = new TextEncoder().encode(JSON.stringify(validatedEvent));
+    console.log(`[${state.id}] Publishing to topic ${topic} via libp2p pubsub (fallback), event type: ${event.type}`);
+    await state.node.services.pubsub.publish(topic, message);
+    return;
+  }
+
+  throw new Error('No messaging transport available');
 }
 
 export async function publishDirect(
@@ -68,32 +73,136 @@ export async function publishDirect(
   peerId: string,
   message: Message
 ): Promise<void> {
-  if (state.node?.services.pubsub) {
-    let messageToSend = message;
-    if (state.messageAuth) {
-      messageToSend = await signMessage(state.messageAuth, message);
-    }
-    
-    const encoded = new TextEncoder().encode(JSON.stringify(messageToSend));
-    await state.node.services.pubsub.publish(`peer:${peerId}`, encoded);
-    return;
-  }
-
-  if (state.messageBridge && state.transport) {
+  if (hasTransportLayer(state)) {
     const { serializeMessage } = await import('../transport/message-bridge');
-    const transportMessage = await serializeMessage(state.messageBridge, message);
-    
-    for (const adapter of state.transport.adapters.values()) {
+    const transportMessage = await serializeMessage(state.messageBridge!, message);
+
+    for (const adapter of state.transport!.adapters.values()) {
       const connectedPeers = adapter.getConnectedPeers();
       const isConnected = connectedPeers.some(p => p.id === peerId);
-      
+
       if (isConnected) {
         await adapter.send(peerId, transportMessage);
         return;
       }
     }
-    
+
     throw new Error(`Peer ${peerId} not connected on any transport`);
+  }
+
+  if (state.node?.services.pubsub) {
+    let messageToSend = message;
+    if (state.messageAuth) {
+      messageToSend = await signMessage(state.messageAuth, message);
+    }
+
+    const encoded = new TextEncoder().encode(JSON.stringify(messageToSend));
+    await state.node.services.pubsub.publish(`peer:${peerId}`, encoded);
+    return;
+  }
+
+  throw new Error('No messaging transport available');
+}
+
+export function subscribeWithRef(
+  stateRef: StateRef<NodeState>,
+  topic: string,
+  handler: (event: EccoEvent) => void
+): void {
+  const state = getState(stateRef);
+
+  updateState(stateRef, (s) => addSubscription(s, topic, handler));
+
+  if (!subscribedTopics.has(state.id)) {
+    subscribedTopics.set(state.id, new Set());
+  }
+
+  const nodeTopics = subscribedTopics.get(state.id)!;
+  const isFirstSubscription = !nodeTopics.has(topic);
+
+  if (!isFirstSubscription) {
+    return;
+  }
+
+  nodeTopics.add(topic);
+
+  if (hasTransportLayer(state)) {
+    console.log(`[${state.id}] Subscribing to topic: ${topic} via transport layer`);
+
+    updateState(stateRef, (s) => {
+      if (!s.messageBridge) return s;
+
+      return {
+        ...s,
+        messageBridge: bridgeSubscribeToTopic(
+          s.messageBridge,
+          topic,
+          (message: Message) => {
+            try {
+              const payload = message.payload as { topic?: string; event?: EccoEvent };
+
+              if (payload?.event && isValidEvent(payload.event)) {
+                const validatedEvent = validateEvent(payload.event);
+                const latestState = getState(stateRef);
+                const handlers = latestState.subscriptions[topic];
+
+                if (handlers && handlers.length > 0) {
+                  handlers.forEach((h) => h(validatedEvent));
+                }
+              }
+            } catch (error) {
+              const currentState = getState(stateRef);
+              console.error(`[${currentState.id}] Error processing transport message on topic ${topic}:`, error);
+            }
+          }
+        ),
+      };
+    });
+    return;
+  }
+
+  if (state.node?.services.pubsub) {
+    const pubsub = state.node.services.pubsub;
+
+    console.log(`[${state.id}] Subscribing to topic: ${topic} via libp2p pubsub (fallback)`);
+    pubsub.subscribe(topic);
+
+    pubsub.addEventListener('message', async (evt) => {
+      const messageData = extractMessageData(evt.detail);
+      if (!messageData || messageData.topic !== topic) {
+        return;
+      }
+
+      try {
+        const rawData = JSON.parse(new TextDecoder().decode(messageData.data));
+        const currentState = getState(stateRef);
+
+        if (currentState.messageAuth && rawData.signature) {
+          const { valid } = await verifyMessage(currentState.messageAuth, rawData);
+          if (!valid) {
+            console.warn('Received message with invalid signature, ignoring');
+            return;
+          }
+        }
+
+        if (!isValidEvent(rawData)) {
+          console.warn('Received invalid event, ignoring');
+          return;
+        }
+
+        const validatedEvent = validateEvent(rawData);
+        const latestState = getState(stateRef);
+        const handlers = latestState.subscriptions[topic];
+
+        if (handlers && handlers.length > 0) {
+          handlers.forEach((h) => h(validatedEvent));
+        }
+      } catch (error) {
+        const currentState = getState(stateRef);
+        console.error(`[${currentState.id}] Error processing pubsub message on topic ${topic}:`, error);
+      }
+    });
+    return;
   }
 
   throw new Error('No messaging transport available');
@@ -153,7 +262,7 @@ export function subscribe(
       });
     } else if (currentState.messageBridge) {
       console.log(`[${currentState.id}] Subscribing to topic: ${topic} via message bridge`);
-      
+
       currentState = {
         ...currentState,
         messageBridge: bridgeSubscribeToTopic(
@@ -162,7 +271,7 @@ export function subscribe(
           (message: Message) => {
             try {
               const payload = message.payload as { topic?: string; event?: EccoEvent };
-              
+
               if (payload?.event && isValidEvent(payload.event)) {
                 const validatedEvent = validateEvent(payload.event);
                 const handlers = currentState.subscriptions[topic];

@@ -48,6 +48,21 @@ export function setupEventListeners(
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
     console.log('Connected to peer:', peerId);
+    
+    const currentState = getState(stateRef);
+    if (!currentState.peers[peerId]) {
+      const peerAddresses = node.getConnections()
+        .filter(conn => conn.remotePeer.toString() === peerId)
+        .flatMap(conn => conn.remoteAddr ? [conn.remoteAddr.toString()] : []);
+      
+      updateState(stateRef, (s) => addPeers(s, [{
+        id: peerId,
+        addresses: peerAddresses,
+        capabilities: [],
+        lastSeen: Date.now(),
+      }]));
+    }
+    
     handlePeerConnect(stateRef);
   });
 

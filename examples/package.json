@@ -4,9 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts",
-    "db:push:persistence-demo": "ECCO_DB_PATH=.ecco/persistence-demo-node.sqlite bun run ../packages/core/bin/db-push.ts",
-    "persistence-demo": "bun run persistence-demo.ts"
+    "basic": "bun run basic-peer-discovery.ts",
+    "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.62",

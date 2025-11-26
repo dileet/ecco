@@ -291,13 +291,14 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     return;
   }
 
+  const hasGossipEnabled = state.config.discovery.includes('gossip');
   const hasProximityConfig = state.config.proximity?.bluetooth?.enabled ||
                              state.config.proximity?.wifiDirect?.enabled ||
                              state.config.proximity?.nfc?.enabled;
-  
   const hasWebRTCConfig = state.config.transport?.webrtc?.enabled;
   
-  const shouldSetupTransport = hasProximityConfig || 
+  const shouldSetupTransport = hasGossipEnabled ||
+                               hasProximityConfig || 
                                hasWebRTCConfig ||
                                state.config.discovery.includes('bluetooth');
 
