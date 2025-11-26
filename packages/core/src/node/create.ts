@@ -1,5 +1,4 @@
 import { nanoid } from 'nanoid';
-import { Matcher } from '../orchestrator/capability-matcher';
 import { Pool } from '../connection';
 import { configDefaults, mergeConfig } from '../config';
 import type { EccoConfig } from '../types';
@@ -15,7 +14,6 @@ export function createNodeState(config: EccoConfig): NodeState {
     capabilities: fullConfig.capabilities || [],
     peers: new Map(),
     subscriptions: new Map(),
-    capabilityMatcher: Matcher.create(),
     capabilityTrackingSetup: false,
     paymentLedger: new Map(),
     streamingChannels: new Map(),

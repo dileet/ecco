@@ -5,7 +5,6 @@ import * as json from 'multiformats/codecs/json';
 import { sha256 } from 'multiformats/hashes/sha2';
 import type { NodeState, EccoLibp2p } from './types';
 import type { Capability, PeerInfo, CapabilityQuery } from '../types';
-import { Matcher } from '../orchestrator/capability-matcher';
 
 type DHTCapableNode = {
   contentRouting: EccoLibp2p['contentRouting'];
@@ -206,7 +205,6 @@ export namespace DHT {
   export async function queryCapabilities(
     node: DHTCapableNode,
     query: CapabilityQuery,
-    _matcherState: ReturnType<typeof Matcher.create>,
     timeout: number = 5000
   ): Promise<PeerInfo[]> {
     console.log('[DHT] Querying capabilities...', query);

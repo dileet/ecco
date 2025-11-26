@@ -11,7 +11,6 @@ import type {
   SwarmSplit,
   SettlementIntent,
 } from '../types';
-import type { MatcherState } from '../orchestrator/capability-matcher';
 import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
 import type { ClientState as RegistryClientState } from '../registry-client';
@@ -38,7 +37,6 @@ export interface NodeState {
   capabilities: Capability[];
   peers: Map<string, PeerInfo>;
   subscriptions: Map<string, Set<(event: EccoEvent) => void>>;
-  capabilityMatcher: MatcherState;
   messageAuth?: AuthState;
   connectionPool?: PoolState;
   registryClientRef?: Ref.Ref<RegistryClientState>;

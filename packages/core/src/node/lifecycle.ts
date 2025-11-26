@@ -11,7 +11,7 @@ import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
-import { Matcher } from '../orchestrator/capability-matcher';
+import { matchPeers } from '../orchestrator/capability-matcher';
 import {
   connect as connectRegistry,
   disconnect as disconnectRegistry,
@@ -387,7 +387,7 @@ export async function findPeers(
   const program = Effect.gen(function* () {
     let state = yield* getState(stateRef);
     const peerList = Array.from(state.peers.values());
-    let matches = Matcher.matchPeers(state.capabilityMatcher, peerList, query);
+    let matches = matchPeers(peerList, query);
 
     const isRegistryConnected = state.registryClientRef
       ? yield* Effect.promise(async () => {
@@ -441,7 +441,7 @@ export async function findPeers(
 
         state = yield* getState(stateRef);
         const updatedPeerList = Array.from(state.peers.values());
-        matches = Matcher.matchPeers(state.capabilityMatcher, updatedPeerList, query);
+        matches = matchPeers(updatedPeerList, query);
         if (matches.length > 0) {
           return matches;
         }
@@ -455,7 +455,7 @@ export async function findPeers(
             throw new Error('Node not initialized');
           }
           const { DHT } = await import('./dht');
-          return DHT.queryCapabilities(currentNode, query, state.capabilityMatcher);
+          return DHT.queryCapabilities(currentNode, query);
         });
         const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, dhtPeers);
 
@@ -463,7 +463,7 @@ export async function findPeers(
 
         state = yield* getState(stateRef);
         const updatedPeerList = Array.from(state.peers.values());
-        matches = Matcher.matchPeers(state.capabilityMatcher, updatedPeerList, query);
+        matches = matchPeers(updatedPeerList, query);
         if (matches.length > 0) {
           return matches;
         }

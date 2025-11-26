@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import type { NodeState } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
 import { publish, subscribe } from './messaging';
-import { Matcher } from '../orchestrator/capability-matcher';
+import { matchPeers } from '../orchestrator/capability-matcher';
 import { updatePeer } from './state-helpers';
 import { addPeerRef, updateState, getState, setCapabilityTrackingSetupRef } from './state-ref';
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
@@ -25,8 +25,7 @@ namespace CapabilityLogic {
     myNodeId: string,
     requestFrom: string,
     capabilities: Capability[],
-    query: CapabilityQuery,
-    matcher: ReturnType<typeof Matcher.create>
+    query: CapabilityQuery
   ): { shouldRespond: boolean; matches: CapabilityMatch[] } {
     if (requestFrom === myNodeId) {
       return { shouldRespond: false, matches: [] };
@@ -39,7 +38,7 @@ namespace CapabilityLogic {
       lastSeen: Date.now(),
     };
 
-    const matches = Matcher.matchPeers(matcher, [ourPeerInfo], query);
+    const matches = matchPeers([ourPeerInfo], query);
     return {
       shouldRespond: matches.length > 0,
       matches,
@@ -178,8 +177,7 @@ export function setupCapabilityTracking(
           currentState.id,
           event.from,
           currentState.capabilities,
-          query,
-          currentState.capabilityMatcher
+          query
         );
 
         console.log(`[${currentState.id}] Should respond: ${shouldRespond}, capabilities: ${currentState.capabilities.map(c => c.name).join(', ')}`);
@@ -242,8 +240,7 @@ export function requestCapabilities(
             }
 
             const updatedState = yield* getState(stateRef);
-            const peerMatches = Matcher.matchPeers(
-              updatedState.capabilityMatcher,
+            const peerMatches = matchPeers(
               [updatedState.peers.get(event.peerId)!],
               query
             );

@@ -1,7 +1,6 @@
 export { Node } from './node';
 export { Pool } from './connection';
 export { Orchestrator } from './orchestrator';
-export { Matcher } from './orchestrator/capability-matcher';
 export {
   generateKeyPair,
   exportPublicKey,
@@ -66,7 +65,7 @@ export {
   getNodeState,
 } from './node/state-ref';
 export { SelectionStrategy } from './orchestrator/selection';
-export { AggregationStrategy } from './orchestrator/aggregation';
+export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export { LoadBalancing } from './orchestrator/load-balancing';
 export {
   createWalletState,
@@ -106,8 +105,9 @@ export {
 } from './registry-client';
 
 export {
-  type MatcherState,
   type MatchWeights,
+  DEFAULT_WEIGHTS,
+  matchPeers,
 } from './orchestrator/capability-matcher';
 
 export type {
@@ -155,7 +155,6 @@ export type { OrchestratorState } from './orchestrator';
 
 export type {
   MultiAgentConfig,
-  AggregatedResult,
   AgentResponse,
   SelectionStrategy as SelectionStrategyType,
   AggregationStrategy as AggregationStrategyType,
