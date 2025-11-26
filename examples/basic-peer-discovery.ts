@@ -16,13 +16,17 @@ import {
 
 async function createNode(
   name: string,
-  port: number,
   capabilities: { type: string; name: string; version: string }[]
 ): Promise<StateRef<NodeState>> {
   const state = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: name,
     capabilities,
+    transport: {
+      websocket: {
+        enabled: true,
+      },
+    },
   });
 
   const ref = await start(state);
@@ -57,15 +61,15 @@ function logPeers(name: string, peers: PeerInfo[]): void {
 async function main(): Promise<void> {
   console.log('=== Ecco Basic Peer Discovery Example ===\n');
 
-  const nodeA = await createNode('node-a', 7770, [
+  const nodeA = await createNode('node-a', [
     { type: 'service', name: 'text-generation', version: '1.0.0' },
   ]);
 
-  const nodeB = await createNode('node-b', 7771, [
+  const nodeB = await createNode('node-b', [
     { type: 'service', name: 'image-recognition', version: '1.0.0' },
   ]);
 
-  const nodeC = await createNode('node-c', 7772, [
+  const nodeC = await createNode('node-c', [
     { type: 'service', name: 'translation', version: '1.0.0' },
   ]);
 
@@ -108,6 +112,10 @@ async function main(): Promise<void> {
   console.log('[node-c] Stopped');
 
   console.log('\nExample complete!');
+  process.exit(0);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

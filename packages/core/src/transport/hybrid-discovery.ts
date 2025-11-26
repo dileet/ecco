@@ -5,8 +5,9 @@ import type {
   TransportMessage,
   TransportDiscoveryEvent,
   TransportConnectionEvent,
-  ProximityInfo,
 } from './types';
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export type DiscoveryPhase = 'proximity' | 'local' | 'internet' | 'fallback';
 
@@ -40,6 +41,7 @@ export interface HybridDiscoveryState {
     phaseChange: Set<(phase: DiscoveryPhase) => void>;
   };
   cleanups: Array<() => void>;
+  escalationTimers: Array<ReturnType<typeof setTimeout>>;
 }
 
 const DEFAULT_CONFIG: HybridDiscoveryConfig = {
@@ -75,6 +77,7 @@ export function createHybridDiscovery(
       phaseChange: new Set(),
     },
     cleanups: [],
+    escalationTimers: [],
   };
 }
 
@@ -166,13 +169,14 @@ function schedulePhaseEscalation(state: HybridDiscoveryState): void {
   const currentIndex = phases.indexOf(state.currentPhase);
 
   if (currentIndex < phases.length - 1) {
-    setTimeout(() => {
+    const timerId = setTimeout(() => {
       if (state.discoveredPeers.size === 0 && state.isDiscovering) {
         const nextPhase = phases[currentIndex + 1];
         startPhase(state, nextPhase);
         schedulePhaseEscalation(state);
       }
     }, phaseTimeout);
+    state.escalationTimers.push(timerId);
   }
 }
 
@@ -215,6 +219,10 @@ function getPhaseForTransport(
 export async function stopDiscovery(
   state: HybridDiscoveryState
 ): Promise<HybridDiscoveryState> {
+  for (const timerId of state.escalationTimers) {
+    clearTimeout(timerId);
+  }
+
   for (const cleanup of state.cleanups) {
     cleanup();
   }
@@ -231,6 +239,7 @@ export async function stopDiscovery(
     ...state,
     isDiscovering: false,
     cleanups: [],
+    escalationTimers: [],
   };
 }
 
@@ -387,10 +396,6 @@ export function forcePhase(
 ): HybridDiscoveryState {
   startPhase(state, phase);
   return { ...state, currentPhase: phase };
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function getTransportStats(state: HybridDiscoveryState): {

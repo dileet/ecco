@@ -409,7 +409,7 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   }
 
   if (state.node) {
-    await state.node.stop();
+    await withTimeout(state.node.stop(), 5000, 'Libp2p node stop timeout').catch(() => {});
     console.log('Ecco node stopped');
   }
 }
