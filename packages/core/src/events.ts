@@ -78,6 +78,8 @@ export type MessageEvent = z.infer<typeof MessageEventSchema>;
 
 export type EccoEvent = z.infer<typeof EccoEventSchema>;
 
+export { MessageEventSchema };
+
 export function validateEvent(event: unknown): EccoEvent {
   return EccoEventSchema.parse(event);
 }

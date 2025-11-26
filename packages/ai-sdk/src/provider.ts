@@ -9,6 +9,41 @@ import type {
 } from '@ai-sdk/provider';
 import { findPeers, subscribeToTopic, sendMessage, getId, type StateRef, type NodeState, type CapabilityQuery } from '@ecco/core';
 import { nanoid } from 'nanoid';
+import { z } from 'zod';
+
+const FinishReasonSchema = z
+  .enum(['stop', 'length', 'content-filter', 'tool-calls', 'error', 'other', 'unknown'])
+  .catch('stop');
+
+const UsageSchema = z.object({
+  promptTokens: z.number().optional(),
+  completionTokens: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+});
+
+const MessagePayloadSchema = z.object({
+  type: z.literal('message'),
+  payload: z.unknown(),
+});
+
+const ResponseSchema = z.object({
+  text: z.string().optional(),
+  finishReason: z.string().optional(),
+  usage: UsageSchema.optional(),
+  warnings: z.array(z.custom<LanguageModelV2CallWarning>()).optional(),
+});
+
+const StreamChunkSchema = z.object({
+  type: z.literal('chunk'),
+  text: z.string(),
+});
+
+const StreamDoneSchema = z.object({
+  type: z.literal('done'),
+  finishReason: z.string().optional(),
+  usage: UsageSchema.optional(),
+});
 
 interface EccoProviderConfig {
   nodeRef: StateRef<NodeState>;
@@ -40,22 +75,6 @@ interface StreamResult {
   readonly stream: ReadableStream<LanguageModelV2StreamPart>;
 }
 
-const VALID_FINISH_REASONS = [
-  'stop',
-  'length',
-  'content-filter',
-  'tool-calls',
-  'error',
-  'other',
-  'unknown',
-] as const;
-
-const isValidFinishReason = (value: string): value is LanguageModelV2FinishReason =>
-  VALID_FINISH_REASONS.includes(value as LanguageModelV2FinishReason);
-
-const parseFinishReason = (value: unknown): LanguageModelV2FinishReason =>
-  typeof value === 'string' && isValidFinishReason(value) ? value : 'stop';
-
 const createState = (modelId: string, config: EccoProviderConfig): EccoLanguageModelState => ({
   specificationVersion: 'v2',
   provider: 'ecco',
@@ -84,17 +103,16 @@ const waitForResponse = (
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
-        if (typeof data === 'object' && data !== null && 'type' in data && data.type === 'message' && 'payload' in data) {
-          resolve(data.payload);
-        } else {
-          resolve(data);
-        }
+        const message = MessagePayloadSchema.safeParse(data);
+        resolve(message.success ? message.data.payload : data);
       }
     });
   });
 
 const parseResponse = (response: unknown): GenerateResult => {
-  if (typeof response !== 'object' || response === null) {
+  const parsed = ResponseSchema.safeParse(response);
+
+  if (!parsed.success) {
     return {
       content: [],
       finishReason: 'error',
@@ -103,40 +121,27 @@ const parseResponse = (response: unknown): GenerateResult => {
     };
   }
 
-  const text = 'text' in response && typeof response.text === 'string' ? response.text : undefined;
-  const finishReason = parseFinishReason('finishReason' in response ? response.finishReason : undefined);
-
-  const rawUsage = 'usage' in response && typeof response.usage === 'object' && response.usage !== null
-    ? response.usage
-    : { promptTokens: 0, completionTokens: 0 };
-
-  const promptTokens = 'promptTokens' in rawUsage && typeof rawUsage.promptTokens === 'number' ? rawUsage.promptTokens : 0;
-  const completionTokens = 'completionTokens' in rawUsage && typeof rawUsage.completionTokens === 'number' ? rawUsage.completionTokens : 0;
-
-  const warnings: LanguageModelV2CallWarning[] =
-    'warnings' in response && Array.isArray(response.warnings) ? response.warnings : [];
+  const { text, finishReason, usage, warnings } = parsed.data;
+  const inputTokens = usage?.promptTokens ?? usage?.inputTokens ?? 0;
+  const outputTokens = usage?.completionTokens ?? usage?.outputTokens ?? 0;
 
   return {
     content: text ? [{ type: 'text', text }] : [],
-    finishReason,
-    usage: {
-      inputTokens: promptTokens,
-      outputTokens: completionTokens,
-      totalTokens: promptTokens + completionTokens,
-    },
-    warnings,
+    finishReason: FinishReasonSchema.parse(finishReason),
+    usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+    warnings: warnings ?? [],
   };
 };
+
+const buildCapabilityQuery = (modelId: string): CapabilityQuery => ({
+  requiredCapabilities: [{ type: 'agent', name: modelId }],
+});
 
 const doGenerate = async (
   state: EccoLanguageModelState,
   options: LanguageModelV2CallOptions
 ): Promise<GenerateResult> => {
-  const query: CapabilityQuery = {
-    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
-  };
-
-  const matches = await findPeers(state.config.nodeRef, query);
+  const matches = await findPeers(state.config.nodeRef, buildCapabilityQuery(state.modelId));
 
   if (matches.length === 0) {
     if (state.config.fallbackProvider) {
@@ -148,21 +153,19 @@ const doGenerate = async (
   const bestMatch = matches[0];
   const requestId = nanoid();
 
-  const request = {
+  await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
     id: requestId,
     from: getId(state.config.nodeRef),
     to: bestMatch.peer.id,
     type: 'agent-request' as const,
     payload: { model: state.modelId, options },
     timestamp: Date.now(),
-  };
-
-  await sendMessage(state.config.nodeRef, bestMatch.peer.id, request);
+  });
 
   const response = await waitForResponse(
     state.config.nodeRef,
     requestId,
-    state.config.timeout || 30000
+    state.config.timeout ?? 30000
   );
 
   return parseResponse(response);
@@ -172,11 +175,7 @@ const doStream = async (
   state: EccoLanguageModelState,
   options: LanguageModelV2CallOptions
 ): Promise<StreamResult> => {
-  const query: CapabilityQuery = {
-    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
-  };
-
-  const matches = await findPeers(state.config.nodeRef, query);
+  const matches = await findPeers(state.config.nodeRef, buildCapabilityQuery(state.modelId));
 
   if (matches.length === 0) {
     if (state.config.fallbackProvider) {
@@ -202,23 +201,22 @@ const doStream = async (
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
       subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
-        if (typeof data === 'object' && data !== null && 'type' in data) {
-          if (data.type === 'chunk' && 'text' in data && typeof data.text === 'string') {
-            controller.enqueue({ type: 'text-delta', id: nanoid(), delta: data.text });
-          } else if (data.type === 'done') {
-            const finishReason = parseFinishReason('finishReason' in data ? data.finishReason : undefined);
-            let usage: LanguageModelV2Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        const chunk = StreamChunkSchema.safeParse(data);
+        if (chunk.success) {
+          controller.enqueue({ type: 'text-delta', id: nanoid(), delta: chunk.data.text });
+          return;
+        }
 
-            if ('usage' in data && typeof data.usage === 'object' && data.usage !== null) {
-              const usageObj = data.usage;
-              const inputTokens = 'inputTokens' in usageObj && typeof usageObj.inputTokens === 'number' ? usageObj.inputTokens : 0;
-              const outputTokens = 'outputTokens' in usageObj && typeof usageObj.outputTokens === 'number' ? usageObj.outputTokens : 0;
-              usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
-            }
-
-            controller.enqueue({ type: 'finish', finishReason, usage });
-            controller.close();
-          }
+        const done = StreamDoneSchema.safeParse(data);
+        if (done.success) {
+          const inputTokens = done.data.usage?.inputTokens ?? 0;
+          const outputTokens = done.data.usage?.outputTokens ?? 0;
+          controller.enqueue({
+            type: 'finish',
+            finishReason: FinishReasonSchema.parse(done.data.finishReason),
+            usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+          });
+          controller.close();
         }
       });
     },

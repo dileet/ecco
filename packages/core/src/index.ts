@@ -20,7 +20,6 @@ export {
   incrementRegistryReputation,
   type StateRef,
 } from './node';
-export { Pool } from './connection';
 export {
   initialOrchestratorState,
   executeOrchestration,
@@ -50,7 +49,7 @@ export {
   incrementReputation as registryIncrementReputation,
 } from './registry-client';
 export { configDefaults, mergeConfig } from './config';
-export { validateEvent, isValidEvent } from './events';
+export { validateEvent, isValidEvent, MessageEventSchema } from './events';
 export { modifyState } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
@@ -95,6 +94,15 @@ export {
   DEFAULT_WEIGHTS,
   matchPeers,
 } from './orchestrator/capability-matcher';
+
+export {
+  EmbeddingRequestSchema,
+  EmbeddingResponseSchema,
+  updatePeerServiceProvided,
+  requestEmbeddings,
+  type EmbeddingRequest,
+  type EmbeddingResponse,
+} from './services/embedding';
 
 export type {
   EccoConfig,
@@ -141,6 +149,7 @@ export type { OrchestratorState } from './orchestrator';
 export type {
   MultiAgentConfig,
   AgentResponse,
+  AggregatedResult,
   SelectionStrategy as SelectionStrategyType,
   AggregationStrategy as AggregationStrategyType,
   LoadBalancingConfig,

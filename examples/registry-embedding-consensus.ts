@@ -1,4 +1,4 @@
-import { createInitialState, start, stop, getPeers, isRegistryConnected, subscribeToTopic, getId, publish, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, getPeers, isRegistryConnected as checkRegistryConnected, subscribeToTopic, getId, publish, type StateRef, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest, setupEmbeddingProvider } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -18,14 +18,14 @@ async function main() {
     createQuestionAnsweringAgent('agent-3', 7773, 'gpt-4o-mini', 'OpenAI Agent 3', registryUrl),
   ]);
 
-  const embeddingProvider = await createEmbeddingProvider(
+  const embeddingProviderRef = await createEmbeddingProvider(
     'embedding-agent',
     7774,
     'Embedding Provider',
     registryUrl
   );
 
-  let seekerState = createInitialState({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: 'seeker',
@@ -45,10 +45,10 @@ async function main() {
     },
   });
 
-  seekerState = await start(seekerState);
+  const seekerRef = await start(seekerState);
 
-  seekerState = setupEmbeddingProvider({
-    nodeState: seekerState,
+  setupEmbeddingProvider({
+    nodeRef: seekerRef,
     embeddingModel: openai.embedding('text-embedding-3-small'),
     modelId: 'text-embedding-3-small',
   });
@@ -59,11 +59,11 @@ async function main() {
 
   await new Promise((resolve) => setTimeout(resolve, 5000));
 
-  const peers = getPeers(seekerState);
+  const peers = getPeers(seekerRef);
   console.log(`Discovered ${peers.length} peers\n`);
 
-  const isRegistryConnected = await isRegistryConnected(seekerState);
-  if (isRegistryConnected) {
+  const registryConnected = checkRegistryConnected(seekerRef);
+  if (registryConnected) {
     console.log('Registry connection: ✓ Connected\n');
   } else {
     console.log('Registry connection: ✗ Not connected\n');
@@ -74,7 +74,7 @@ async function main() {
   console.log('--- Consensus with Peer Embeddings (Registry-Based) ---\n');
 
   const provider = createMultiAgentProvider({
-    nodeState: seekerState,
+    nodeRef: seekerRef,
     orchestratorState,
     multiAgentConfig: {
       selectionStrategy: 'all',
@@ -139,8 +139,8 @@ async function main() {
       );
     }
 
-    const isRegistryConnected = await isRegistryConnected(seekerState);
-    if (isRegistryConnected) {
+    const stillConnected = checkRegistryConnected(seekerRef);
+    if (stillConnected) {
       console.log('\n--- Registry Reputation Note ---');
       const embeddingPeer = peers.find(p => 
         p.capabilities.some(c => c.type === 'embedding')
@@ -156,11 +156,11 @@ async function main() {
     console.error('Error:', (error as Error).message);
   }
 
-  await stop(seekerState);
+  await stop(seekerRef);
   for (const agent of agents) {
     await stop(agent);
   }
-  await stop(embeddingProvider);
+  await stop(embeddingProviderRef);
 
   console.log('\n=== Example Complete ===');
 }
@@ -171,7 +171,7 @@ async function createQuestionAnsweringAgent(
   model: string,
   displayName: string,
   registryUrl: string
-): Promise<NodeState> {
+): Promise<StateRef<NodeState>> {
   const agentState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
@@ -193,9 +193,9 @@ async function createQuestionAnsweringAgent(
     },
   });
 
-  const agent = await start(agentState);
+  const agentRef = await start(agentState);
 
-  subscribeToTopic(agent, `peer:${getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) return;
 
@@ -224,7 +224,7 @@ async function createQuestionAnsweringAgent(
         timestamp: Date.now(),
       };
 
-      await publish(agent, `response:${event.payload.id}`, responseEvent);
+      await publish(agentRef, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
@@ -238,12 +238,12 @@ async function createQuestionAnsweringAgent(
         },
         timestamp: Date.now(),
       };
-      await publish(agent, `response:${event.payload.id}`, errorEvent);
+      await publish(agentRef, `response:${event.payload.id}`, errorEvent);
     }
   });
 
   console.log(`${displayName} started on port ${port} (connected to registry)`);
-  return agent;
+  return agentRef;
 }
 
 async function createEmbeddingProvider(
@@ -251,7 +251,7 @@ async function createEmbeddingProvider(
   port: number,
   displayName: string,
   registryUrl: string
-): Promise<NodeState> {
+): Promise<StateRef<NodeState>> {
   const providerState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
@@ -273,16 +273,16 @@ async function createEmbeddingProvider(
     },
   });
 
-  const provider = await start(providerState);
+  const providerRef = await start(providerState);
 
-  const providerWithHandler = setupEmbeddingProvider({
-    nodeState: provider,
+  setupEmbeddingProvider({
+    nodeRef: providerRef,
     embeddingModel: openai.embedding('text-embedding-3-small'),
     modelId: 'text-embedding-3-small',
   });
 
   console.log(`${displayName} started on port ${port} (providing embeddings, connected to registry)`);
-  return providerWithHandler;
+  return providerRef;
 }
 
 main().catch(console.error);

@@ -12,7 +12,6 @@ import {
   subscribeToTopic,
   sendMessage,
   getId,
-  getState,
   executeOrchestration,
   getLoadStatistics as getOrchestratorLoadStatistics,
   resetLoadStatistics as resetOrchestratorLoadStatistics,
@@ -23,6 +22,49 @@ import {
   type MultiAgentConfig,
   type AggregatedResult,
 } from '@ecco/core';
+import { z } from 'zod';
+
+const FinishReasonSchema = z
+  .enum(['stop', 'length', 'content-filter', 'tool-calls', 'error', 'other', 'unknown'])
+  .catch('stop');
+
+const UsageSchema = z.object({
+  promptTokens: z.number().optional(),
+  completionTokens: z.number().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+});
+
+
+const MessagePayloadSchema = z.object({
+  type: z.literal('message'),
+  payload: z.unknown(),
+});
+
+const EnsembleResultSchema = z.object({
+  ensemble: z.literal(true),
+  responses: z.array(z.object({
+    agentId: z.string(),
+    output: z.string(),
+  })),
+});
+
+const TextResultSchema = z.object({
+  text: z.string().optional(),
+  finishReason: z.string().optional(),
+  warnings: z.array(z.custom<LanguageModelV2CallWarning>()).optional(),
+});
+
+const StreamChunkSchema = z.object({
+  type: z.literal('chunk'),
+  text: z.string(),
+});
+
+const StreamDoneSchema = z.object({
+  type: z.literal('done'),
+  finishReason: z.string().optional(),
+  usage: UsageSchema.optional(),
+});
 
 interface MultiAgentProviderConfig {
   nodeRef: StateRef<NodeState>;
@@ -60,22 +102,6 @@ interface StreamResult {
   readonly stream: ReadableStream<LanguageModelV2StreamPart>;
 }
 
-const VALID_FINISH_REASONS = [
-  'stop',
-  'length',
-  'content-filter',
-  'tool-calls',
-  'error',
-  'other',
-  'unknown',
-] as const;
-
-const isValidFinishReason = (value: string): value is LanguageModelV2FinishReason =>
-  VALID_FINISH_REASONS.includes(value as LanguageModelV2FinishReason);
-
-const parseFinishReason = (value: unknown): LanguageModelV2FinishReason =>
-  typeof value === 'string' && isValidFinishReason(value) ? value : 'stop';
-
 const createState = (modelId: string, config: MultiAgentProviderConfig): MultiAgentLanguageModelState => ({
   specificationVersion: 'v2',
   provider: 'ecco-multi-agent',
@@ -91,31 +117,27 @@ const extractResult = (aggregated: AggregatedResult): {
   finishReason: LanguageModelV2FinishReason;
   warnings: LanguageModelV2CallWarning[];
 } => {
-  let result = aggregated.result;
-
-  if (typeof result === 'object' && result !== null && 'type' in result && result.type === 'message' && 'payload' in result) {
-    result = result.payload;
-  }
+  const messagePayload = MessagePayloadSchema.safeParse(aggregated.result);
+  const result = messagePayload.success ? messagePayload.data.payload : aggregated.result;
 
   if (typeof result === 'string') {
     return { text: result, finishReason: 'stop', warnings: [] };
   }
 
-  if (typeof result === 'object' && result !== null && 'ensemble' in result && result.ensemble && 'responses' in result && Array.isArray(result.responses)) {
-    const combinedText = result.responses
-      .map((r: { agentId: string; output: string }) => `[Agent ${r.agentId}]: ${r.output}`)
+  const ensemble = EnsembleResultSchema.safeParse(result);
+  if (ensemble.success) {
+    const combinedText = ensemble.data.responses
+      .map((r) => `[Agent ${r.agentId}]: ${r.output}`)
       .join('\n\n');
     return { text: combinedText, finishReason: 'stop', warnings: [] };
   }
 
-  if (typeof result === 'object' && result !== null && 'text' in result) {
-    const finishReason = parseFinishReason('finishReason' in result ? result.finishReason : undefined);
-    const warnings: LanguageModelV2CallWarning[] =
-      'warnings' in result && Array.isArray(result.warnings) ? result.warnings : [];
+  const textResult = TextResultSchema.safeParse(result);
+  if (textResult.success) {
     return {
-      text: typeof result.text === 'string' ? result.text : undefined,
-      finishReason,
-      warnings,
+      text: textResult.data.text,
+      finishReason: FinishReasonSchema.parse(textResult.data.finishReason),
+      warnings: textResult.data.warnings ?? [],
     };
   }
 
@@ -124,30 +146,25 @@ const extractResult = (aggregated: AggregatedResult): {
 
 const aggregateUsage = (aggregated: AggregatedResult): LanguageModelV2Usage => {
   const successful = aggregated.responses.filter((r) => r.success);
-
   if (successful.length === 0) {
     return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   }
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  let totalInput = 0;
+  let totalOutput = 0;
 
-  for (const response of successful) {
-    const usage = response.response?.usage;
-    if (usage) {
-      totalInputTokens += usage.promptTokens || usage.inputTokens || 0;
-      totalOutputTokens += usage.completionTokens || usage.outputTokens || 0;
+  for (const item of successful) {
+    const parsed = UsageSchema.safeParse(Object(item.response).usage);
+    if (parsed.success) {
+      totalInput += parsed.data.promptTokens ?? parsed.data.inputTokens ?? 0;
+      totalOutput += parsed.data.completionTokens ?? parsed.data.outputTokens ?? 0;
     }
   }
 
-  const avgInputTokens = Math.ceil(totalInputTokens / successful.length);
-  const avgOutputTokens = Math.ceil(totalOutputTokens / successful.length);
+  const avgInput = Math.ceil(totalInput / successful.length);
+  const avgOutput = Math.ceil(totalOutput / successful.length);
 
-  return {
-    inputTokens: avgInputTokens,
-    outputTokens: avgOutputTokens,
-    totalTokens: avgInputTokens + avgOutputTokens,
-  };
+  return { inputTokens: avgInput, outputTokens: avgOutput, totalTokens: avgInput + avgOutput };
 };
 
 const buildMetadata = (
@@ -166,41 +183,43 @@ const buildMetadata = (
   })),
 });
 
+const buildCapabilityQuery = (modelId: string): CapabilityQuery => ({
+  requiredCapabilities: [{ type: 'agent', name: modelId }],
+});
+
 const doGenerate = async (
   state: MultiAgentLanguageModelState,
   options: LanguageModelV2CallOptions
 ): Promise<{ result: GenerateResult; orchestratorState: OrchestratorState }> => {
-  const query: CapabilityQuery = {
-    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
-  };
-
   try {
     const { result: aggregated, state: newOrchestratorState } = await executeOrchestration(
       state.config.nodeRef,
       state.orchestratorState,
-      query,
+      buildCapabilityQuery(state.modelId),
       { model: state.modelId, options },
       state.config.multiAgentConfig
     );
 
     const extracted = extractResult(aggregated);
-    const usage = aggregateUsage(aggregated);
 
-    const result: GenerateResult = {
-      content: extracted.text ? [{ type: 'text', text: extracted.text }] : [],
-      finishReason: extracted.finishReason,
-      usage,
-      warnings: extracted.warnings,
-      ...(state.config.enableMetadata && {
-        metadata: buildMetadata(aggregated, state.config.multiAgentConfig),
-      }),
+    return {
+      result: {
+        content: extracted.text ? [{ type: 'text', text: extracted.text }] : [],
+        finishReason: extracted.finishReason,
+        usage: aggregateUsage(aggregated),
+        warnings: extracted.warnings,
+        ...(state.config.enableMetadata && {
+          metadata: buildMetadata(aggregated, state.config.multiAgentConfig),
+        }),
+      },
+      orchestratorState: newOrchestratorState,
     };
-
-    return { result, orchestratorState: newOrchestratorState };
   } catch (error) {
     if (state.config.fallbackProvider) {
-      const result = await state.config.fallbackProvider.doGenerate(options);
-      return { result, orchestratorState: state.orchestratorState };
+      return {
+        result: await state.config.fallbackProvider.doGenerate(options),
+        orchestratorState: state.orchestratorState,
+      };
     }
     throw error;
   }
@@ -210,11 +229,7 @@ const doStream = async (
   state: MultiAgentLanguageModelState,
   options: LanguageModelV2CallOptions
 ): Promise<StreamResult> => {
-  const query: CapabilityQuery = {
-    requiredCapabilities: [{ type: 'agent', name: state.modelId }],
-  };
-
-  const matches = await findPeers(state.config.nodeRef, query);
+  const matches = await findPeers(state.config.nodeRef, buildCapabilityQuery(state.modelId));
 
   if (matches.length === 0) {
     if (state.config.fallbackProvider) {
@@ -240,27 +255,22 @@ const doStream = async (
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
       subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
-        if (typeof data === 'object' && data !== null && 'type' in data) {
-          if (data.type === 'chunk' && 'text' in data) {
-            controller.enqueue({
-              type: 'text-delta',
-              id: requestId,
-              delta: typeof data.text === 'string' ? data.text : '',
-            });
-          } else if (data.type === 'done') {
-            const finishReason = parseFinishReason('finishReason' in data ? data.finishReason : undefined);
-            let usage: LanguageModelV2Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        const chunk = StreamChunkSchema.safeParse(data);
+        if (chunk.success) {
+          controller.enqueue({ type: 'text-delta', id: requestId, delta: chunk.data.text });
+          return;
+        }
 
-            if ('usage' in data && typeof data.usage === 'object' && data.usage !== null) {
-              const usageObj = data.usage;
-              const inputTokens = 'inputTokens' in usageObj && typeof usageObj.inputTokens === 'number' ? usageObj.inputTokens : 0;
-              const outputTokens = 'outputTokens' in usageObj && typeof usageObj.outputTokens === 'number' ? usageObj.outputTokens : 0;
-              usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
-            }
-
-            controller.enqueue({ type: 'finish', finishReason, usage });
-            controller.close();
-          }
+        const done = StreamDoneSchema.safeParse(data);
+        if (done.success) {
+          const input = done.data.usage?.inputTokens ?? 0;
+          const output = done.data.usage?.outputTokens ?? 0;
+          controller.enqueue({
+            type: 'finish',
+            finishReason: FinishReasonSchema.parse(done.data.finishReason),
+            usage: { inputTokens: input, outputTokens: output, totalTokens: input + output },
+          });
+          controller.close();
         }
       });
     },
