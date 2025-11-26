@@ -8,7 +8,7 @@ import type {
   AgentLoadState,
 } from './types';
 import { aggregateResponses } from './aggregation';
-import { findPeers, getId, subscribeToTopic, sendMessage, getState } from '../node';
+import { findPeers, getId, subscribeToTopic, sendMessage } from '../node';
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -313,12 +313,12 @@ export const executeOrchestration = async (
       currentState = results[results.length - 1].state;
     }
 
-    const configWithState: MultiAgentConfig = {
+    const configWithRef: MultiAgentConfig = {
       ...config,
-      nodeState: getState(nodeRef),
+      nodeRef,
     };
 
-    const result = await aggregateResponses(responses, configWithState);
+    const result = await aggregateResponses(responses, configWithRef);
     result.metrics.totalTime = Date.now() - startTime;
 
     return { result, state: currentState };

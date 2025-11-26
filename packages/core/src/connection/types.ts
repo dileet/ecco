@@ -13,7 +13,6 @@ export interface ConnectionPoolConfig {
   maxConnectionsPerPeer: number;
   maxIdleTime: number;
   maxConnectionAge: number;
-  cleanupInterval: number;
 }
 
 export interface ConnectionPoolStats {
@@ -26,5 +25,4 @@ export const DEFAULT_CONFIG: ConnectionPoolConfig = {
   maxConnectionsPerPeer: 3,
   maxIdleTime: 60000,
   maxConnectionAge: 300000,
-  cleanupInterval: 30000,
 };

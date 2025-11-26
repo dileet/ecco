@@ -24,7 +24,6 @@ export interface EccoConfig {
   connectionPool?: {
     maxConnectionsPerPeer?: number;
     maxIdleTime?: number;
-    cleanupInterval?: number;
   };
 }
 

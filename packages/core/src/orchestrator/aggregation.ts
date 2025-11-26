@@ -31,7 +31,7 @@ export const majorityVote: AggregationStrategyFn = async (responses, config) => 
       openaiApiKey: config.semanticSimilarity.openaiApiKey,
       embeddingModel: config.semanticSimilarity.embeddingModel,
       requireExchange: config.semanticSimilarity.requireExchange,
-      nodeState: config.nodeState,
+      nodeRef: config.nodeRef,
     });
 
     return {
@@ -81,8 +81,8 @@ export const weightedVote: AggregationStrategyFn = async (responses, config) => 
     const key = JSON.stringify(response.response);
 
     let performanceScore = 0.5;
-    if (config?.nodeState?.performanceTracker) {
-      const metrics = await getMetrics(config.nodeState.performanceTracker, response.peer.id);
+    if (config?.nodeRef?.current.performanceTracker) {
+      const metrics = await getMetrics(config.nodeRef.current.performanceTracker, response.peer.id);
       performanceScore = metrics ? calculatePerformanceScore(metrics) : 0.5;
     }
 

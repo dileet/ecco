@@ -1,4 +1,4 @@
-import type { NodeState } from '../node/types';
+import type { NodeState, StateRef } from '../node/types';
 import { requestEmbeddings } from '../services/embedding';
 
 export type SimilarityMethod = 'text-overlap' | 'openai-embedding' | 'peer-embedding' | 'custom';
@@ -9,7 +9,7 @@ export type SimilarityConfig = {
   openaiApiKey?: string;
   embeddingModel?: string;
   requireExchange?: boolean;
-  nodeState?: NodeState;
+  nodeRef?: StateRef<NodeState>;
   customSimilarityFn?: (text1: string, text2: string) => Promise<number>;
 };
 
@@ -167,24 +167,19 @@ const openaiEmbeddingSimilarity = async (
 const peerEmbeddingSimilarity = async (
   text1: string,
   text2: string,
-  nodeState: NodeState,
+  nodeRef: StateRef<NodeState>,
   config: { requireExchange?: boolean; model?: string }
-): Promise<{ similarity: number; state: NodeState }> => {
+): Promise<number> => {
   try {
-    const { embeddings, state } = await requestEmbeddings(
-      nodeState,
+    const embeddings = await requestEmbeddings(
+      nodeRef,
       [normalizeText(text1), normalizeText(text2)],
       config
     );
 
-    const similarity = cosineSimilarityFromEmbeddings(embeddings[0], embeddings[1]);
-
-    return { similarity, state };
+    return cosineSimilarityFromEmbeddings(embeddings[0], embeddings[1]);
   } catch {
-    return {
-      similarity: textOverlapSimilarity(text1, text2),
-      state: nodeState,
-    };
+    return textOverlapSimilarity(text1, text2);
   }
 };
 
@@ -192,26 +187,23 @@ export const calculateSimilarity = async (
   value1: unknown,
   value2: unknown,
   config: SimilarityConfig
-): Promise<SimilarityResult & { state?: NodeState }> => {
+): Promise<SimilarityResult> => {
   const text1 = extractText(value1);
   const text2 = extractText(value2);
   const method = config.method || 'text-overlap';
 
   let similarity: number;
-  let updatedState: NodeState | undefined;
 
   switch (method) {
     case 'peer-embedding':
-      if (!config.nodeState) {
-        console.warn('NodeState not provided for peer-embedding, falling back to text-overlap');
+      if (!config.nodeRef) {
+        console.warn('NodeRef not provided for peer-embedding, falling back to text-overlap');
         similarity = textOverlapSimilarity(text1, text2);
       } else {
-        const result = await peerEmbeddingSimilarity(text1, text2, config.nodeState, {
+        similarity = await peerEmbeddingSimilarity(text1, text2, config.nodeRef, {
           requireExchange: config.requireExchange,
           model: config.embeddingModel,
         });
-        similarity = result.similarity;
-        updatedState = result.state;
       }
       break;
 
@@ -241,13 +233,13 @@ export const calculateSimilarity = async (
       break;
   }
 
-  return { similarity, method, state: updatedState };
+  return { similarity, method };
 };
 
 export const clusterResponses = async (
   responses: unknown[],
   config: SimilarityConfig
-): Promise<{ clusters: number[][]; state?: NodeState }> => {
+): Promise<number[][]> => {
   const threshold = config.threshold || 0.75;
   const n = responses.length;
 
@@ -255,21 +247,13 @@ export const clusterResponses = async (
     .fill(0)
     .map(() => Array(n).fill(0));
 
-  let currentState = config.nodeState;
-
   for (let i = 0; i < n; i++) {
     similarities[i][i] = 1.0;
 
     for (let j = i + 1; j < n; j++) {
-      const result = await calculateSimilarity(responses[i], responses[j], {
-        ...config,
-        nodeState: currentState,
-      });
+      const result = await calculateSimilarity(responses[i], responses[j], config);
       similarities[i][j] = result.similarity;
       similarities[j][i] = result.similarity;
-      if (result.state) {
-        currentState = result.state;
-      }
     }
   }
 
@@ -302,13 +286,13 @@ export const clusterResponses = async (
     clusters.push(cluster);
   }
 
-  return { clusters, state: currentState };
+  return clusters;
 };
 
 export const findConsensus = async (
   responses: unknown[],
   config: SimilarityConfig
-): Promise<{ consensusIndices: number[]; confidence: number; clusters: number[][]; state?: NodeState }> => {
+): Promise<{ consensusIndices: number[]; confidence: number; clusters: number[][] }> => {
   if (responses.length === 0) {
     throw new Error('No responses to find consensus');
   }
@@ -318,11 +302,10 @@ export const findConsensus = async (
       consensusIndices: [0],
       confidence: 1.0,
       clusters: [[0]],
-      state: config.nodeState,
     };
   }
 
-  const { clusters, state } = await clusterResponses(responses, config);
+  const clusters = await clusterResponses(responses, config);
 
   let largestCluster = clusters[0];
   for (const cluster of clusters) {
@@ -337,6 +320,5 @@ export const findConsensus = async (
     consensusIndices: largestCluster,
     confidence,
     clusters,
-    state,
   };
 };

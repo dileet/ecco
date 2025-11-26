@@ -1,8 +1,12 @@
 import type { PeerId } from '@libp2p/interface';
 import type { NodeState, StateRef } from './types';
+import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
+import type { ClientState as RegistryClientState } from '../registry-client';
+import { query as queryRegistryClient } from '../registry-client';
+import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
-import { getState, updateState, removePeer } from './state';
+import { getState, updateState, removePeer, addPeers } from './state';
 
 export function setupEventListeners(
   state: NodeState,
@@ -56,4 +60,179 @@ function handlePeerConnect(stateRef: StateRef<NodeState>): void {
   updateState(stateRef, setupPerformanceTracking);
   const state = getState(stateRef);
   announceCapabilities(state);
+}
+
+type DiscoveryStrategy = 'local' | 'registry' | 'dht' | 'gossip';
+
+function selectDiscoveryStrategy(
+  localMatches: CapabilityMatch[],
+  config: NodeState['config'],
+  hasRegistry: boolean,
+  hasDHT: boolean
+): DiscoveryStrategy[] {
+  if (localMatches.length > 0) {
+    return ['local'];
+  }
+
+  const strategies: DiscoveryStrategy[] = [];
+
+  if (hasRegistry) {
+    strategies.push('registry');
+  }
+
+  if (config.discovery.includes('dht') && hasDHT) {
+    strategies.push('dht');
+  }
+
+  if (config.discovery.includes('gossip')) {
+    strategies.push('gossip');
+  }
+
+  return strategies;
+}
+
+function mergePeers(
+  existingPeers: Record<string, PeerInfo>,
+  newPeers: PeerInfo[]
+): PeerInfo[] {
+  return newPeers.filter(peer => !existingPeers[peer.id]);
+}
+
+async function queryRegistry(
+  registryClient: RegistryClientState,
+  query: CapabilityQuery
+): Promise<PeerInfo[]> {
+  console.log('No local matches, querying registry...');
+  try {
+    return await queryRegistryClient(registryClient, query);
+  } catch (error) {
+    console.error('Registry query failed:', error);
+    return [];
+  }
+}
+
+async function dialRegistryPeers(
+  node: NodeState['node'],
+  peers: PeerInfo[]
+): Promise<void> {
+  if (!node) {
+    return;
+  }
+
+  const { multiaddr } = await import('@multiformats/multiaddr');
+
+  for (const peer of peers) {
+    if (peer.addresses.length === 0) {
+      continue;
+    }
+
+    for (const addrStr of peer.addresses) {
+      try {
+        const addr = multiaddr(addrStr);
+        await node.dial(addr);
+        console.log(`Dialed registry peer ${peer.id} at ${addrStr}`);
+        break;
+      } catch {
+        continue;
+      }
+    }
+  }
+}
+
+async function queryGossip(
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery,
+  timeoutMs = 2000
+): Promise<CapabilityMatch[]> {
+  console.log('No local matches, broadcasting capability request...');
+  const { requestCapabilities, findMatchingPeers } = await import('./capabilities');
+  const state = getState(stateRef);
+
+  await requestCapabilities(stateRef, query);
+  await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+
+  const updatedState = getState(stateRef);
+  return findMatchingPeers(updatedState, query);
+}
+
+export async function findPeers(
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery
+): Promise<CapabilityMatch[]> {
+  let state = getState(stateRef);
+  const peerList = Object.values(state.peers);
+  let matches = matchPeers(peerList, query);
+
+  const isRegistryConnected = state.registryClient?.connected ?? false;
+
+  const strategies = selectDiscoveryStrategy(
+    matches,
+    state.config,
+    isRegistryConnected,
+    !!(state.node?.services.dht)
+  );
+
+  const hasGossipEnabled = state.config.discovery.includes('gossip');
+  const shouldTryGossip = hasGossipEnabled && state.node?.services.pubsub;
+
+  for (const strategy of strategies) {
+    if (strategy === 'local') {
+      if (shouldTryGossip) {
+        const gossipMatches = await queryGossip(stateRef, query);
+        if (gossipMatches.length > 0) {
+          const existingMatchIds = new Set(matches.map(m => m.peer.id));
+          const newMatches = gossipMatches.filter(m => !existingMatchIds.has(m.peer.id));
+          matches = [...matches, ...newMatches];
+        }
+      }
+      return matches;
+    }
+
+    if (strategy === 'registry' && state.registryClient) {
+      const registryPeers = await queryRegistry(state.registryClient, query);
+      const newPeers = mergePeers(state.peers, registryPeers);
+
+      updateState(stateRef, (s) => addPeers(s, newPeers));
+
+      if (state.node && newPeers.length > 0) {
+        await dialRegistryPeers(state.node, newPeers);
+      }
+
+      state = getState(stateRef);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      state = getState(stateRef);
+      const updatedPeerList = Object.values(state.peers);
+      matches = matchPeers(updatedPeerList, query);
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+
+    if (strategy === 'dht' && state.node?.services.dht) {
+      console.log('No matches from registry, querying DHT...');
+      const currentNode = state.node;
+      const { queryCapabilities } = await import('./dht');
+      const dhtPeers = await queryCapabilities(currentNode, query);
+      const newPeers = mergePeers(state.peers, dhtPeers);
+
+      updateState(stateRef, (s) => addPeers(s, newPeers));
+
+      state = getState(stateRef);
+      const updatedPeerList = Object.values(state.peers);
+      matches = matchPeers(updatedPeerList, query);
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+
+    if (strategy === 'gossip') {
+      matches = await queryGossip(stateRef, query);
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+  }
+
+  return matches;
 }

@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import { getState, setState } from './state';
 import * as lifecycle from './lifecycle';
+import { findPeers as findPeersImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
 
@@ -38,7 +39,7 @@ export async function findPeers(
   ref: StateRef<NodeState>,
   query: CapabilityQuery
 ): Promise<CapabilityMatch[]> {
-  return lifecycle.findPeers(ref, query);
+  return findPeersImpl(ref, query);
 }
 
 export async function sendMessage(ref: StateRef<NodeState>, peerId: string, message: Message): Promise<void> {

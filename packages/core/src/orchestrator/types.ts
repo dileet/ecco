@@ -1,5 +1,5 @@
 import type { PeerInfo } from '../types';
-import type { NodeState } from '../node/types';
+import type { NodeState, StateRef } from '../node/types';
 
 export type SelectionStrategy =
   | 'all'
@@ -29,7 +29,7 @@ export interface MultiAgentConfig {
   customAggregator?: (responses: AgentResponse[]) => AggregatedResult;
   loadBalancing?: LoadBalancingConfig;
   semanticSimilarity?: SemanticSimilarityConfig;
-  nodeState?: NodeState;
+  nodeRef?: StateRef<NodeState>;
 }
 
 export interface SemanticSimilarityConfig {

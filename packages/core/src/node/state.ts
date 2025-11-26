@@ -13,7 +13,7 @@ import type {
 import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../services/auth';
-import { Pool, type PoolState } from '../connection';
+import { DEFAULT_CONFIG, type PoolState } from '../connection';
 import { configDefaults, mergeConfig } from '../config';
 import * as storage from '../storage';
 
@@ -38,7 +38,11 @@ export const createInitialState = (config: EccoConfig): NodeState => {
     stakePositions: {},
     swarmSplits: {},
     pendingSettlements: [],
-    ...(fullConfig.connectionPool ? { connectionPool: Pool.createState(fullConfig.connectionPool) } : {}),
+    ...(fullConfig.connectionPool ? { connectionPool: {
+      config: { ...DEFAULT_CONFIG, ...fullConfig.connectionPool },
+      connections: new Map(),
+      closed: false,
+    }} : {}),
   };
 };
 
