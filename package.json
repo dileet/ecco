@@ -26,7 +26,6 @@
   "dependencies": {
     "@biomejs/biome": "^2.2.5",
     "dotenv": "^17.2.3",
-    "effect": "^3.19.3",
     "turbo": "^2.5.8",
     "zod": "^4.1.12"
   }

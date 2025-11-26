@@ -47,7 +47,7 @@ export const CapabilityQuerySchema = z.object({
   type: z.string().optional(),
   name: z.string().optional(),
   version: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   limit: z.number().min(1).max(100).default(10),
 });
 

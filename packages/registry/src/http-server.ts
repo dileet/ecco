@@ -22,7 +22,7 @@ app.get('/health', (c) => {
 });
 
 app.get('/metrics', async (c) => {
-  const metricsText = metrics.getMetrics();
+  const metricsText = await metrics.getMetrics();
   return c.text(metricsText);
 });
 

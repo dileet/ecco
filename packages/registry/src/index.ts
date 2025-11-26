@@ -1,7 +1,3 @@
-/**
- * Registry exports for programmatic use
- */
-
 export * as database from './database';
 export * as cache from './cache';
 export * as metrics from './metrics';

@@ -1,16 +1,16 @@
 import { Registry, Counter, Gauge, Histogram } from 'prom-client';
 
 let registry: Registry | null = null;
-let messagesTotal: Counter | null = null;
-let connectionsTotal: Counter | null = null;
-let registrationsTotal: Counter | null = null;
-let queriesTotal: Counter | null = null;
-let errorsTotal: Counter | null = null;
-let activeConnections: Gauge | null = null;
-let registeredNodes: Gauge | null = null;
-let totalCapabilities: Gauge | null = null;
-let messageProcessingDuration: Histogram | null = null;
-let queryDuration: Histogram | null = null;
+let messagesTotal: Counter<'type' | 'status'> | null = null;
+let connectionsTotal: Counter<'status'> | null = null;
+let registrationsTotal: Counter<string> | null = null;
+let queriesTotal: Counter<'status'> | null = null;
+let errorsTotal: Counter<'type'> | null = null;
+let activeConnections: Gauge<string> | null = null;
+let registeredNodes: Gauge<string> | null = null;
+let totalCapabilities: Gauge<string> | null = null;
+let messageProcessingDuration: Histogram<'type'> | null = null;
+let queryDuration: Histogram<string> | null = null;
 
 function initializeMetrics() {
   if (!registry) {
@@ -19,14 +19,14 @@ function initializeMetrics() {
     messagesTotal = new Counter({
       name: 'ecco_registry_messages_total',
       help: 'Total number of messages processed',
-      labelNames: ['type', 'status'],
+      labelNames: ['type', 'status'] as const,
       registers: [registry],
     });
 
     connectionsTotal = new Counter({
       name: 'ecco_registry_connections_total',
       help: 'Total number of connections',
-      labelNames: ['status'],
+      labelNames: ['status'] as const,
       registers: [registry],
     });
 
@@ -39,14 +39,14 @@ function initializeMetrics() {
     queriesTotal = new Counter({
       name: 'ecco_registry_queries_total',
       help: 'Total number of capability queries',
-      labelNames: ['status'],
+      labelNames: ['status'] as const,
       registers: [registry],
     });
 
     errorsTotal = new Counter({
       name: 'ecco_registry_errors_total',
       help: 'Total number of errors',
-      labelNames: ['type'],
+      labelNames: ['type'] as const,
       registers: [registry],
     });
 
@@ -71,7 +71,7 @@ function initializeMetrics() {
     messageProcessingDuration = new Histogram({
       name: 'ecco_registry_message_processing_duration_seconds',
       help: 'Message processing duration in seconds',
-      labelNames: ['type'],
+      labelNames: ['type'] as const,
       buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
       registers: [registry],
     });
@@ -85,7 +85,7 @@ function initializeMetrics() {
   }
 }
 
-export function getMetrics(): string {
+export async function getMetrics(): Promise<string> {
   initializeMetrics();
   return registry!.metrics();
 }
@@ -95,52 +95,52 @@ export function getRegistry(): Registry {
   return registry!;
 }
 
-export function getMessagesTotal(): Counter {
+export function getMessagesTotal(): Counter<'type' | 'status'> {
   initializeMetrics();
   return messagesTotal!;
 }
 
-export function getConnectionsTotal(): Counter {
+export function getConnectionsTotal(): Counter<'status'> {
   initializeMetrics();
   return connectionsTotal!;
 }
 
-export function getRegistrationsTotal(): Counter {
+export function getRegistrationsTotal(): Counter<string> {
   initializeMetrics();
   return registrationsTotal!;
 }
 
-export function getQueriesTotal(): Counter {
+export function getQueriesTotal(): Counter<'status'> {
   initializeMetrics();
   return queriesTotal!;
 }
 
-export function getErrorsTotal(): Counter {
+export function getErrorsTotal(): Counter<'type'> {
   initializeMetrics();
   return errorsTotal!;
 }
 
-export function getActiveConnections(): Gauge {
+export function getActiveConnections(): Gauge<string> {
   initializeMetrics();
   return activeConnections!;
 }
 
-export function getRegisteredNodes(): Gauge {
+export function getRegisteredNodes(): Gauge<string> {
   initializeMetrics();
   return registeredNodes!;
 }
 
-export function getTotalCapabilities(): Gauge {
+export function getTotalCapabilities(): Gauge<string> {
   initializeMetrics();
   return totalCapabilities!;
 }
 
-export function getMessageProcessingDuration(): Histogram {
+export function getMessageProcessingDuration(): Histogram<'type'> {
   initializeMetrics();
   return messageProcessingDuration!;
 }
 
-export function getQueryDuration(): Histogram {
+export function getQueryDuration(): Histogram<string> {
   initializeMetrics();
   return queryDuration!;
 }
