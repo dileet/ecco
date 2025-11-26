@@ -5,6 +5,7 @@ import { publish, subscribe } from './messaging';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup } from './state';
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
+import { announceCapabilities as announceDHT } from './dht';
 
 const hasCapabilitiesChanged = (existing: Capability[], updated: Capability[]): boolean =>
   JSON.stringify(existing) !== JSON.stringify(updated);
@@ -38,7 +39,6 @@ export async function announceCapabilities(state: NodeState): Promise<void> {
   }
 
   if (state.config.discovery.includes('dht') && state.node?.services.dht) {
-    const { announceCapabilities: announceDHT } = await import('./dht');
     await announceDHT(state.node, state.capabilities);
   }
 }

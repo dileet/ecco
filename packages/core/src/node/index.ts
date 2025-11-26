@@ -10,6 +10,9 @@ import * as lifecycle from './lifecycle';
 import { findPeers as findPeersImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
+import { publish as publishFn, subscribe } from './messaging';
+import { announceCapabilities } from './capabilities';
+import { setReputation, incrementReputation } from '../registry-client';
 
 export { createInitialState, createStateRef, getState, setState, updateState } from './state';
 export type { StateRef } from './types';
@@ -24,13 +27,11 @@ export async function stop(ref: StateRef<NodeState>): Promise<void> {
 
 export async function publish(ref: StateRef<NodeState>, topic: string, event: EccoEvent): Promise<void> {
   const state = getState(ref);
-  const { publish: publishFn } = await import('./messaging');
   await publishFn(state, topic, event);
 }
 
 export function subscribeToTopic(ref: StateRef<NodeState>, topic: string, handler: (event: EccoEvent) => void): void {
   const state = getState(ref);
-  const { subscribe } = require('./messaging');
   const updatedState = subscribe(state, topic, handler);
   setState(ref, updatedState);
 }
@@ -55,7 +56,6 @@ export async function addCapability(ref: StateRef<NodeState>, capability: Capabi
   const state = getState(ref);
   const newState = { ...state, capabilities: [...state.capabilities, capability] };
   setState(ref, newState);
-  const { announceCapabilities } = await import('./capabilities');
   await announceCapabilities(newState);
 }
 
@@ -91,7 +91,6 @@ export async function setRegistryReputation(
   if (!state.registryClient) {
     throw new Error('Node not connected to registry');
   }
-  const { setReputation } = await import('../registry-client');
   await setReputation(state.registryClient, nodeId, value);
 }
 
@@ -104,7 +103,6 @@ export async function incrementRegistryReputation(
   if (!state.registryClient) {
     throw new Error('Node not connected to registry');
   }
-  const { incrementReputation } = await import('../registry-client');
   await incrementReputation(state.registryClient, nodeId, increment);
 }
 

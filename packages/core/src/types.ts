@@ -5,6 +5,8 @@ export interface EccoConfig {
   registry?: string;
   fallbackToP2P?: boolean;
   nodeId?: string;
+  networkId?: string;
+  listenAddresses?: string[];
   capabilities?: Capability[];
   transport?: TransportConfig;
   bootstrap?: BootstrapConfig;

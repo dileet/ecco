@@ -40,6 +40,29 @@ import type { NodeState, EccoServices, StateRef } from './types';
 import type { Message } from '../types';
 import type { MessageEvent } from '../events';
 
+function buildListenAddresses(config: NodeState['config']): string[] {
+  if (config.listenAddresses && config.listenAddresses.length > 0) {
+    return config.listenAddresses;
+  }
+
+  const addresses = ['/ip4/0.0.0.0/tcp/0'];
+
+  if (config.transport?.websocket?.enabled) {
+    const wsPort = config.transport.websocket.port ?? 0;
+    addresses.push(`/ip4/0.0.0.0/tcp/${wsPort}/ws`);
+  }
+
+  return addresses;
+}
+
+function buildDHTProtocol(networkId?: string): string {
+  const baseProtocol = '/ecco/kad/1.0.0';
+  if (networkId) {
+    return `${baseProtocol}/${networkId}`;
+  }
+  return baseProtocol;
+}
+
 async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
   const state = getState(stateRef);
 
@@ -70,7 +93,7 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
     Object.assign(servicesConfig, {
       dht: kadDHT({
         clientMode: false,
-        protocol: '/ecco/kad/1.0.0',
+        protocol: buildDHTProtocol(state.config.networkId),
         peerInfoMapper: passthroughMapper,
         allowQueryWithZeroPeers: true,
       }),
@@ -81,8 +104,10 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
     Object.assign(servicesConfig, { pubsub: gossipsub({ emitSelf: false, allowPublishToZeroTopicPeers: true }) });
   }
 
+  const listenAddresses = buildListenAddresses(state.config);
+
   const libp2pOptions: Libp2pOptions<EccoServices> = {
-    addresses: { listen: ['/ip4/0.0.0.0/tcp/0'] },
+    addresses: { listen: listenAddresses },
     transports: transportsList,
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
@@ -93,6 +118,9 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
   const node = await createLibp2p<EccoServices>(libp2pOptions);
   await node.start();
   console.log(`Ecco node started: ${state.id}`);
+  if (state.config.networkId) {
+    console.log(`Network: ${state.config.networkId}`);
+  }
   console.log(`Listening on:`, node.getMultiaddrs().map(String));
 
   updateState(stateRef, (s) => setNode(s, node));

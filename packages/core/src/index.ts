@@ -48,7 +48,21 @@ export {
   setReputation as registrySetReputation,
   incrementReputation as registryIncrementReputation,
 } from './registry-client';
-export { configDefaults, mergeConfig } from './config';
+export { configDefaults, mergeConfig, createConfig } from './config';
+export {
+  ECCO_MAINNET,
+  ECCO_TESTNET,
+  ECCO_LOCAL,
+  NETWORKS,
+  OFFICIAL_BOOTSTRAP_PEERS,
+  getNetworkConfig,
+  applyNetworkConfig,
+  formatBootstrapPeer,
+  withBootstrapPeers,
+  DEFAULT_NETWORK,
+  type NetworkConfig,
+  type NetworkName,
+} from './networks';
 export { validateEvent, isValidEvent, MessageEventSchema } from './events';
 export { modifyState } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';

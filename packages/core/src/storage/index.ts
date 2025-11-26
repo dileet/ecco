@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { eq } from 'drizzle-orm';
@@ -34,8 +36,6 @@ const ensureDbInitialized = (): void => {
     throw new Error('Node ID not set');
   }
   const dbPath = getDbPath(currentNodeId);
-  const fs = require('fs');
-  const path = require('path');
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -50,8 +50,6 @@ const isNoSuchTableError = (error: unknown): boolean =>
 export const initialize = async (nodeId: string): Promise<void> => {
   currentNodeId = nodeId;
   const dbPath = getDbPath(nodeId);
-  const fs = require('fs');
-  const path = require('path');
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

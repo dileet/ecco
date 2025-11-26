@@ -1,13 +1,15 @@
 import type { PeerId } from '@libp2p/interface';
+import { multiaddr } from '@multiformats/multiaddr';
 import type { NodeState, StateRef } from './types';
 import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
 import type { ClientState as RegistryClientState } from '../registry-client';
 import { query as queryRegistryClient } from '../registry-client';
 import { matchPeers } from '../orchestrator/capability-matcher';
-import { announceCapabilities, setupCapabilityTracking } from './capabilities';
+import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
 import { getState, updateState, removePeer, addPeers } from './state';
 import { delay } from '../utils';
+import { queryCapabilities } from './dht';
 
 export function setupEventListeners(
   state: NodeState,
@@ -120,8 +122,6 @@ async function dialRegistryPeers(
     return;
   }
 
-  const { multiaddr } = await import('@multiformats/multiaddr');
-
   for (const peer of peers) {
     if (peer.addresses.length === 0) {
       continue;
@@ -172,10 +172,7 @@ async function queryGossip(
   timeoutMs = 2000
 ): Promise<CapabilityMatch[]> {
   console.log('No local matches, broadcasting capability request...');
-  const { requestCapabilities, findMatchingPeers } = await import('./capabilities');
-
   await requestCapabilities(stateRef, query);
-
   return pollForMatches(stateRef, query, findMatchingPeers, timeoutMs);
 }
 
@@ -232,9 +229,7 @@ export async function findPeers(
 
     if (strategy === 'dht' && state.node?.services.dht) {
       console.log('No matches from registry, querying DHT...');
-      const currentNode = state.node;
-      const { queryCapabilities } = await import('./dht');
-      const dhtPeers = await queryCapabilities(currentNode, query);
+      const dhtPeers = await queryCapabilities(state.node, query);
       const newPeers = mergePeers(state.peers, dhtPeers);
 
       updateState(stateRef, (s) => addPeers(s, newPeers));
