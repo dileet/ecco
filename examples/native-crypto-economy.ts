@@ -1,45 +1,4 @@
-/**
- * Native Crypto Economy Example
- * 
- * This example demonstrates a paid service economy where:
- * 1. Service agents advertise paid services with pricing
- * 2. Client agents request quotes
- * 3. Service agents send invoices
- * 4. Client agents pay on-chain (Ethereum Sepolia testnet)
- * 5. Service agents verify payment and perform work
- * 
- * Environment Variables:
- * - RPC_URL: RPC endpoint URL for Ethereum Sepolia
- *   Optional but recommended for better performance.
- *   Examples:
- *   - Alchemy: https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
- *   - Infura: https://sepolia.infura.io/v3/YOUR_PROJECT_ID
- *   - Public: https://rpc.sepolia.org (default if not provided)
- * 
- * - BASE_RPC_URL: RPC endpoint URL for Base Sepolia (if using Base Sepolia)
- *   Examples:
- *   - Alchemy: https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY
- *   - Public: https://sepolia.base.org (default if not provided)
- * 
- * - REGISTRY_URL: Optional registry server URL for peer discovery
- * 
- * To run:
- *   RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY bun run examples/native-crypto-economy.ts
- *   Or for Base Sepolia:
- *   BASE_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY bun run examples/native-crypto-economy.ts
- * 
- * Note: 
- * - Keys are automatically generated/loaded when authentication is enabled
- * - Keys are stored in examples/.keys/ directory (service-agent.json and client-agent.json)
- * - This example uses ETHEREUM SEPOLIA (Chain ID: 11155111)
- * - Make sure you have testnet ETH on Ethereum Sepolia for the wallet address
- * - Ethereum Sepolia faucets:
- *   - Google Cloud: https://cloud.google.com/application/web3/faucet/ethereum/sepolia
- *   - Alchemy: https://sepoliafaucet.com/
- *   - QuickNode: https://faucet.quicknode.com/ethereum/sepolia
- */
-
-import { Node, type NodeState, PaymentProtocol, Wallet, type EccoEvent, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, subscribeToTopic, getId, findPeers, sendMessage, publish, type StateRef, type NodeState, PaymentProtocol, Wallet, type EccoEvent, type MessageEvent } from '@ecco/core';
 import type { Invoice, PaymentProof, QuoteRequest } from '@ecco/core';
 
 const BASE_SEPOLIA_CHAIN_ID = 84532;
@@ -53,8 +12,8 @@ async function createServiceAgent(
   port: number,
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -85,9 +44,9 @@ async function createServiceAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  const walletAddress = await Wallet.getAddress(agent);
+  const walletAddress = await Wallet.getAddress(agentRef);
   console.log(`[${id}] Wallet address: ${walletAddress}`);
   console.log(`[${id}] Network: Ethereum Sepolia (Chain ID: ${ETH_SEPOLIA_CHAIN_ID})`);
   console.log(`[${id}] Send Ethereum Sepolia testnet ETH:`);
@@ -97,7 +56,7 @@ async function createServiceAgent(
 
   const pendingInvoices = new Map<string, Invoice>();
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as { type: string; payload: unknown };
@@ -106,7 +65,7 @@ async function createServiceAgent(
       const quoteRequest = message.payload as QuoteRequest;
       console.log(`[${id}] Received quote request for: ${quoteRequest.jobType}`);
 
-      const address = await Wallet.getAddress(agent);
+      const address = await Wallet.getAddress(agentRef);
 
       const invoice = PaymentProtocol.createInvoice(
         `job-${Date.now()}`,
@@ -120,12 +79,12 @@ async function createServiceAgent(
       pendingInvoices.set(invoice.id, invoice);
 
       const invoiceMessage = PaymentProtocol.createInvoiceMessage(
-        Node.getId(agent),
+        getId(agentRef),
         event.from,
         invoice
       );
 
-      await Node.sendMessage(agent, event.from, invoiceMessage);
+      await sendMessage(agentRef, event.from, invoiceMessage);
       console.log(`[${id}] Sent invoice: ${invoice.id}`);
     }
 
@@ -136,12 +95,12 @@ async function createServiceAgent(
       const invoice = pendingInvoices.get(paymentProof.invoiceId);
       if (!invoice) {
         const errorMessage = PaymentProtocol.createPaymentFailedMessage(
-          Node.getId(agent),
+          getId(agentRef),
           event.from,
           paymentProof.invoiceId,
           'Invoice not found'
         );
-        await Node.sendMessage(agent, event.from, errorMessage);
+        await sendMessage(agentRef, event.from, errorMessage);
         return;
       }
 
@@ -149,15 +108,15 @@ async function createServiceAgent(
         console.log(`[${id}] Verifying payment for invoice: ${paymentProof.invoiceId}`);
         console.log(`[${id}] Transaction hash: ${paymentProof.txHash}`);
         console.log(`[${id}] Chain ID: ${paymentProof.chainId}`);
-        const isValid = await Wallet.verifyPayment(agent, paymentProof, invoice);
+        const isValid = await Wallet.verifyPayment(agentRef, paymentProof, invoice);
         if (!isValid) {
           const errorMessage = PaymentProtocol.createPaymentFailedMessage(
-            Node.getId(agent),
+            getId(agentRef),
             event.from,
             paymentProof.invoiceId,
             'Payment verification failed: verification returned false'
           );
-          await Node.sendMessage(agent, event.from, errorMessage);
+          await sendMessage(agentRef, event.from, errorMessage);
           console.log(`[${id}] Payment verification failed for invoice: ${paymentProof.invoiceId} (returned false)`);
           return;
         }
@@ -170,12 +129,12 @@ async function createServiceAgent(
           console.error(`[${id}] Error cause:`, error.cause);
         }
         const errorMessage = PaymentProtocol.createPaymentFailedMessage(
-          Node.getId(agent),
+          getId(agentRef),
           event.from,
           paymentProof.invoiceId,
           `Payment verification failed: ${errorDetails}`
         );
-        await Node.sendMessage(agent, event.from, errorMessage);
+        await sendMessage(agentRef, event.from, errorMessage);
         console.log(`[${id}] Payment verification failed for invoice: ${paymentProof.invoiceId}`);
         return;
       }
@@ -185,15 +144,15 @@ async function createServiceAgent(
       const joke = `Why did the blockchain break up? Because it couldn't handle the commitment! 😄`;
 
       const verifiedMessage = PaymentProtocol.createPaymentVerifiedMessage(
-        Node.getId(agent),
+        getId(agentRef),
         event.from,
         paymentProof.invoiceId
       );
-      await Node.sendMessage(agent, event.from, verifiedMessage);
+      await sendMessage(agentRef, event.from, verifiedMessage);
 
       const resultEvent: MessageEvent = {
         type: 'message',
-        from: Node.getId(agent),
+        from: getId(agentRef),
         to: event.from,
         payload: {
           invoiceId: paymentProof.invoiceId,
@@ -202,7 +161,7 @@ async function createServiceAgent(
         timestamp: Date.now(),
       };
 
-      await Node.publish(agent, `result:${paymentProof.invoiceId}`, resultEvent);
+      await publish(agentRef, `result:${paymentProof.invoiceId}`, resultEvent);
       console.log(`[${id}] Work completed and result sent`);
 
       pendingInvoices.delete(paymentProof.invoiceId);
@@ -210,7 +169,7 @@ async function createServiceAgent(
   });
 
   console.log(`[${id}] Service agent started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function createClientAgent(
@@ -218,8 +177,8 @@ async function createClientAgent(
   port: number,
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -235,9 +194,9 @@ async function createClientAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  const walletAddress = await Wallet.getAddress(agent);
+  const walletAddress = await Wallet.getAddress(agentRef);
   console.log(`[${id}] Wallet address: ${walletAddress}`);
   console.log(`[${id}] Network: Ethereum Sepolia (Chain ID: ${ETH_SEPOLIA_CHAIN_ID})`);
   console.log(`[${id}] Send Ethereum Sepolia testnet ETH:`);
@@ -246,19 +205,19 @@ async function createClientAgent(
   console.log(`[${id}]   - QuickNode: https://faucet.quicknode.com/ethereum/sepolia\n`);
 
   console.log(`[${id}] Client agent started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function requestService(
-  agent: NodeState,
+  agentRef: StateRef<NodeState>,
   servicePeerId: string
 ): Promise<void> {
 
-  console.log(`\n[${Node.getId(agent)}] Requesting service from ${servicePeerId}`);
+  console.log(`\n[${getId(agentRef)}] Requesting service from ${servicePeerId}`);
 
   const quoteRequest = PaymentProtocol.createQuoteRequest('joke', {});
   const quoteMessage = PaymentProtocol.createRequestQuoteMessage(
-    Node.getId(agent),
+    getId(agentRef),
     servicePeerId,
     quoteRequest
   );
@@ -280,7 +239,7 @@ async function requestService(
     }
   };
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, invoiceHandler);
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, invoiceHandler);
 
   const invoicePromise = new Promise<Invoice>((resolve, reject) => {
     invoiceResolve = resolve;
@@ -294,12 +253,12 @@ async function requestService(
     }, 10000);
   });
 
-  await Node.sendMessage(agent, servicePeerId, quoteMessage);
-  console.log(`[${Node.getId(agent)}] Quote request sent`);
+  await sendMessage(agentRef, servicePeerId, quoteMessage);
+  console.log(`[${getId(agentRef)}] Quote request sent`);
 
   try {
     invoice = await invoicePromise;
-    console.log(`[${Node.getId(agent)}] Received invoice: ${invoice.id}`);
+    console.log(`[${getId(agentRef)}] Received invoice: ${invoice.id}`);
     console.log(`  Amount: ${invoice.amount} ${invoice.token}`);
     console.log(`  Chain: ${invoice.chainId}`);
     console.log(`  Recipient: ${invoice.recipient}`);
@@ -307,21 +266,21 @@ async function requestService(
     try {
       await PaymentProtocol.validateInvoiceAsync(invoice);
     } catch (error) {
-      console.error(`[${Node.getId(agent)}] Invoice expired:`, (error as Error).message);
+      console.error(`[${getId(agentRef)}] Invoice expired:`, (error as Error).message);
       return;
     }
 
-    console.log(`[${Node.getId(agent)}] Paying invoice...`);
+    console.log(`[${getId(agentRef)}] Paying invoice...`);
 
     try {
-      paymentProof = await Wallet.pay(agent, invoice!);
+      paymentProof = await Wallet.pay(agentRef, invoice!);
     } catch (error) {
-      console.error(`[${Node.getId(agent)}] Payment failed:`, error instanceof Error ? error.message : String(error));
-      console.error(`[${Node.getId(agent)}] Full error:`, error);
+      console.error(`[${getId(agentRef)}] Payment failed:`, error instanceof Error ? error.message : String(error));
+      console.error(`[${getId(agentRef)}] Full error:`, error);
       throw error;
     }
 
-    console.log(`[${Node.getId(agent)}] Payment sent! TX Hash: ${paymentProof.txHash}`);
+    console.log(`[${getId(agentRef)}] Payment sent! TX Hash: ${paymentProof.txHash}`);
 
     let resultResolve: ((result: string) => void) | null = null;
     let resultReject: ((error: Error) => void) | null = null;
@@ -342,17 +301,17 @@ async function requestService(
       }
     };
 
-    Node.subscribeToTopic(agent, `result:${invoice!.id}`, resultHandler);
-    console.log(`[${Node.getId(agent)}] Subscribed to result topic: result:${invoice!.id}`);
+    subscribeToTopic(agentRef, `result:${invoice!.id}`, resultHandler);
+    console.log(`[${getId(agentRef)}] Subscribed to result topic: result:${invoice!.id}`);
 
     const proofMessage = PaymentProtocol.createPaymentProofMessage(
-      Node.getId(agent),
+      getId(agentRef),
       servicePeerId,
       paymentProof
     );
 
-    await Node.sendMessage(agent, servicePeerId, proofMessage);
-    console.log(`[${Node.getId(agent)}] Payment proof sent`);
+    await sendMessage(agentRef, servicePeerId, proofMessage);
+    console.log(`[${getId(agentRef)}] Payment proof sent`);
 
     const verifiedHandler = (event: EccoEvent) => {
       if (event.type !== 'message') return;
@@ -365,11 +324,11 @@ async function requestService(
         'invoiceId' in message.payload &&
         (message.payload as { invoiceId: string }).invoiceId === invoice!.id
       ) {
-        console.log(`[${Node.getId(agent)}] Payment verified, waiting for result...`);
+        console.log(`[${getId(agentRef)}] Payment verified, waiting for result...`);
       }
     };
 
-    Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, verifiedHandler);
+    subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, verifiedHandler);
 
     const resultPromise = new Promise<string>((resolve, reject) => {
       resultResolve = resolve;
@@ -384,9 +343,9 @@ async function requestService(
     });
 
     const result = await resultPromise;
-    console.log(`\n[${Node.getId(agent)}] Service Result: ${result}\n`);
+    console.log(`\n[${getId(agentRef)}] Service Result: ${result}\n`);
   } catch (error) {
-    console.error(`[${Node.getId(agent)}] Error:`, (error as Error).message);
+    console.error(`[${getId(agentRef)}] Error:`, (error as Error).message);
   }
 }
 
@@ -438,13 +397,13 @@ async function main() {
     console.log('');
   }
 
-  const serviceAgent = await createServiceAgent('service-agent', 7771, registryUrl, walletRpcUrls);
-  const clientAgent = await createClientAgent('client-agent', 7772, registryUrl, walletRpcUrls);
+  const serviceAgentRef = await createServiceAgent('service-agent', 7771, registryUrl, walletRpcUrls);
+  const clientAgentRef = await createClientAgent('client-agent', 7772, registryUrl, walletRpcUrls);
 
   console.log('\nWaiting for peers to discover...\n');
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  const { matches, state: updatedClientAgent } = await Node.findPeers(clientAgent, {
+  const matches = await findPeers(clientAgentRef, {
     requiredCapabilities: [
       {
         type: 'scraper',
@@ -455,21 +414,20 @@ async function main() {
 
   if (matches.length === 0) {
     console.error('Service agent not found!');
-    await Node.stop(serviceAgent);
-    await Node.stop(clientAgent);
+    await stop(serviceAgentRef);
+    await stop(clientAgentRef);
     return;
   }
 
   const servicePeer = matches[0].peer;
-  console.log(`Found service peer: ${servicePeer.id} (${Node.getId(serviceAgent)})\n`);
+  console.log(`Found service peer: ${servicePeer.id} (${getId(serviceAgentRef)})\n`);
 
-  await requestService(updatedClientAgent, servicePeer.id);
+  await requestService(clientAgentRef, servicePeer.id);
 
-  await Node.stop(serviceAgent);
-  await Node.stop(clientAgent);
+  await stop(serviceAgentRef);
+  await stop(clientAgentRef);
 
   console.log('\n=== Example Complete ===');
 }
 
 main().catch(console.error);
-

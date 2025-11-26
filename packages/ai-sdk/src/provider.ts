@@ -7,11 +7,11 @@ import type {
   LanguageModelV2Content,
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
-import { Node, type NodeState, type CapabilityQuery } from '@ecco/core';
+import { findPeers, subscribeToTopic, sendMessage, getId, type StateRef, type NodeState, type CapabilityQuery } from '@ecco/core';
 import { nanoid } from 'nanoid';
 
 interface EccoProviderConfig {
-  nodeState: NodeState;
+  nodeRef: StateRef<NodeState>;
   fallbackProvider?: LanguageModelV2;
   timeout?: number;
 }
@@ -66,7 +66,7 @@ const createState = (modelId: string, config: EccoProviderConfig): EccoLanguageM
 });
 
 const waitForResponse = (
-  nodeState: NodeState,
+  nodeRef: StateRef<NodeState>,
   requestId: string,
   timeout: number
 ): Promise<unknown> =>
@@ -80,7 +80,7 @@ const waitForResponse = (
       }
     }, timeout);
 
-    Node.subscribeToTopic(nodeState, `response:${requestId}`, (data: unknown) => {
+    subscribeToTopic(nodeRef, `response:${requestId}`, (data: unknown) => {
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
@@ -131,22 +131,16 @@ const parseResponse = (response: unknown): GenerateResult => {
 const doGenerate = async (
   state: EccoLanguageModelState,
   options: LanguageModelV2CallOptions
-): Promise<{ result: GenerateResult; state: EccoLanguageModelState }> => {
+): Promise<GenerateResult> => {
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'agent', name: state.modelId }],
   };
 
-  const { matches, state: updatedNodeState } = await Node.findPeers(state.config.nodeState, query);
-
-  const stateAfterFind: EccoLanguageModelState = {
-    ...state,
-    config: { ...state.config, nodeState: updatedNodeState },
-  };
+  const matches = await findPeers(state.config.nodeRef, query);
 
   if (matches.length === 0) {
-    if (stateAfterFind.config.fallbackProvider) {
-      const result = await stateAfterFind.config.fallbackProvider.doGenerate(options);
-      return { result, state: stateAfterFind };
+    if (state.config.fallbackProvider) {
+      return state.config.fallbackProvider.doGenerate(options);
     }
     throw new Error(`No peers found with capability: ${state.modelId}`);
   }
@@ -156,52 +150,37 @@ const doGenerate = async (
 
   const request = {
     id: requestId,
-    from: Node.getId(stateAfterFind.config.nodeState),
+    from: getId(state.config.nodeRef),
     to: bestMatch.peer.id,
     type: 'agent-request' as const,
     payload: { model: state.modelId, options },
     timestamp: Date.now(),
   };
 
-  const nodeStateAfterSend = await Node.sendMessage(
-    stateAfterFind.config.nodeState,
-    bestMatch.peer.id,
-    request
-  );
-
-  const stateAfterSend: EccoLanguageModelState = {
-    ...stateAfterFind,
-    config: { ...stateAfterFind.config, nodeState: nodeStateAfterSend },
-  };
+  await sendMessage(state.config.nodeRef, bestMatch.peer.id, request);
 
   const response = await waitForResponse(
-    stateAfterSend.config.nodeState,
+    state.config.nodeRef,
     requestId,
-    stateAfterSend.config.timeout || 30000
+    state.config.timeout || 30000
   );
 
-  return { result: parseResponse(response), state: stateAfterSend };
+  return parseResponse(response);
 };
 
 const doStream = async (
   state: EccoLanguageModelState,
   options: LanguageModelV2CallOptions
-): Promise<{ result: StreamResult; state: EccoLanguageModelState }> => {
+): Promise<StreamResult> => {
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'agent', name: state.modelId }],
   };
 
-  const { matches, state: updatedNodeState } = await Node.findPeers(state.config.nodeState, query);
-
-  const stateAfterFind: EccoLanguageModelState = {
-    ...state,
-    config: { ...state.config, nodeState: updatedNodeState },
-  };
+  const matches = await findPeers(state.config.nodeRef, query);
 
   if (matches.length === 0) {
-    if (stateAfterFind.config.fallbackProvider) {
-      const result = await stateAfterFind.config.fallbackProvider.doStream(options);
-      return { result, state: stateAfterFind };
+    if (state.config.fallbackProvider) {
+      return state.config.fallbackProvider.doStream(options);
     }
     throw new Error(`No peers found with capability: ${state.modelId}`);
   }
@@ -209,38 +188,20 @@ const doStream = async (
   const bestMatch = matches[0];
   const requestId = nanoid();
 
-  const subscribedNodeState = Node.subscribeToTopic(
-    stateAfterFind.config.nodeState,
-    `response:${requestId}`,
-    () => {}
-  );
+  subscribeToTopic(state.config.nodeRef, `response:${requestId}`, () => {});
 
-  const stateAfterSubscribe: EccoLanguageModelState = {
-    ...stateAfterFind,
-    config: { ...stateAfterFind.config, nodeState: subscribedNodeState },
-  };
-
-  const nodeStateAfterSend = await Node.sendMessage(
-    stateAfterSubscribe.config.nodeState,
-    bestMatch.peer.id,
-    {
-      id: requestId,
-      from: Node.getId(stateAfterSubscribe.config.nodeState),
-      to: bestMatch.peer.id,
-      type: 'agent-request' as const,
-      payload: { model: state.modelId, prompt: options.prompt, stream: true },
-      timestamp: Date.now(),
-    }
-  );
-
-  const finalState: EccoLanguageModelState = {
-    ...stateAfterSubscribe,
-    config: { ...stateAfterSubscribe.config, nodeState: nodeStateAfterSend },
-  };
+  await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
+    id: requestId,
+    from: getId(state.config.nodeRef),
+    to: bestMatch.peer.id,
+    type: 'agent-request' as const,
+    payload: { model: state.modelId, prompt: options.prompt, stream: true },
+    timestamp: Date.now(),
+  });
 
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
-      Node.subscribeToTopic(finalState.config.nodeState, `response:${requestId}`, (data: unknown) => {
+      subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
         if (typeof data === 'object' && data !== null && 'type' in data) {
           if (data.type === 'chunk' && 'text' in data && typeof data.text === 'string') {
             controller.enqueue({ type: 'text-delta', id: nanoid(), delta: data.text });
@@ -263,12 +224,12 @@ const doStream = async (
     },
   });
 
-  return { result: { stream }, state: finalState };
+  return { stream };
 };
 
 const createEccoProvider = (config: EccoProviderConfig) => ({
   languageModel: (modelId: string): EccoLanguageModel => {
-    let state = createState(modelId, config);
+    const state = createState(modelId, config);
 
     return {
       specificationVersion: state.specificationVersion,
@@ -278,15 +239,11 @@ const createEccoProvider = (config: EccoProviderConfig) => ({
       supportedUrls: state.supportedUrls,
 
       async doGenerate(options) {
-        const { result, state: newState } = await doGenerate(state, options);
-        state = newState;
-        return result;
+        return doGenerate(state, options);
       },
 
       async doStream(options) {
-        const { result, state: newState } = await doStream(state, options);
-        state = newState;
-        return result;
+        return doStream(state, options);
       },
     };
   },

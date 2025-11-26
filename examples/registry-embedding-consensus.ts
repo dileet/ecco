@@ -1,4 +1,4 @@
-import { Node, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, getPeers, isRegistryConnected, subscribeToTopic, getId, publish, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest, setupEmbeddingProvider } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -25,7 +25,7 @@ async function main() {
     registryUrl
   );
 
-  let seekerState = Node.create({
+  let seekerState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: 'seeker',
@@ -45,7 +45,7 @@ async function main() {
     },
   });
 
-  seekerState = await Node.start(seekerState);
+  seekerState = await start(seekerState);
 
   seekerState = setupEmbeddingProvider({
     nodeState: seekerState,
@@ -59,10 +59,10 @@ async function main() {
 
   await new Promise((resolve) => setTimeout(resolve, 5000));
 
-  const peers = Node.getPeers(seekerState);
+  const peers = getPeers(seekerState);
   console.log(`Discovered ${peers.length} peers\n`);
 
-  const isRegistryConnected = await Node.isRegistryConnected(seekerState);
+  const isRegistryConnected = await isRegistryConnected(seekerState);
   if (isRegistryConnected) {
     console.log('Registry connection: ✓ Connected\n');
   } else {
@@ -139,7 +139,7 @@ async function main() {
       );
     }
 
-    const isRegistryConnected = await Node.isRegistryConnected(seekerState);
+    const isRegistryConnected = await isRegistryConnected(seekerState);
     if (isRegistryConnected) {
       console.log('\n--- Registry Reputation Note ---');
       const embeddingPeer = peers.find(p => 
@@ -156,11 +156,11 @@ async function main() {
     console.error('Error:', (error as Error).message);
   }
 
-  await Node.stop(seekerState);
+  await stop(seekerState);
   for (const agent of agents) {
-    await Node.stop(agent);
+    await stop(agent);
   }
-  await Node.stop(embeddingProvider);
+  await stop(embeddingProvider);
 
   console.log('\n=== Example Complete ===');
 }
@@ -172,7 +172,7 @@ async function createQuestionAnsweringAgent(
   displayName: string,
   registryUrl: string
 ): Promise<NodeState> {
-  const agentState = Node.create({
+  const agentState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: id,
@@ -193,9 +193,9 @@ async function createQuestionAnsweringAgent(
     },
   });
 
-  const agent = await Node.start(agentState);
+  const agent = await start(agentState);
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agent, `peer:${getId(agent)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) return;
 
@@ -224,7 +224,7 @@ async function createQuestionAnsweringAgent(
         timestamp: Date.now(),
       };
 
-      await Node.publish(agent, `response:${event.payload.id}`, responseEvent);
+      await publish(agent, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
@@ -238,7 +238,7 @@ async function createQuestionAnsweringAgent(
         },
         timestamp: Date.now(),
       };
-      await Node.publish(agent, `response:${event.payload.id}`, errorEvent);
+      await publish(agent, `response:${event.payload.id}`, errorEvent);
     }
   });
 
@@ -252,7 +252,7 @@ async function createEmbeddingProvider(
   displayName: string,
   registryUrl: string
 ): Promise<NodeState> {
-  const providerState = Node.create({
+  const providerState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: id,
@@ -273,7 +273,7 @@ async function createEmbeddingProvider(
     },
   });
 
-  const provider = await Node.start(providerState);
+  const provider = await start(providerState);
 
   const providerWithHandler = setupEmbeddingProvider({
     nodeState: provider,

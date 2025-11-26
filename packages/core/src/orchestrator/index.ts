@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { CapabilityQuery, Message, CapabilityMatch } from '../types';
-import type { NodeState } from '../node/types';
+import type { NodeState, StateRef } from '../node/types';
 import type {
   MultiAgentConfig,
   AgentResponse,
@@ -8,7 +8,7 @@ import type {
   AgentLoadState,
 } from './types';
 import { aggregateResponses } from './aggregation';
-import { Node } from '../node';
+import { findPeers, getId, subscribeToTopic, sendMessage, getState } from '../node';
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -164,17 +164,16 @@ const finalizeLoadStates = (
 };
 
 export const executeOrchestration = async (
-  nodeState: NodeState,
+  nodeRef: StateRef<NodeState>,
   state: OrchestratorState,
   query: CapabilityQuery,
   payload: unknown,
   config: MultiAgentConfig
-): Promise<{ result: AggregatedResult; state: OrchestratorState; nodeState: NodeState }> => {
+): Promise<{ result: AggregatedResult; state: OrchestratorState }> => {
   const startTime = Date.now();
   const requestId = nanoid();
 
-  const { matches: allMatches, state: updatedNodeState } = await Node.findPeers(nodeState, query);
-  let currentNodeState = updatedNodeState;
+  const allMatches = await findPeers(nodeRef, query);
 
   const validation = validateAgentCount(allMatches.length, config.minAgents || 1);
   if (!validation.valid) {
@@ -187,7 +186,7 @@ export const executeOrchestration = async (
     selectedAgents,
     requestId,
     payload,
-    Node.getId(currentNodeState)
+    getId(nodeRef)
   );
 
   console.log(
@@ -201,7 +200,6 @@ export const executeOrchestration = async (
   }
 
   try {
-    let stateWithSubscriptions = currentNodeState;
     const responsePromises = new Map<string, Promise<unknown>>();
     const responseResolvers = new Map<
       string,
@@ -221,15 +219,11 @@ export const executeOrchestration = async (
         }
       };
 
-      stateWithSubscriptions = Node.subscribeToTopic(
-        stateWithSubscriptions,
-        `response:${req.message.id}`,
-        handler
-      );
+      subscribeToTopic(nodeRef, `response:${req.message.id}`, handler);
     }
 
     for (const req of requests) {
-      Node.sendMessage(stateWithSubscriptions, req.message.to, req.message).catch((error) => {
+      sendMessage(nodeRef, req.message.to, req.message).catch((error) => {
         const resolver = responseResolvers.get(req.message.id);
         if (resolver) {
           resolver.reject(error as Error);
@@ -240,7 +234,6 @@ export const executeOrchestration = async (
     const agentPromises = requests.map(async (req): Promise<{
       response: AgentResponse;
       state: OrchestratorState;
-      nodeState: NodeState;
     }> => {
       const timeout = config.timeout || 30000;
       const sendTime = Date.now();
@@ -279,7 +272,6 @@ export const executeOrchestration = async (
             success: true,
           },
           state: { ...currentState, loadStates: newLoadStates },
-          nodeState: stateWithSubscriptions,
         };
       } catch (error) {
         const latency = Date.now() - sendTime;
@@ -310,7 +302,6 @@ export const executeOrchestration = async (
             success: false,
           },
           state: { ...currentState, loadStates: newLoadStates },
-          nodeState: stateWithSubscriptions,
         };
       }
     });
@@ -320,18 +311,17 @@ export const executeOrchestration = async (
 
     if (results.length > 0) {
       currentState = results[results.length - 1].state;
-      currentNodeState = results[results.length - 1].nodeState;
     }
 
     const configWithState: MultiAgentConfig = {
       ...config,
-      nodeState: currentNodeState,
+      nodeState: getState(nodeRef),
     };
 
     const result = await aggregateResponses(responses, configWithState);
     result.metrics.totalTime = Date.now() - startTime;
 
-    return { result, state: currentState, nodeState: currentNodeState };
+    return { result, state: currentState };
   } finally {
     if (config.loadBalancing?.enabled) {
       const newLoadStates = finalizeLoadStates(currentState.loadStates, selectedAgents);

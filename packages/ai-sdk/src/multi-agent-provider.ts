@@ -8,10 +8,15 @@ import type {
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import {
-  Node,
+  findPeers,
+  subscribeToTopic,
+  sendMessage,
+  getId,
+  getState,
   executeOrchestration,
   getLoadStatistics as getOrchestratorLoadStatistics,
   resetLoadStatistics as resetOrchestratorLoadStatistics,
+  type StateRef,
   type NodeState,
   type OrchestratorState,
   type CapabilityQuery,
@@ -20,7 +25,7 @@ import {
 } from '@ecco/core';
 
 interface MultiAgentProviderConfig {
-  nodeState: NodeState;
+  nodeRef: StateRef<NodeState>;
   orchestratorState: OrchestratorState;
   multiAgentConfig: MultiAgentConfig;
   fallbackProvider?: LanguageModelV2;
@@ -40,7 +45,7 @@ interface MultiAgentLanguageModelState {
   readonly defaultObjectGenerationMode: 'json';
   readonly supportedUrls: Record<string, never>;
   readonly config: MultiAgentProviderConfig;
-  readonly orchestratorState: OrchestratorState;
+  orchestratorState: OrchestratorState;
 }
 
 interface GenerateResult {
@@ -164,25 +169,19 @@ const buildMetadata = (
 const doGenerate = async (
   state: MultiAgentLanguageModelState,
   options: LanguageModelV2CallOptions
-): Promise<{ result: GenerateResult; state: MultiAgentLanguageModelState }> => {
+): Promise<{ result: GenerateResult; orchestratorState: OrchestratorState }> => {
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'agent', name: state.modelId }],
   };
 
   try {
-    const { result: aggregated, state: newOrchestratorState, nodeState: newNodeState } = await executeOrchestration(
-      state.config.nodeState,
+    const { result: aggregated, state: newOrchestratorState } = await executeOrchestration(
+      state.config.nodeRef,
       state.orchestratorState,
       query,
       { model: state.modelId, options },
       state.config.multiAgentConfig
     );
-
-    const newState: MultiAgentLanguageModelState = {
-      ...state,
-      orchestratorState: newOrchestratorState,
-      config: { ...state.config, nodeState: newNodeState },
-    };
 
     const extracted = extractResult(aggregated);
     const usage = aggregateUsage(aggregated);
@@ -197,11 +196,11 @@ const doGenerate = async (
       }),
     };
 
-    return { result, state: newState };
+    return { result, orchestratorState: newOrchestratorState };
   } catch (error) {
     if (state.config.fallbackProvider) {
       const result = await state.config.fallbackProvider.doGenerate(options);
-      return { result, state };
+      return { result, orchestratorState: state.orchestratorState };
     }
     throw error;
   }
@@ -210,22 +209,16 @@ const doGenerate = async (
 const doStream = async (
   state: MultiAgentLanguageModelState,
   options: LanguageModelV2CallOptions
-): Promise<{ result: StreamResult; state: MultiAgentLanguageModelState }> => {
+): Promise<StreamResult> => {
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'agent', name: state.modelId }],
   };
 
-  const { matches, state: updatedNodeState } = await Node.findPeers(state.config.nodeState, query);
-
-  const stateAfterFind: MultiAgentLanguageModelState = {
-    ...state,
-    config: { ...state.config, nodeState: updatedNodeState },
-  };
+  const matches = await findPeers(state.config.nodeRef, query);
 
   if (matches.length === 0) {
-    if (stateAfterFind.config.fallbackProvider) {
-      const result = await stateAfterFind.config.fallbackProvider.doStream(options);
-      return { result, state: stateAfterFind };
+    if (state.config.fallbackProvider) {
+      return state.config.fallbackProvider.doStream(options);
     }
     throw new Error(`No peers found with capability: ${state.modelId}`);
   }
@@ -233,38 +226,20 @@ const doStream = async (
   const requestId = `stream-${Date.now()}`;
   const bestMatch = matches[0];
 
-  const subscribedNodeState = Node.subscribeToTopic(
-    stateAfterFind.config.nodeState,
-    `response:${requestId}`,
-    () => {}
-  );
+  subscribeToTopic(state.config.nodeRef, `response:${requestId}`, () => {});
 
-  const stateAfterSubscribe: MultiAgentLanguageModelState = {
-    ...stateAfterFind,
-    config: { ...stateAfterFind.config, nodeState: subscribedNodeState },
-  };
-
-  const nodeStateAfterSend = await Node.sendMessage(
-    stateAfterSubscribe.config.nodeState,
-    bestMatch.peer.id,
-    {
-      id: requestId,
-      from: Node.getId(stateAfterSubscribe.config.nodeState),
-      to: bestMatch.peer.id,
-      type: 'agent-request' as const,
-      payload: { model: state.modelId, options, stream: true },
-      timestamp: Date.now(),
-    }
-  );
-
-  const finalState: MultiAgentLanguageModelState = {
-    ...stateAfterSubscribe,
-    config: { ...stateAfterSubscribe.config, nodeState: nodeStateAfterSend },
-  };
+  await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
+    id: requestId,
+    from: getId(state.config.nodeRef),
+    to: bestMatch.peer.id,
+    type: 'agent-request' as const,
+    payload: { model: state.modelId, options, stream: true },
+    timestamp: Date.now(),
+  });
 
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
-      Node.subscribeToTopic(finalState.config.nodeState, `response:${requestId}`, (data: unknown) => {
+      subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
         if (typeof data === 'object' && data !== null && 'type' in data) {
           if (data.type === 'chunk' && 'text' in data) {
             controller.enqueue({
@@ -291,7 +266,7 @@ const doStream = async (
     },
   });
 
-  return { result: { stream }, state: finalState };
+  return { stream };
 };
 
 const getLoadStatistics = (state: MultiAgentLanguageModelState): Record<string, unknown> =>
@@ -314,15 +289,13 @@ const createMultiAgentProvider = (config: MultiAgentProviderConfig) => ({
       supportedUrls: state.supportedUrls,
 
       async doGenerate(options) {
-        const { result, state: newState } = await doGenerate(state, options);
-        state = newState;
+        const { result, orchestratorState } = await doGenerate(state, options);
+        state = { ...state, orchestratorState };
         return result;
       },
 
       async doStream(options) {
-        const { result, state: newState } = await doStream(state, options);
-        state = newState;
-        return result;
+        return doStream(state, options);
       },
 
       getLoadStatistics: () => getLoadStatistics(state),

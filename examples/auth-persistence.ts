@@ -1,14 +1,4 @@
-/**
- * Example: Authentication Key Persistence + Performance Tracking
- *
- * - Verifies that enabling authentication with a fixed keyPath preserves the node's identity across restarts.
- * - Demonstrates how to view peer service counters by running a minimal local embedding exchange between two nodes.
- *
- * Run:
- *   bun run examples/auth-persistence.ts
- */
-import { Node, EmbeddingService, isEmbeddingRequest, getState, addPeerRef, type NodeState, type MessageEvent } from '@ecco/core';
-import { Effect, Ref } from 'effect';
+import { createInitialState, start, stop, getPeers, getId, subscribeToTopic, publish, EmbeddingService, isEmbeddingRequest, getState, setState, type StateRef, type NodeState, type MessageEvent } from '@ecco/core';
 import { promises as fs } from 'fs';
 
 const KEY_PATH = '.keys/auth-persistence-node.json';
@@ -24,10 +14,8 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-
-async function printPeers(state: NodeState, label: string) {
-  const live = state._ref ? await Effect.runPromise(getState(state._ref)) : state;
-  const peers = Node.getPeers(live);
+function printPeers(ref: StateRef<NodeState>, label: string) {
+  const peers = getPeers(ref);
   console.log(`\n[${label}] Peers: ${peers.length}`);
   for (const peer of peers) {
     const balance = (peer.servicesProvided || 0) - (peer.servicesConsumed || 0);
@@ -49,8 +37,8 @@ function createDummyEmbedding(text: string): number[] {
   return [len, sum, vowels, 1];
 }
 
-async function createEmbeddingProviderNode(): Promise<NodeState> {
-  let provider = Node.create({
+async function createEmbeddingProviderNode(): Promise<StateRef<NodeState>> {
+  const providerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     authentication: {
       enabled: true,
@@ -69,25 +57,28 @@ async function createEmbeddingProviderNode(): Promise<NodeState> {
       },
     ],
   });
-  provider = await Node.start(provider);
+  const providerRef = await start(providerState);
 
-  Node.subscribeToTopic(provider, `peer:${Node.getId(provider)}`, async (event) => {
+  subscribeToTopic(providerRef, `peer:${getId(providerRef)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isEmbeddingRequest(event.payload)) return;
     try {
       const { requestId, texts } = event.payload;
 
-      // Ensure provider has a peer record for the requester
-      if (provider._ref) {
-        const current = await Effect.runPromise(getState(provider._ref));
-        if (!current.peers.get(event.from)) {
-          await Effect.runPromise(addPeerRef(provider._ref, {
-            id: event.from,
-            addresses: [],
-            capabilities: [],
-            lastSeen: Date.now(),
-          }));
-        }
+      const state = getState(providerRef);
+      if (!state.peers[event.from]) {
+        setState(providerRef, {
+          ...state,
+          peers: {
+            ...state.peers,
+            [event.from]: {
+              id: event.from,
+              addresses: [],
+              capabilities: [],
+              lastSeen: Date.now(),
+            },
+          },
+        });
       }
 
       const embeddings = texts.map(createDummyEmbedding);
@@ -100,25 +91,15 @@ async function createEmbeddingProviderNode(): Promise<NodeState> {
       };
       const responseEvent: MessageEvent = {
         type: 'message',
-        from: Node.getId(provider),
+        from: getId(providerRef),
         to: event.from,
         payload: response,
         timestamp: Date.now(),
       };
-      // Publish on both an ephemeral response topic and the seeker's peer topic to avoid
-      // race conditions with topic subscription propagation.
-      await Node.publish(provider, `embedding-response:${requestId}`, responseEvent);
-      await Node.publish(provider, `peer:${event.from}`, responseEvent);
+      await publish(providerRef, `embedding-response:${requestId}`, responseEvent);
+      await publish(providerRef, `peer:${event.from}`, responseEvent);
 
-      const liveProvider = provider._ref ? await Effect.runPromise(getState(provider._ref)) : provider;
-      const updatedProvider = EmbeddingService.updatePeerServiceProvided(liveProvider, event.from);
-      if (provider._ref) {
-        const nextProvider: NodeState = { ...updatedProvider, _ref: provider._ref };
-        await Effect.runPromise(Ref.set(provider._ref, nextProvider));
-        provider = nextProvider;
-      } else {
-        provider = updatedProvider;
-      }
+      EmbeddingService.updatePeerServiceProvided(providerRef, event.from);
       console.log(`[provider] served ${texts.length} embeddings to ${event.from}`);
     } catch (err) {
       console.error('[provider] error handling embedding request:', err);
@@ -126,18 +107,13 @@ async function createEmbeddingProviderNode(): Promise<NodeState> {
   });
 
   console.log('[provider] started');
-  return provider;
+  return providerRef;
 }
 
-async function requestDummyEmbeddings(seeker: NodeState, preferredPeerId: string): Promise<void> {
+async function requestDummyEmbeddings(seekerRef: StateRef<NodeState>, preferredPeerId: string): Promise<void> {
   try {
-    const result = await Effect.runPromise(
-      EmbeddingService.requestEmbeddings(seeker, ['hello world', 'identity persistence'], { model: 'dummy', preferredPeers: [preferredPeerId] })
-    );
-    if (seeker._ref) {
-      await Effect.runPromise(Ref.set(seeker._ref, { ...result.state, _ref: seeker._ref }));
-    }
-    console.log(`[seeker] received ${result.embeddings.length} embeddings`);
+    const embeddings = await EmbeddingService.requestEmbeddings(seekerRef, ['hello world', 'identity persistence'], { model: 'dummy', preferredPeers: [preferredPeerId] });
+    console.log(`[seeker] received ${embeddings.length} embeddings`);
   } catch (err) {
     console.log('[seeker] embedding request failed:', (err as Error).message);
   }
@@ -147,40 +123,38 @@ async function main() {
   console.log('=== Auth Persistence Test ===\n');
   console.log(`Key file path: ${KEY_PATH}\n`);
 
-  // First start: generate or load keys, then stop
-  let nodeA = Node.create({
+  const nodeAState = createInitialState({
     discovery: ['mdns', 'gossip'],
     authentication: {
       enabled: true,
       keyPath: KEY_PATH,
     },
   });
-  nodeA = await Node.start(nodeA);
-  const firstId = Node.getId(nodeA);
+  const nodeARef = await start(nodeAState);
+  const firstId = getId(nodeARef);
   console.log(`First start Node ID: ${firstId}`);
   console.log(`Key file exists after first start: ${await fileExists(KEY_PATH)}\n`);
-  await Node.stop(nodeA);
+  await stop(nodeARef);
 
-  // Second start: load the same keys and confirm the ID matches
-  let nodeB = Node.create({
+  const nodeBState = createInitialState({
     discovery: ['mdns', 'gossip'],
     authentication: {
       enabled: true,
       keyPath: KEY_PATH,
     },
   });
-  nodeB = await Node.start(nodeB);
-  const secondId = Node.getId(nodeB);
+  const nodeBRef = await start(nodeBState);
+  const secondId = getId(nodeBRef);
   console.log(`Second start Node ID: ${secondId}`);
   console.log(`IDs match: ${firstId === secondId}\n`);
 
-  await Node.stop(nodeB);
+  await stop(nodeBRef);
   console.log('=== Done ===');
 
   console.log('\n=== Service Exchange Demo ===');
-  const provider = await createEmbeddingProviderNode();
+  const providerRef = await createEmbeddingProviderNode();
 
-  let seeker = Node.create({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     authentication: {
       enabled: true,
@@ -188,26 +162,29 @@ async function main() {
     },
     capabilities: [],
   });
-  seeker = await Node.start(seeker);
+  const seekerRef = await start(seekerState);
   console.log('[seeker] started');
-  if (seeker.node && provider.node) {
-    const addrs = provider.node.getMultiaddrs();
+
+  const seekerNodeState = getState(seekerRef);
+  const providerNodeState = getState(providerRef);
+  if (seekerNodeState.node && providerNodeState.node) {
+    const addrs = providerNodeState.node.getMultiaddrs();
     if (addrs.length > 0) {
       const addr = addrs[0];
       console.log(`[seeker] dialing provider at ${String(addr)}`);
-      await seeker.node.dial(addr);
+      await seekerNodeState.node.dial(addr);
     } else {
       console.warn('[seeker] provider has no listen addresses yet');
     }
   }
 
-  await requestDummyEmbeddings(seeker, Node.getId(provider));
+  await requestDummyEmbeddings(seekerRef, getId(providerRef));
 
-  await printPeers(seeker, 'seeker');
-  await printPeers(provider, 'provider');
+  printPeers(seekerRef, 'seeker');
+  printPeers(providerRef, 'provider');
 
-  await Node.stop(seeker);
-  await Node.stop(provider);
+  await stop(seekerRef);
+  await stop(providerRef);
   console.log('=== Service Exchange Demo Complete ===');
 }
 
@@ -215,5 +192,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
-

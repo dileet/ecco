@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import type { NodeState } from '../node/types';
-import { Node } from '../node';
-import { updatePeer } from '../node/state-helpers';
+import type { NodeState, StateRef } from '../node/types';
+import { subscribeToTopic, getId, publish, findPeers, getPeers, getState, setState } from '../node';
 import type { CapabilityQuery, PeerInfo } from '../types';
 import type { MessageEvent } from '../events';
 
@@ -123,7 +122,7 @@ function processEmbeddingResponse(
 }
 
 function createEmbeddingResponsePromise(
-  nodeState: NodeState,
+  ref: StateRef<NodeState>,
   requestId: string,
   textCount: number,
   targetPeerId: string,
@@ -150,54 +149,46 @@ function createEmbeddingResponsePromise(
       }
     };
 
-    const stateWithSub = Node.subscribeToTopic(
-      nodeState,
-      `embedding-response:${requestId}`,
-      (event) => {
-        if (event.type === 'message') {
-          const parsed = EmbeddingResponseSchema.safeParse(event.payload);
-          if (parsed.success) {
-            responseHandler(parsed.data);
-          }
+    subscribeToTopic(ref, `embedding-response:${requestId}`, (event) => {
+      if (event.type === 'message') {
+        const parsed = EmbeddingResponseSchema.safeParse(event.payload);
+        if (parsed.success) {
+          responseHandler(parsed.data);
         }
       }
-    );
+    });
 
-    const stateWithPeerSub = Node.subscribeToTopic(
-      stateWithSub,
-      `peer:${Node.getId(nodeState)}`,
-      (event) => {
-        if (event.type === 'message') {
-          const parsed = EmbeddingResponseSchema.safeParse(event.payload);
-          if (parsed.success && parsed.data.requestId === requestId) {
-            responseHandler(parsed.data);
-          }
+    subscribeToTopic(ref, `peer:${getId(ref)}`, (event) => {
+      if (event.type === 'message') {
+        const parsed = EmbeddingResponseSchema.safeParse(event.payload);
+        if (parsed.success && parsed.data.requestId === requestId) {
+          responseHandler(parsed.data);
         }
       }
-    );
+    });
 
     const messageEvent: MessageEvent = {
       type: 'message',
-      from: Node.getId(stateWithPeerSub),
+      from: getId(ref),
       to: targetPeerId,
       payload: request,
       timestamp: Date.now(),
     };
-    Node.publish(stateWithPeerSub, `peer:${targetPeerId}`, messageEvent);
+    publish(ref, `peer:${targetPeerId}`, messageEvent);
   });
 }
 
 export async function requestEmbeddings(
-  nodeState: NodeState,
+  ref: StateRef<NodeState>,
   texts: string[],
   config: { requireExchange?: boolean; model?: string; preferredPeers?: string[] } = {}
-): Promise<{ embeddings: number[][]; state: NodeState }> {
+): Promise<number[][]> {
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'embedding' }],
     preferredPeers: config.preferredPeers,
   };
 
-  const { matches, state: updatedNodeState } = await Node.findPeers(nodeState, query);
+  const matches = await findPeers(ref, query);
 
   if (matches.length === 0 && config.preferredPeers && config.preferredPeers.length > 0) {
     const targetPeerId = config.preferredPeers[0]!;
@@ -210,33 +201,34 @@ export async function requestEmbeddings(
     };
 
     const response = await createEmbeddingResponsePromise(
-      updatedNodeState,
+      ref,
       requestId,
       texts.length,
       targetPeerId,
       request
     );
 
-    const existing = updatedNodeState.peers.get(targetPeerId);
-    const newPeers = new Map(updatedNodeState.peers);
+    const state = getState(ref);
+    const existing = state.peers[targetPeerId];
+    const newPeers = { ...state.peers };
     if (existing) {
-      newPeers.set(targetPeerId, {
+      newPeers[targetPeerId] = {
         ...existing,
         servicesConsumed: (existing.servicesConsumed || 0) + 1,
         lastSeen: Date.now(),
-      });
+      };
     } else {
-      newPeers.set(targetPeerId, {
+      newPeers[targetPeerId] = {
         id: targetPeerId,
         addresses: [],
         capabilities: [],
         lastSeen: Date.now(),
         servicesConsumed: 1,
-      });
+      };
     }
-    const finalState = { ...updatedNodeState, peers: newPeers };
+    setState(ref, { ...state, peers: newPeers });
 
-    return { embeddings: response.embeddings, state: finalState };
+    return response.embeddings;
   }
 
   if (matches.length === 0) {
@@ -261,26 +253,46 @@ export async function requestEmbeddings(
   };
 
   const response = await createEmbeddingResponsePromise(
-    updatedNodeState,
+    ref,
     requestId,
     texts.length,
     selectedPeer.id,
     request
   );
 
-  const finalState = updatePeer(updatedNodeState, selectedPeer.id, {
-    servicesConsumed: (selectedPeer.servicesConsumed || 0) + 1,
-  });
+  const state = getState(ref);
+  const peer = state.peers[selectedPeer.id];
+  if (peer) {
+    setState(ref, {
+      ...state,
+      peers: {
+        ...state.peers,
+        [selectedPeer.id]: {
+          ...peer,
+          servicesConsumed: (peer.servicesConsumed || 0) + 1,
+        },
+      },
+    });
+  }
 
-  return { embeddings: response.embeddings, state: finalState };
+  return response.embeddings;
 }
 
-export function updatePeerServiceProvided(nodeState: NodeState, peerId: string): NodeState {
-  const peer = Node.getPeers(nodeState).find((p) => p.id === peerId);
+export function updatePeerServiceProvided(ref: StateRef<NodeState>, peerId: string): void {
+  const peers = getPeers(ref);
+  const peer = peers.find((p) => p.id === peerId);
   if (!peer) {
-    return nodeState;
+    return;
   }
-  return updatePeer(nodeState, peerId, {
-    servicesProvided: (peer.servicesProvided || 0) + 1,
+  const state = getState(ref);
+  setState(ref, {
+    ...state,
+    peers: {
+      ...state.peers,
+      [peerId]: {
+        ...peer,
+        servicesProvided: (peer.servicesProvided || 0) + 1,
+      },
+    },
   });
 }

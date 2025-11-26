@@ -1,4 +1,4 @@
-import { Node, type NodeState, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, isRegistryConnected, findPeers, subscribeToTopic, getId, publish, setRegistryReputation, type NodeState, type MessageEvent } from '@ecco/core';
 import { isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -21,7 +21,7 @@ async function main() {
   console.log('\nWaiting for providers to register with registry...\n');
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  let seekerState = Node.create({
+  let seekerState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: 'seeker',
@@ -31,14 +31,14 @@ async function main() {
     },
   });
 
-  seekerState = await Node.start(seekerState);
+  seekerState = await start(seekerState);
 
   console.log('Seeker node started');
   console.log(`Connected to registry: ${registryUrl}\n`);
 
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  const isRegistryConnected = await Node.isRegistryConnected(seekerState);
+  const isRegistryConnected = await isRegistryConnected(seekerState);
   if (!isRegistryConnected) {
     console.error('Failed to connect to registry');
     await cleanup(seekerState, providers);
@@ -48,7 +48,7 @@ async function main() {
   console.log('--- Finding Providers via Registry (Reputation Prioritized) ---\n');
   console.log('The SDK automatically prioritizes nodes by reputation when connected to registry.\n');
 
-  const { matches } = await Node.findPeers(seekerState, {
+  const { matches } = await findPeers(seekerState, {
     requiredCapabilities: [{ type: 'agent', name: 'question-answering' }],
   });
 
@@ -83,7 +83,7 @@ async function main() {
   };
 
   const peerTopic = `peer:${highestRepMatch.peer.id}`;
-  seekerState = Node.subscribeToTopic(seekerState, peerTopic, () => {});
+  seekerState = subscribeToTopic(seekerState, peerTopic, () => {});
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -92,7 +92,7 @@ async function main() {
       reject(new Error('Request timeout'));
     }, 15000);
 
-    const stateWithSub = Node.subscribeToTopic(
+    const stateWithSub = subscribeToTopic(
       seekerState,
       `response:${requestId}`,
       (event) => {
@@ -112,12 +112,12 @@ async function main() {
 
     const messageEvent: MessageEvent = {
       type: 'message',
-      from: Node.getId(seekerState),
+      from: getId(seekerState),
       to: highestRepMatch.peer.id,
       payload: request,
       timestamp: Date.now(),
     };
-    Node.publish(seekerState, peerTopic, messageEvent);
+    publish(seekerState, peerTopic, messageEvent);
   });
 
   try {
@@ -134,7 +134,7 @@ async function main() {
 
   for (const match of matches) {
     const broadcastPeerTopic = `peer:${match.peer.id}`;
-    seekerState = Node.subscribeToTopic(seekerState, broadcastPeerTopic, () => {});
+    seekerState = subscribeToTopic(seekerState, broadcastPeerTopic, () => {});
   }
 
   await new Promise((resolve) => setTimeout(resolve, 500));
@@ -159,7 +159,7 @@ async function main() {
         reject(new Error('Broadcast timeout'));
       }, 10000);
 
-      const stateWithSub = Node.subscribeToTopic(
+      const stateWithSub = subscribeToTopic(
         seekerState,
         `response:${broadcastRequestId}`,
         (event) => {
@@ -179,12 +179,12 @@ async function main() {
 
       const broadcastMessageEvent: MessageEvent = {
         type: 'message',
-        from: Node.getId(seekerState),
+        from: getId(seekerState),
         to: match.peer.id,
         payload: broadcastRequest,
         timestamp: Date.now(),
       };
-      Node.publish(seekerState, broadcastPeerTopic, broadcastMessageEvent);
+      publish(seekerState, broadcastPeerTopic, broadcastMessageEvent);
     });
 
     try {
@@ -209,7 +209,7 @@ async function createProviderAgent(
   registryUrl: string,
   initialReputation: number
 ): Promise<NodeState> {
-  const agentState = Node.create({
+  const agentState = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     nodeId: id,
@@ -230,21 +230,21 @@ async function createProviderAgent(
     },
   });
 
-  const agent = await Node.start(agentState);
+  const agent = await start(agentState);
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  const isRegistryConnected = await Node.isRegistryConnected(agent);
+  const isRegistryConnected = await isRegistryConnected(agent);
   if (isRegistryConnected) {
     try {
-      await Node.setRegistryReputation(agent, id, initialReputation);
+      await setRegistryReputation(agent, id, initialReputation);
       console.log(`${displayName} registered with reputation: ${initialReputation}`);
     } catch (error) {
       console.log(`${displayName} registered (could not set initial reputation)`);
     }
   }
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agent, `peer:${getId(agent)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) return;
 
@@ -273,7 +273,7 @@ async function createProviderAgent(
         timestamp: Date.now(),
       };
 
-      await Node.publish(agent, `response:${event.payload.id}`, responseEvent);
+      await publish(agent, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
@@ -287,7 +287,7 @@ async function createProviderAgent(
         },
         timestamp: Date.now(),
       };
-      await Node.publish(agent, `response:${event.payload.id}`, errorEvent);
+      await publish(agent, `response:${event.payload.id}`, errorEvent);
     }
   });
 
@@ -295,9 +295,9 @@ async function createProviderAgent(
 }
 
 async function cleanup(seekerState: NodeState, providers: NodeState[]): Promise<void> {
-  await Node.stop(seekerState);
+  await stop(seekerState);
   for (const provider of providers) {
-    await Node.stop(provider);
+    await stop(provider);
   }
 }
 

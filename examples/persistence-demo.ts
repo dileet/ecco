@@ -1,11 +1,15 @@
 import {
-  Node,
+  createInitialState,
+  start,
+  stop,
+  getId,
+  getState,
+  type StateRef,
   type NodeState,
   PaymentProtocol,
   Wallet,
   setEscrowAgreement,
   addPaymentLedgerEntry,
-  getNodeState,
 } from '@ecco/core';
 import type { EscrowAgreement, PaymentLedgerEntry } from '@ecco/core';
 
@@ -16,8 +20,8 @@ async function createNode(
   id: string,
   port: number,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const nodeState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const nodeState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: id,
     authentication: {
@@ -31,19 +35,15 @@ async function createNode(
     },
   });
 
-  return await Node.start(nodeState);
+  return await start(nodeState);
 }
 
-async function addSampleData(node: NodeState): Promise<void> {
+async function addSampleData(ref: StateRef<NodeState>): Promise<void> {
   console.log('\n📝 Adding sample data to node...\n');
-
-  if (!node._ref) {
-    throw new Error('Node ref not available');
-  }
 
   const escrowAgreement1 = PaymentProtocol.createEscrowAgreement(
     'escrow-1',
-    Node.getId(node),
+    getId(ref),
     'recipient-1',
     ETH_SEPOLIA_CHAIN_ID,
     'ETH',
@@ -57,7 +57,7 @@ async function addSampleData(node: NodeState): Promise<void> {
 
   const escrowAgreement2 = PaymentProtocol.createEscrowAgreement(
     'escrow-2',
-    Node.getId(node),
+    getId(ref),
     'recipient-2',
     ETH_SEPOLIA_CHAIN_ID,
     'ETH',
@@ -70,16 +70,16 @@ async function addSampleData(node: NodeState): Promise<void> {
     'approver-1'
   );
 
-  await setEscrowAgreement(node._ref, escrowAgreement1);
+  await setEscrowAgreement(ref, escrowAgreement1);
   console.log(`✅ Created escrow agreement: ${escrowAgreement1.id} (${escrowAgreement1.totalAmount} ETH)`);
 
-  await setEscrowAgreement(node._ref, escrowAgreement2);
+  await setEscrowAgreement(ref, escrowAgreement2);
   console.log(`✅ Created escrow agreement: ${escrowAgreement2.id} (${escrowAgreement2.totalAmount} ETH)`);
 
   const ledgerEntry1: PaymentLedgerEntry = {
     id: 'ledger-1',
     type: 'standard',
-    payer: Node.getId(node),
+    payer: getId(ref),
     recipient: 'recipient-1',
     amount: '0.0001',
     token: 'ETH',
@@ -92,7 +92,7 @@ async function addSampleData(node: NodeState): Promise<void> {
   const ledgerEntry2: PaymentLedgerEntry = {
     id: 'ledger-2',
     type: 'standard',
-    payer: Node.getId(node),
+    payer: getId(ref),
     recipient: 'recipient-2',
     amount: '0.0002',
     token: 'ETH',
@@ -102,35 +102,31 @@ async function addSampleData(node: NodeState): Promise<void> {
     status: 'settled',
   };
 
-  await addPaymentLedgerEntry(node._ref, ledgerEntry1);
+  await addPaymentLedgerEntry(ref, ledgerEntry1);
   console.log(`✅ Added payment ledger entry: ${ledgerEntry1.id} (${ledgerEntry1.amount} ETH)`);
 
-  await addPaymentLedgerEntry(node._ref, ledgerEntry2);
+  await addPaymentLedgerEntry(ref, ledgerEntry2);
   console.log(`✅ Added payment ledger entry: ${ledgerEntry2.id} (${ledgerEntry2.amount} ETH)`);
 }
 
-async function displayNodeState(node: NodeState): Promise<void> {
-  if (!node._ref) {
-    throw new Error('Node ref not available');
-  }
-
-  const state = await getNodeState(node._ref);
+function displayNodeState(ref: StateRef<NodeState>): void {
+  const state = getState(ref);
 
   console.log('\n📊 Current Node State:\n');
   console.log(`Node ID: ${state.id}`);
-  console.log(`Escrow Agreements: ${state.escrowAgreements.size}`);
-  state.escrowAgreements.forEach((agreement, id) => {
+  console.log(`Escrow Agreements: ${Object.keys(state.escrowAgreements).length}`);
+  for (const [id, agreement] of Object.entries(state.escrowAgreements)) {
     console.log(`  - ${id}: ${agreement.totalAmount} ETH (${agreement.milestones.length} milestones)`);
-  });
+  }
 
-  console.log(`\nPayment Ledger Entries: ${state.paymentLedger.size}`);
-  state.paymentLedger.forEach((entry, id) => {
+  console.log(`\nPayment Ledger Entries: ${Object.keys(state.paymentLedger).length}`);
+  for (const [id, entry] of Object.entries(state.paymentLedger)) {
     console.log(`  - ${id}: ${entry.amount} ETH to ${entry.recipient} (${entry.status})`);
-  });
+  }
 
-  console.log(`\nStreaming Channels: ${state.streamingChannels.size}`);
-  console.log(`Stake Positions: ${state.stakePositions.size}`);
-  console.log(`Swarm Splits: ${state.swarmSplits.size}`);
+  console.log(`\nStreaming Channels: ${Object.keys(state.streamingChannels).length}`);
+  console.log(`Stake Positions: ${Object.keys(state.stakePositions).length}`);
+  console.log(`Swarm Splits: ${Object.keys(state.swarmSplits).length}`);
   console.log(`Pending Settlements: ${state.pendingSettlements.length}`);
 }
 
@@ -189,20 +185,20 @@ async function main() {
   console.log('STEP 1: Creating node and adding sample data');
   console.log('='.repeat(60));
 
-  let node = await createNode(nodeId, port, walletRpcUrls);
-  const walletAddress = await Wallet.getAddress(node);
-  console.log(`\n✅ Node created: ${Node.getId(node)}`);
+  let nodeRef = await createNode(nodeId, port, walletRpcUrls);
+  const walletAddress = await Wallet.getAddress(nodeRef);
+  console.log(`\n✅ Node created: ${getId(nodeRef)}`);
   console.log(`   Wallet: ${walletAddress}`);
   console.log(`   Port: ${port}`);
 
-  await addSampleData(node);
+  await addSampleData(nodeRef);
 
-  await displayNodeState(node);
+  displayNodeState(nodeRef);
 
   console.log('\n' + '='.repeat(60));
   console.log('STEP 2: Stopping the node');
   console.log('='.repeat(60));
-  await Node.stop(node);
+  await stop(nodeRef);
   console.log('✅ Node stopped\n');
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -211,7 +207,7 @@ async function main() {
   console.log('STEP 3: Restarting the node');
   console.log('='.repeat(60));
 
-  const newNodeState = Node.create({
+  const newNodeState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: nodeId,
     authentication: {
@@ -225,10 +221,10 @@ async function main() {
     },
   });
 
-  node = await Node.start(newNodeState);
-  console.log(`\n✅ Node restarted: ${Node.getId(node)}`);
+  nodeRef = await start(newNodeState);
+  console.log(`\n✅ Node restarted: ${getId(nodeRef)}`);
 
-  await displayNodeState(node);
+  displayNodeState(nodeRef);
 
   console.log('\n' + '='.repeat(60));
   console.log('✅ SUCCESS: All data persisted across restart!');
@@ -237,7 +233,7 @@ async function main() {
   console.log('\n💡 Note: The database file is located at: `.ecco/persistence-demo-node.sqlite`');
   console.log('   (relative to the directory where you run this example)\n');
 
-  await Node.stop(node);
+  await stop(nodeRef);
   console.log('✅ Node stopped');
 }
 
@@ -245,4 +241,3 @@ main().catch((error) => {
   console.error('❌ Error:', error);
   process.exit(1);
 });
-

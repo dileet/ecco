@@ -1,14 +1,20 @@
 import {
-  Node,
+  createInitialState,
+  start,
+  stop,
+  subscribeToTopic,
+  getId,
+  findPeers,
+  sendMessage,
+  getState,
+  type StateRef,
   type NodeState,
   PaymentProtocol,
   Wallet,
-  type EccoEvent,
   setEscrowAgreement,
   updateEscrowAgreement,
   addPaymentLedgerEntry,
   enqueueSettlement,
-  getNodeState,
 } from '@ecco/core';
 import type { EscrowAgreement, Invoice, Message } from '@ecco/core';
 
@@ -23,8 +29,8 @@ async function createServiceAgent(
   port: number,
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -49,14 +55,14 @@ async function createServiceAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  const walletAddress = await Wallet.getAddress(agent);
+  const walletAddress = await Wallet.getAddress(agentRef);
   console.log(`[${id}] Wallet address: ${walletAddress}\n`);
 
   const escrowAgreements = new Map<string, EscrowAgreement>();
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as Message;
@@ -66,9 +72,7 @@ async function createServiceAgent(
       if (payload.escrowAgreement && typeof payload.escrowAgreement === 'object') {
         const agreement = payload.escrowAgreement as EscrowAgreement;
         escrowAgreements.set(agreement.id, agreement);
-        if (agent._ref) {
-          await setEscrowAgreement(agent._ref, agreement);
-        }
+        await setEscrowAgreement(agentRef, agreement);
         console.log(`[${id}] Received escrow agreement: ${agreement.id}`);
         return;
       }
@@ -94,13 +98,11 @@ async function createServiceAgent(
         const updated = PaymentProtocol.releaseEscrowMilestone(agreement, approval.milestoneId);
         escrowAgreements.set(approval.agreementId, updated);
 
-        if (agent._ref) {
-          await updateEscrowAgreement(agent._ref, approval.agreementId, () => updated);
-        }
+        await updateEscrowAgreement(agentRef, approval.agreementId, () => updated);
 
         const milestone = updated.milestones.find((m) => m.id === approval.milestoneId);
         if (milestone) {
-          const serviceWalletAddress = await Wallet.getAddress(agent);
+          const serviceWalletAddress = await Wallet.getAddress(agentRef);
           const invoice = PaymentProtocol.createInvoice(
             agreement.jobId,
             agreement.chainId,
@@ -111,12 +113,12 @@ async function createServiceAgent(
           );
 
           const invoiceMessage = PaymentProtocol.createInvoiceMessage(
-            Node.getId(agent),
+            getId(agentRef),
             agreement.payer,
             invoice
           );
 
-          await Node.sendMessage(agent, agreement.payer, invoiceMessage);
+          await sendMessage(agentRef, agreement.payer, invoiceMessage);
           console.log(`[${id}] Sent invoice for milestone: ${milestone.amount} ETH`);
         }
       } else {
@@ -126,7 +128,7 @@ async function createServiceAgent(
   });
 
   console.log(`[${id}] Service agent started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function createClientAgent(
@@ -134,8 +136,8 @@ async function createClientAgent(
   port: number,
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -151,12 +153,12 @@ async function createClientAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  const walletAddress = await Wallet.getAddress(agent);
+  const walletAddress = await Wallet.getAddress(agentRef);
   console.log(`[${id}] Wallet address: ${walletAddress}\n`);
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as Message;
@@ -171,7 +173,7 @@ async function createClientAgent(
         invoice.token,
         invoice.amount,
         invoice.recipient,
-        Node.getId(agent),
+        getId(agentRef),
         invoice.jobId
       );
 
@@ -181,16 +183,14 @@ async function createClientAgent(
         invoice
       );
 
-      if (agent._ref) {
-        await addPaymentLedgerEntry(agent._ref, ledgerEntry);
-        await enqueueSettlement(agent._ref, settlementIntent);
-        console.log(`[${id}] Settlement queued for invoice: ${invoice.id}`);
-      }
+      await addPaymentLedgerEntry(agentRef, ledgerEntry);
+      await enqueueSettlement(agentRef, settlementIntent);
+      console.log(`[${id}] Settlement queued for invoice: ${invoice.id}`);
     }
   });
 
   console.log(`[${id}] Client agent started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function createApproverAgent(
@@ -198,8 +198,8 @@ async function createApproverAgent(
   port: number,
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -221,34 +221,34 @@ async function createApproverAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as Message;
 
     if (PaymentProtocol.isEscrowApprovalMessage(message)) {
       console.log(`[${id}] Received approval request, forwarding to service agent...`);
-      await Node.sendMessage(agent, message.to, message);
+      await sendMessage(agentRef, message.to, message);
       console.log(`[${id}] Approval forwarded to ${message.to}`);
     }
   });
 
   console.log(`[${id}] Approver agent started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function startEscrowJob(
-  clientAgent: NodeState,
+  clientRef: StateRef<NodeState>,
   servicePeerId: string,
   approverPeerId: string
 ): Promise<void> {
-  console.log(`\n[${Node.getId(clientAgent)}] Starting escrow job`);
-  console.log(`[${Node.getId(clientAgent)}] Service: ${servicePeerId}`);
-  console.log(`[${Node.getId(clientAgent)}] Approver: ${approverPeerId}`);
+  console.log(`\n[${getId(clientRef)}] Starting escrow job`);
+  console.log(`[${getId(clientRef)}] Service: ${servicePeerId}`);
+  console.log(`[${getId(clientRef)}] Approver: ${approverPeerId}`);
 
-  const payerId = Node.getId(clientAgent);
+  const payerId = getId(clientRef);
   const recipientId = servicePeerId;
   const jobId = `escrow-job-${Date.now()}`;
   const totalAmount = '0.001';
@@ -268,31 +268,29 @@ async function startEscrowJob(
     approverPeerId
   );
 
-  console.log(`[${Node.getId(clientAgent)}] Created escrow agreement: ${escrowAgreement.id}`);
-  console.log(`[${Node.getId(clientAgent)}] Total amount: ${totalAmount} ETH`);
-  console.log(`[${Node.getId(clientAgent)}] Milestones: ${escrowAgreement.milestones.length}`);
-  console.log(`[${Node.getId(clientAgent)}] Requires approval: ${escrowAgreement.requiresApproval}`);
+  console.log(`[${getId(clientRef)}] Created escrow agreement: ${escrowAgreement.id}`);
+  console.log(`[${getId(clientRef)}] Total amount: ${totalAmount} ETH`);
+  console.log(`[${getId(clientRef)}] Milestones: ${escrowAgreement.milestones.length}`);
+  console.log(`[${getId(clientRef)}] Requires approval: ${escrowAgreement.requiresApproval}`);
 
-  if (clientAgent._ref) {
-    await setEscrowAgreement(clientAgent._ref, escrowAgreement);
-  }
+  await setEscrowAgreement(clientRef, escrowAgreement);
 
   const agreementMessage: Message = {
     id: `agreement-${Date.now()}`,
-    from: Node.getId(clientAgent),
+    from: getId(clientRef),
     to: servicePeerId,
     type: 'agent-request',
     payload: { escrowAgreement },
     timestamp: Date.now(),
   };
 
-  await Node.sendMessage(clientAgent, servicePeerId, agreementMessage);
-  console.log(`[${Node.getId(clientAgent)}] Sent escrow agreement to service agent`);
+  await sendMessage(clientRef, servicePeerId, agreementMessage);
+  console.log(`[${getId(clientRef)}] Sent escrow agreement to service agent`);
 
-  console.log(`\n[${Node.getId(clientAgent)}] Simulating work completion...`);
+  console.log(`\n[${getId(clientRef)}] Simulating work completion...`);
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  console.log(`[${Node.getId(clientAgent)}] Requesting approval for milestone 1...`);
+  console.log(`[${getId(clientRef)}] Requesting approval for milestone 1...`);
 
   const milestone1 = escrowAgreement.milestones[0];
   const approvalMessage1 = PaymentProtocol.createEscrowApprovalMessage(
@@ -303,12 +301,12 @@ async function startEscrowJob(
     true
   );
 
-  await Node.sendMessage(clientAgent, approverPeerId, approvalMessage1);
-  console.log(`[${Node.getId(clientAgent)}] Approval request sent for milestone 1`);
+  await sendMessage(clientRef, approverPeerId, approvalMessage1);
+  console.log(`[${getId(clientRef)}] Approval request sent for milestone 1`);
 
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  console.log(`[${Node.getId(clientAgent)}] Requesting approval for milestone 2...`);
+  console.log(`[${getId(clientRef)}] Requesting approval for milestone 2...`);
 
   const milestone2 = escrowAgreement.milestones[1];
   const approvalMessage2 = PaymentProtocol.createEscrowApprovalMessage(
@@ -319,68 +317,66 @@ async function startEscrowJob(
     true
   );
 
-  await Node.sendMessage(clientAgent, approverPeerId, approvalMessage2);
-  console.log(`[${Node.getId(clientAgent)}] Approval request sent for milestone 2`);
+  await sendMessage(clientRef, approverPeerId, approvalMessage2);
+  console.log(`[${getId(clientRef)}] Approval request sent for milestone 2`);
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  if (clientAgent._ref) {
-    const state = await getNodeState(clientAgent._ref);
-    console.log(`\n[${Node.getId(clientAgent)}] Pending settlements: ${state.pendingSettlements.length}`);
-    
-    if (state.pendingSettlements.length > 0) {
-      console.log(`[${Node.getId(clientAgent)}] Settlement details:`);
-      for (const settlement of state.pendingSettlements) {
-        console.log(`  - ID: ${settlement.id}, Invoice: ${settlement.invoice?.id}, Retry: ${settlement.retryCount}/${settlement.maxRetries}`);
-      }
+  const state = getState(clientRef);
+  console.log(`\n[${getId(clientRef)}] Pending settlements: ${state.pendingSettlements.length}`);
+  
+  if (state.pendingSettlements.length > 0) {
+    console.log(`[${getId(clientRef)}] Settlement details:`);
+    for (const settlement of state.pendingSettlements) {
+      console.log(`  - ID: ${settlement.id}, Invoice: ${settlement.invoice?.id}, Retry: ${settlement.retryCount}/${settlement.maxRetries}`);
     }
-    
-    console.log(`[${Node.getId(clientAgent)}] Processing settlements...`);
+  }
+  
+  console.log(`[${getId(clientRef)}] Processing settlements...`);
 
-    try {
-      const processed = await Wallet.processSettlements(clientAgent);
-      console.log(`[${Node.getId(clientAgent)}] Processed ${processed} settlements`);
-      
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      const updatedState = await getNodeState(clientAgent._ref);
-      
-      const settledEntries = Array.from(updatedState.paymentLedger.values()).filter(
-        (entry) => entry.status === 'settled' && entry.txHash
-      );
-      
-      if (settledEntries.length > 0) {
-        console.log(`\n[${Node.getId(clientAgent)}] Transaction Details:`);
-        for (const entry of settledEntries) {
-          const chainId = entry.chainId;
-          const txHash = entry.txHash!;
-          let etherscanUrl: string;
-          
-          if (chainId === 11155111) {
-            etherscanUrl = `https://sepolia.etherscan.io/tx/${txHash}`;
-          } else if (chainId === 84532) {
-            etherscanUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-          } else {
-            etherscanUrl = `https://etherscan.io/tx/${txHash}`;
-          }
-          
-          console.log(`  - Amount: ${entry.amount} ${entry.token}`);
-          console.log(`  - TX Hash: ${txHash}`);
-          console.log(`  - View on Etherscan: ${etherscanUrl}`);
-          console.log('');
+  try {
+    const processed = await Wallet.processSettlements(clientRef);
+    console.log(`[${getId(clientRef)}] Processed ${processed} settlements`);
+    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    
+    const updatedState = getState(clientRef);
+    
+    const settledEntries = Object.values(updatedState.paymentLedger).filter(
+      (entry) => entry.status === 'settled' && entry.txHash
+    );
+    
+    if (settledEntries.length > 0) {
+      console.log(`\n[${getId(clientRef)}] Transaction Details:`);
+      for (const entry of settledEntries) {
+        const chainId = entry.chainId;
+        const txHash = entry.txHash!;
+        let etherscanUrl: string;
+        
+        if (chainId === 11155111) {
+          etherscanUrl = `https://sepolia.etherscan.io/tx/${txHash}`;
+        } else if (chainId === 84532) {
+          etherscanUrl = `https://sepolia.basescan.org/tx/${txHash}`;
+        } else {
+          etherscanUrl = `https://etherscan.io/tx/${txHash}`;
         }
+        
+        console.log(`  - Amount: ${entry.amount} ${entry.token}`);
+        console.log(`  - TX Hash: ${txHash}`);
+        console.log(`  - View on Etherscan: ${etherscanUrl}`);
+        console.log('');
       }
-      
-      if (updatedState.pendingSettlements.length > 0) {
-        console.log(`[${Node.getId(clientAgent)}] Remaining settlements: ${updatedState.pendingSettlements.length}`);
-        for (const settlement of updatedState.pendingSettlements) {
-          console.log(`  - ID: ${settlement.id}, Retry: ${settlement.retryCount}/${settlement.maxRetries}`);
-        }
-      }
-    } catch (error) {
-      console.error(`[${Node.getId(clientAgent)}] Error processing settlements:`, error instanceof Error ? error.message : String(error));
-      console.error(`[${Node.getId(clientAgent)}] Full error:`, error);
     }
+    
+    if (updatedState.pendingSettlements.length > 0) {
+      console.log(`[${getId(clientRef)}] Remaining settlements: ${updatedState.pendingSettlements.length}`);
+      for (const settlement of updatedState.pendingSettlements) {
+        console.log(`  - ID: ${settlement.id}, Retry: ${settlement.retryCount}/${settlement.maxRetries}`);
+      }
+    }
+  } catch (error) {
+    console.error(`[${getId(clientRef)}] Error processing settlements:`, error instanceof Error ? error.message : String(error));
+    console.error(`[${getId(clientRef)}] Full error:`, error);
   }
 }
 
@@ -409,14 +405,14 @@ async function main() {
     console.warn('WARNING: No RPC_URL provided. Using default public RPC endpoint.\n');
   }
 
-  const serviceAgent = await createServiceAgent('escrow-service', 7791, registryUrl, walletRpcUrls);
-  const clientAgent = await createClientAgent('escrow-client', 7792, registryUrl, walletRpcUrls);
-  const approverAgent = await createApproverAgent('escrow-approver', 7793, registryUrl, walletRpcUrls);
+  const serviceAgentRef = await createServiceAgent('escrow-service', 7791, registryUrl, walletRpcUrls);
+  const clientAgentRef = await createClientAgent('escrow-client', 7792, registryUrl, walletRpcUrls);
+  const approverAgentRef = await createApproverAgent('escrow-approver', 7793, registryUrl, walletRpcUrls);
 
   console.log('\nWaiting for peers to discover...\n');
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
-  const { matches: serviceMatches } = await Node.findPeers(clientAgent, {
+  const serviceMatches = await findPeers(clientAgentRef, {
     requiredCapabilities: [
       {
         type: 'agent',
@@ -425,7 +421,7 @@ async function main() {
     ],
   });
 
-  const { matches: approverMatches } = await Node.findPeers(clientAgent, {
+  const approverMatches = await findPeers(clientAgentRef, {
     requiredCapabilities: [
       {
         type: 'agent',
@@ -436,9 +432,9 @@ async function main() {
 
   if (serviceMatches.length === 0 || approverMatches.length === 0) {
     console.error('Required peers not found!');
-    await Node.stop(serviceAgent);
-    await Node.stop(clientAgent);
-    await Node.stop(approverAgent);
+    await stop(serviceAgentRef);
+    await stop(clientAgentRef);
+    await stop(approverAgentRef);
     return;
   }
 
@@ -448,14 +444,13 @@ async function main() {
   console.log(`Found service peer: ${servicePeer.id}`);
   console.log(`Found approver peer: ${approverPeer.id}\n`);
 
-  await startEscrowJob(clientAgent, servicePeer.id, approverPeer.id);
+  await startEscrowJob(clientAgentRef, servicePeer.id, approverPeer.id);
 
-  await Node.stop(serviceAgent);
-  await Node.stop(clientAgent);
-  await Node.stop(approverAgent);
+  await stop(serviceAgentRef);
+  await stop(clientAgentRef);
+  await stop(approverAgentRef);
 
   console.log('\n=== Example Complete ===');
 }
 
 main().catch(console.error);
-

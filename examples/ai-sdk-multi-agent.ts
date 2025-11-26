@@ -1,5 +1,5 @@
 import { config as loadEnv } from 'dotenv';
-import { Node, type NodeState, type CapabilityAnnouncementEvent, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, subscribeToTopic, getId, getCapabilities, publish, type StateRef, type NodeState, type CapabilityAnnouncementEvent, type MessageEvent } from '@ecco/core';
 import { createEccoProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
@@ -15,8 +15,8 @@ type AgentKind = 'joke-agent' | 'fact-agent';
 const args = process.argv.slice(2);
 const mode = args[0] || 'all';
 
-async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<NodeState> {
-  const nodeState = Node.create({
+async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<StateRef<NodeState>> {
+  const nodeState = createInitialState({
     discovery: ['mdns', 'gossip'],
     capabilities: [
       {
@@ -30,16 +30,16 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
     ],
   });
 
-  const startedNodeState = await Node.start(nodeState);
+  const nodeRef = await start(nodeState);
 
   const announceCapabilities = async () => {
     const event: CapabilityAnnouncementEvent = {
       type: 'capability-announcement',
-      peerId: Node.getId(startedNodeState),
-      capabilities: Node.getCapabilities(startedNodeState),
+      peerId: getId(nodeRef),
+      capabilities: getCapabilities(nodeRef),
       timestamp: Date.now(),
     };
-    await Node.publish(startedNodeState, 'ecco:capabilities', event);
+    await publish(nodeRef, 'ecco:capabilities', event);
   };
 
   await announceCapabilities();
@@ -47,7 +47,7 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
 
   const processedMessages = new Set<string>();
 
-  Node.subscribeToTopic(startedNodeState, 'network:requests', async (event) => {
+  subscribeToTopic(nodeRef, 'network:requests', async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload;
@@ -64,7 +64,7 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
     }
   });
 
-  Node.subscribeToTopic(startedNodeState, `peer:${Node.getId(startedNodeState)}`, async (event) => {
+  subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) {
       return;
@@ -97,7 +97,7 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
 
     const responseEvent: MessageEvent = {
       type: 'message',
-      from: Node.getId(startedNodeState),
+      from: getId(nodeRef),
       to: event.from,
       payload: {
         text: response.text,
@@ -107,10 +107,10 @@ async function createLlmAgent(kind: AgentKind, systemPrompt: string): Promise<No
       timestamp: Date.now(),
     };
 
-    await Node.publish(startedNodeState, `response:${message.id}`, responseEvent);
+    await publish(nodeRef, `response:${message.id}`, responseEvent);
   });
 
-  return startedNodeState;
+  return nodeRef;
 }
 
 function delay(ms: number) {
@@ -123,7 +123,7 @@ async function runJokeAgent() {
     process.exit(1);
   }
 
-  const jokeAgent = await createLlmAgent(
+  const jokeAgentRef = await createLlmAgent(
     'joke-agent',
     'You are a witty stand-up comedian who delivers concise programming jokes.'
   );
@@ -134,7 +134,7 @@ async function runJokeAgent() {
 
   process.on('SIGINT', async () => {
     console.log('\n\nShutting down joke agent...');
-    await Node.stop(jokeAgent);
+    await stop(jokeAgentRef);
     process.exit(0);
   });
 }
@@ -145,7 +145,7 @@ async function runFactAgent() {
     process.exit(1);
   }
 
-  const factAgent = await createLlmAgent(
+  const factAgentRef = await createLlmAgent(
     'fact-agent',
     'You are an enthusiastic trivia expert who shares short surprising facts.'
   );
@@ -156,7 +156,7 @@ async function runFactAgent() {
 
   process.on('SIGINT', async () => {
     console.log('\n\nShutting down fact agent...');
-    await Node.stop(factAgent);
+    await stop(factAgentRef);
     process.exit(0);
   });
 }
@@ -167,7 +167,7 @@ async function runSeeker() {
     process.exit(1);
   }
 
-  const seekerState = Node.create({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     capabilities: [
       {
@@ -178,28 +178,28 @@ async function runSeeker() {
     ],
   });
 
-  const startedSeekerState = await Node.start(seekerState);
+  const seekerRef = await start(seekerState);
 
   console.log('[seeker] waiting to discover agents...');
   await delay(3000);
 
   const provider = createEccoProvider({
-    nodeState: startedSeekerState,
+    nodeRef: seekerRef,
   });
 
   console.log('[seeker] broadcasting interest in a joke agent');
   const jokeRequestEvent: MessageEvent = {
     type: 'message',
-    from: Node.getId(startedSeekerState),
+    from: getId(seekerRef),
     to: 'broadcast',
     payload: {
-      seeker: Node.getId(startedSeekerState),
+      seeker: getId(seekerRef),
       target: 'joke-agent',
       reason: 'need a programming joke',
     },
     timestamp: Date.now(),
   };
-  await Node.publish(startedSeekerState, 'network:requests', jokeRequestEvent);
+  await publish(seekerRef, 'network:requests', jokeRequestEvent);
 
   await delay(2000);
 
@@ -213,16 +213,16 @@ async function runSeeker() {
   console.log('[seeker] broadcasting interest in a fact agent');
   const factRequestEvent: MessageEvent = {
     type: 'message',
-    from: Node.getId(startedSeekerState),
+    from: getId(seekerRef),
     to: 'broadcast',
     payload: {
-      seeker: Node.getId(startedSeekerState),
+      seeker: getId(seekerRef),
       target: 'fact-agent',
       reason: 'need a conversation starter',
     },
     timestamp: Date.now(),
   };
-  await Node.publish(startedSeekerState, 'network:requests', factRequestEvent);
+  await publish(seekerRef, 'network:requests', factRequestEvent);
 
   await delay(2000);
 
@@ -238,7 +238,7 @@ async function runSeeker() {
 
   process.on('SIGINT', async () => {
     console.log('\n\nShutting down seeker...');
-    await Node.stop(startedSeekerState);
+    await stop(seekerRef);
     process.exit(0);
   });
 }
@@ -249,19 +249,19 @@ async function runAll() {
     process.exit(1);
   }
 
-  const jokeAgent = await createLlmAgent(
+  const jokeAgentRef = await createLlmAgent(
     'joke-agent',
     'You are a witty stand-up comedian who delivers concise programming jokes.'
   );
 
-  const factAgent = await createLlmAgent(
+  const factAgentRef = await createLlmAgent(
     'fact-agent',
     'You are an enthusiastic trivia expert who shares short surprising facts.'
   );
 
   await delay(1000);
 
-  const seekerState = Node.create({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     capabilities: [
       {
@@ -272,28 +272,28 @@ async function runAll() {
     ],
   });
 
-  const startedSeekerState = await Node.start(seekerState);
+  const seekerRef = await start(seekerState);
 
   console.log('[seeker] waiting to discover agents...');
   await delay(3000);
 
   const provider = createEccoProvider({
-    nodeState: startedSeekerState,
+    nodeRef: seekerRef,
   });
 
   console.log('[seeker] broadcasting interest in a joke agent');
   const jokeRequestEvent2: MessageEvent = {
     type: 'message',
-    from: Node.getId(startedSeekerState),
+    from: getId(seekerRef),
     to: 'broadcast',
     payload: {
-      seeker: Node.getId(startedSeekerState),
+      seeker: getId(seekerRef),
       target: 'joke-agent',
       reason: 'need a programming joke',
     },
     timestamp: Date.now(),
   };
-  await Node.publish(startedSeekerState, 'network:requests', jokeRequestEvent2);
+  await publish(seekerRef, 'network:requests', jokeRequestEvent2);
 
   await delay(2000);
 
@@ -307,16 +307,16 @@ async function runAll() {
   console.log('[seeker] broadcasting interest in a fact agent');
   const factRequestEvent2: MessageEvent = {
     type: 'message',
-    from: Node.getId(startedSeekerState),
+    from: getId(seekerRef),
     to: 'broadcast',
     payload: {
-      seeker: Node.getId(startedSeekerState),
+      seeker: getId(seekerRef),
       target: 'fact-agent',
       reason: 'need a conversation starter',
     },
     timestamp: Date.now(),
   };
-  await Node.publish(startedSeekerState, 'network:requests', factRequestEvent2);
+  await publish(seekerRef, 'network:requests', factRequestEvent2);
 
   await delay(2000);
 
@@ -333,7 +333,7 @@ async function runAll() {
 
   process.on('SIGINT', async () => {
     console.log('\n\nShutting down all nodes...');
-    await Promise.all([Node.stop(jokeAgent), Node.stop(factAgent), Node.stop(startedSeekerState)]);
+    await Promise.all([stop(jokeAgentRef), stop(factAgentRef), stop(seekerRef)]);
     process.exit(0);
   });
 }

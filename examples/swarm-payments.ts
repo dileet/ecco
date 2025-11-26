@@ -1,5 +1,11 @@
 import {
-  Node,
+  createInitialState,
+  start,
+  stop,
+  subscribeToTopic,
+  getId,
+  findPeers,
+  sendMessage,
   type NodeState,
   PaymentProtocol,
   Wallet,
@@ -31,7 +37,7 @@ async function createClientAgent(
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
 ): Promise<NodeState> {
-  const agentState = Node.create({
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -47,7 +53,7 @@ async function createClientAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  let agent = await start(agentState);
 
   const walletAddress = await Wallet.getAddress(agent);
   console.log(`[${id}] Wallet address: ${walletAddress}\n`);
@@ -55,7 +61,7 @@ async function createClientAgent(
   const workerContributions = new Map<string, WorkerContribution>();
   const receivedInvoices: Invoice[] = [];
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agent, `peer:${getId(agent)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as Message;
@@ -85,7 +91,7 @@ async function createClientAgent(
         invoice.token,
         invoice.amount,
         invoice.recipient,
-        Node.getId(agent),
+        getId(agent),
         invoice.jobId
       );
 
@@ -115,7 +121,7 @@ async function createWorkerAgent(
   registryUrl?: string,
   walletRpcUrls?: Record<number, string>
 ): Promise<NodeState> {
-  const agentState = Node.create({
+  const agentState = createInitialState({
     discovery: registryUrl ? ['mdns', 'gossip', 'registry'] : ['mdns', 'gossip'],
     registry: registryUrl,
     nodeId: id,
@@ -141,13 +147,13 @@ async function createWorkerAgent(
     },
   });
 
-  let agent = await Node.start(agentState);
+  let agent = await start(agentState);
 
   const walletAddress = await Wallet.getAddress(agent);
   console.log(`[${id}] Wallet address: ${walletAddress}`);
   console.log(`[${id}] Task: ${task}, Contribution: ${contribution}\n`);
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agent, `peer:${getId(agent)}`, async (event) => {
     if (event.type !== 'message') return;
 
     const message = event.payload as Message;
@@ -161,7 +167,7 @@ async function createWorkerAgent(
 
         const response: Message = {
           id: `response-${Date.now()}`,
-          from: Node.getId(agent),
+          from: getId(agent),
           to: event.from,
           type: 'agent-response',
           payload: {
@@ -174,7 +180,7 @@ async function createWorkerAgent(
           timestamp: Date.now(),
         };
 
-        await Node.sendMessage(agent, event.from, response);
+        await sendMessage(agent, event.from, response);
         console.log(`[${id}] Sent contribution response: ${contribution}`);
       }
     }
@@ -198,15 +204,15 @@ async function startSwarmJob(
   workerPeers: Array<{ peer: { id: string; addresses?: string[]; capabilities?: unknown[]; lastSeen?: number }; contribution: number; task: string }>,
   workerAgents: NodeState[]
 ): Promise<void> {
-  console.log(`\n[${Node.getId(clientAgent)}] Starting swarm job`);
-  console.log(`[${Node.getId(clientAgent)}] Workers: ${workerPeers.length}`);
+  console.log(`\n[${getId(clientAgent)}] Starting swarm job`);
+  console.log(`[${getId(clientAgent)}] Workers: ${workerPeers.length}`);
 
-  const payerId = Node.getId(clientAgent);
+  const payerId = getId(clientAgent);
   const jobId = `swarm-job-${Date.now()}`;
   const totalAmount = '0.003';
 
-  console.log(`[${Node.getId(clientAgent)}] Job ID: ${jobId}`);
-  console.log(`[${Node.getId(clientAgent)}] Total amount: ${totalAmount} ETH`);
+  console.log(`[${getId(clientAgent)}] Job ID: ${jobId}`);
+  console.log(`[${getId(clientAgent)}] Total amount: ${totalAmount} ETH`);
 
   for (const worker of workerPeers) {
     const request: Message = {
@@ -221,24 +227,24 @@ async function startSwarmJob(
       timestamp: Date.now(),
     };
 
-    await Node.sendMessage(clientAgent, worker.peer.id, request);
-    console.log(`[${Node.getId(clientAgent)}] Sent job request to ${worker.peer.id} for task: ${worker.task}`);
+    await sendMessage(clientAgent, worker.peer.id, request);
+    console.log(`[${getId(clientAgent)}] Sent job request to ${worker.peer.id} for task: ${worker.task}`);
   }
 
-  console.log(`\n[${Node.getId(clientAgent)}] Waiting for contributions...`);
+  console.log(`\n[${getId(clientAgent)}] Waiting for contributions...`);
   await new Promise((resolve) => setTimeout(resolve, 5000));
 
   const workerWalletMap = new Map<string, string>();
   for (const worker of workerPeers) {
     try {
-      const workerNode = workerAgents.find(agent => Node.getId(agent) === worker.peer.id);
+      const workerNode = workerAgents.find(agent => getId(agent) === worker.peer.id);
       if (workerNode) {
         const walletAddr = await Wallet.getAddress(workerNode);
         workerWalletMap.set(worker.peer.id, walletAddr);
-        console.log(`[${Node.getId(clientAgent)}] Got wallet address for ${worker.peer.id}: ${walletAddr}`);
+        console.log(`[${getId(clientAgent)}] Got wallet address for ${worker.peer.id}: ${walletAddr}`);
       }
     } catch (error) {
-      console.error(`[${Node.getId(clientAgent)}] Failed to get wallet address for ${worker.peer.id}:`, error);
+      console.error(`[${getId(clientAgent)}] Failed to get wallet address for ${worker.peer.id}:`, error);
     }
   }
 
@@ -248,7 +254,7 @@ async function startSwarmJob(
     for (const worker of workerPeers) {
       const walletAddr = workerWalletMap.get(worker.peer.id);
       if (!walletAddr) {
-        console.error(`[${Node.getId(clientAgent)}] Missing wallet address for ${worker.peer.id}`);
+        console.error(`[${getId(clientAgent)}] Missing wallet address for ${worker.peer.id}`);
         continue;
       }
       contributions.push({
@@ -258,8 +264,8 @@ async function startSwarmJob(
       });
     }
 
-    console.log(`\n[${Node.getId(clientAgent)}] Creating swarm split...`);
-    console.log(`[${Node.getId(clientAgent)}] Contributions:`);
+    console.log(`\n[${getId(clientAgent)}] Creating swarm split...`);
+    console.log(`[${getId(clientAgent)}] Contributions:`);
     const totalContribution = contributions.reduce((sum, c) => sum + c.contribution, 0);
     for (const c of contributions) {
       const percentage = ((c.contribution / totalContribution) * 100).toFixed(1);
@@ -279,12 +285,12 @@ async function startSwarmJob(
       await setSwarmSplit(clientAgent._ref, swarmSplit);
     }
 
-    console.log(`\n[${Node.getId(clientAgent)}] Swarm split created: ${swarmSplit.id}`);
-    console.log(`[${Node.getId(clientAgent)}] Participants: ${swarmSplit.participants.length}`);
+    console.log(`\n[${getId(clientAgent)}] Swarm split created: ${swarmSplit.id}`);
+    console.log(`[${getId(clientAgent)}] Participants: ${swarmSplit.participants.length}`);
 
     const distribution = PaymentProtocol.distributeSwarmSplit(swarmSplit);
 
-    console.log(`\n[${Node.getId(clientAgent)}] Distribution amounts:`);
+    console.log(`\n[${getId(clientAgent)}] Distribution amounts:`);
     for (let i = 0; i < distribution.invoices.length; i++) {
       const invoice = distribution.invoices[i];
       const participant = swarmSplit.participants[i];
@@ -302,13 +308,13 @@ async function startSwarmJob(
       
       if (invoice && walletAddr && invoice.recipient === walletAddr) {
         const invoiceMessage = PaymentProtocol.createInvoiceMessage(
-          Node.getId(clientAgent),
+          getId(clientAgent),
           worker.peer.id,
           invoice
         );
 
-        await Node.sendMessage(clientAgent, worker.peer.id, invoiceMessage);
-        console.log(`[${Node.getId(clientAgent)}] Sent invoice to ${worker.peer.id}: ${invoice.amount} ETH`);
+        await sendMessage(clientAgent, worker.peer.id, invoiceMessage);
+        console.log(`[${getId(clientAgent)}] Sent invoice to ${worker.peer.id}: ${invoice.amount} ETH`);
 
         const ledgerEntry = PaymentProtocol.createPaymentLedgerEntry(
           'swarm',
@@ -316,7 +322,7 @@ async function startSwarmJob(
           invoice.token,
           invoice.amount,
           invoice.recipient,
-          Node.getId(clientAgent),
+          getId(clientAgent),
           invoice.jobId
         );
 
@@ -335,11 +341,11 @@ async function startSwarmJob(
 
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    console.log(`\n[${Node.getId(clientAgent)}] Processing settlements to pay workers...`);
+    console.log(`\n[${getId(clientAgent)}] Processing settlements to pay workers...`);
 
     try {
       const processed = await Wallet.processSettlements(clientAgent);
-      console.log(`[${Node.getId(clientAgent)}] Processed ${processed} settlements`);
+      console.log(`[${getId(clientAgent)}] Processed ${processed} settlements`);
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -350,7 +356,7 @@ async function startSwarmJob(
       );
 
       if (settledEntries.length > 0) {
-        console.log(`\n[${Node.getId(clientAgent)}] Transaction Details:`);
+        console.log(`\n[${getId(clientAgent)}] Transaction Details:`);
         for (const entry of settledEntries) {
           const chainId = entry.chainId;
           const txHash = entry.txHash!;
@@ -373,13 +379,13 @@ async function startSwarmJob(
       }
 
       if (updatedState.pendingSettlements.length > 0) {
-        console.log(`[${Node.getId(clientAgent)}] Remaining settlements: ${updatedState.pendingSettlements.length}`);
+        console.log(`[${getId(clientAgent)}] Remaining settlements: ${updatedState.pendingSettlements.length}`);
         for (const settlement of updatedState.pendingSettlements) {
           console.log(`  - ID: ${settlement.id}, Retry: ${settlement.retryCount}/${settlement.maxRetries}`);
         }
       }
     } catch (error) {
-      console.error(`[${Node.getId(clientAgent)}] Error processing settlements:`, error instanceof Error ? error.message : String(error));
+      console.error(`[${getId(clientAgent)}] Error processing settlements:`, error instanceof Error ? error.message : String(error));
     }
   }
 }
@@ -427,7 +433,7 @@ async function main() {
   const maxAttempts = 15;
 
   while (matches.length < 3 && attempts < maxAttempts) {
-    const result = await Node.findPeers(clientAgent, {
+    const result = await findPeers(clientAgent, {
       requiredCapabilities: [
         {
           type: 'agent',
@@ -442,7 +448,7 @@ async function main() {
       console.log(`Found ${matches.length} workers, waiting for more... (attempt ${attempts}/${maxAttempts})`);
       
       const foundWorkerIds = new Set(matches.map(m => m.peer.id));
-      const expectedWorkerIds = workerAgents.map(a => Node.getId(a));
+      const expectedWorkerIds = workerAgents.map(a => getId(a));
       const missingWorkers = expectedWorkerIds.filter(id => !foundWorkerIds.has(id));
       
       if (missingWorkers.length > 0) {
@@ -454,7 +460,7 @@ async function main() {
   }
 
   const foundWorkerIds = new Set(matches.map(m => m.peer.id));
-  const expectedWorkerIds = workerAgents.map(a => Node.getId(a));
+  const expectedWorkerIds = workerAgents.map(a => getId(a));
   const missingWorkers = expectedWorkerIds.filter(id => !foundWorkerIds.has(id));
 
   let workerPeers: Array<{ peer: { id: string }; contribution: number; task: string }>;
@@ -471,7 +477,7 @@ async function main() {
     }
 
     workerPeers = workerAgents.map((agent, index) => {
-      const agentId = Node.getId(agent);
+      const agentId = getId(agent);
       return {
         peer: { id: agentId },
         contribution: contributions[index],
@@ -480,9 +486,9 @@ async function main() {
     });
   } else {
     workerPeers = workerAgents.map((agent, index) => {
-      const match = matches.find(m => m.peer.id === Node.getId(agent));
+      const match = matches.find(m => m.peer.id === getId(agent));
       if (!match) {
-        throw new Error(`Worker ${Node.getId(agent)} not found in matches`);
+        throw new Error(`Worker ${getId(agent)} not found in matches`);
       }
       return {
         peer: match.peer,
@@ -500,10 +506,10 @@ async function main() {
 
   await startSwarmJob(clientAgent, workerPeers, [worker1Agent, worker2Agent, worker3Agent]);
 
-  await Node.stop(clientAgent);
-  await Node.stop(worker1Agent);
-  await Node.stop(worker2Agent);
-  await Node.stop(worker3Agent);
+  await stop(clientAgent);
+  await stop(worker1Agent);
+  await stop(worker2Agent);
+  await stop(worker3Agent);
 
   console.log('\n=== Example Complete ===');
 }

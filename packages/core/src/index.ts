@@ -1,4 +1,25 @@
-export { Node } from './node';
+export {
+  createInitialState,
+  createStateRef,
+  getState,
+  setState,
+  updateState,
+  start,
+  stop,
+  publish,
+  subscribeToTopic,
+  findPeers,
+  sendMessage,
+  getCapabilities,
+  addCapability,
+  getPeers,
+  getMultiaddrs,
+  getId,
+  isRegistryConnected,
+  setRegistryReputation,
+  incrementRegistryReputation,
+  type StateRef,
+} from './node';
 export { Pool } from './connection';
 export {
   initialOrchestratorState,
@@ -30,7 +51,7 @@ export {
 } from './registry-client';
 export { configDefaults, mergeConfig } from './config';
 export { validateEvent, isValidEvent } from './events';
-export { createInitialState, getState, setState, updateState, modifyState } from './node/state';
+export { modifyState } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
   createWalletState,

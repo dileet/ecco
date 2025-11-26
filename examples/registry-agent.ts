@@ -1,4 +1,4 @@
-import { Node, type NodeState } from '@ecco/core';
+import { createInitialState, start, stop, getId, type StateRef, type NodeState } from '@ecco/core';
 import { promises as fs } from 'fs';
 
 const KEY_PATH = '.keys/registry-agent.json';
@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   console.log(`Key file path: ${KEY_PATH}`);
   console.log(`Key file exists: ${await fileExists(KEY_PATH)}\n`);
   
-  const node = Node.create({
+  const node = createInitialState({
     discovery: ['mdns', 'gossip', 'registry'],
     registry: registryUrl,
     authentication: {
@@ -35,8 +35,8 @@ async function main(): Promise<void> {
     ]
   });
   
-  const started: NodeState = await Node.start(node);
-  const nodeId = Node.getId(started);
+  const nodeRef = await start(node);
+  const nodeId = getId(nodeRef);
   
   console.log('Agent started with id:', nodeId);
   console.log('Connected to registry via WebSocket:', registryUrl);
@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   
   process.on('SIGINT', async () => {
     console.log('\nShutting down...');
-    await Node.stop(started);
+    await stop(nodeRef);
     process.exit(0);
   });
 }
@@ -54,4 +54,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

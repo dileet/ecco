@@ -1,14 +1,4 @@
-/**
- * Example: Peer-Based Embedding Consensus with Service Exchange
- *
- * This example demonstrates:
- * 1. Embedding as a P2P service capability
- * 2. Reciprocal service exchange (only use peers you've helped)
- * 3. Reputation rewards for embedding providers
- * 4. Semantic consensus using peer embeddings
- */
-
-import { Node, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, getPeers, subscribeToTopic, getId, publish, type StateRef, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest, setupEmbeddingProvider } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -22,13 +12,13 @@ async function main() {
     createQuestionAnsweringAgent('agent-3', 7773, 'gpt-4o-mini', 'OpenAI Agent 3'),
   ]);
 
-  const embeddingProvider = await createEmbeddingProvider(
+  const embeddingProviderRef = await createEmbeddingProvider(
     'embedding-agent',
     7774,
     'Embedding Provider'
   );
 
-  let seekerState = Node.create({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: 'seeker',
     capabilities: [
@@ -47,10 +37,10 @@ async function main() {
     },
   });
 
-  seekerState = await Node.start(seekerState);
+  const seekerRef = await start(seekerState);
 
-  seekerState = setupEmbeddingProvider({
-    nodeState: seekerState,
+  setupEmbeddingProvider({
+    nodeRef: seekerRef,
     embeddingModel: openai.embedding('text-embedding-3-small'),
     modelId: 'text-embedding-3-small',
   });
@@ -60,14 +50,14 @@ async function main() {
 
   await new Promise((resolve) => setTimeout(resolve, 5000));
 
-  console.log(`Discovered ${Node.getPeers(seekerState).length} peers\n`);
+  console.log(`Discovered ${getPeers(seekerRef).length} peers\n`);
 
   const orchestratorState = initialOrchestratorState;
 
   console.log('--- Consensus with Peer Embeddings (Reciprocal Exchange) ---\n');
 
   const provider = createMultiAgentProvider({
-    nodeState: seekerState,
+    nodeRef: seekerRef,
     orchestratorState,
     multiAgentConfig: {
       selectionStrategy: 'all',
@@ -120,7 +110,7 @@ async function main() {
     }
 
     console.log('\n--- Peer Service Statistics ---');
-    const peers = Node.getPeers(seekerState);
+    const peers = getPeers(seekerRef);
     for (const peer of peers) {
       console.log(`\n${peer.id}:`);
       console.log(`  Services Provided: ${peer.servicesProvided || 0}`);
@@ -136,11 +126,11 @@ async function main() {
     console.error('Error:', (error as Error).message);
   }
 
-  await Node.stop(seekerState);
+  await stop(seekerRef);
   for (const agent of agents) {
-    await Node.stop(agent);
+    await stop(agent);
   }
-  await Node.stop(embeddingProvider);
+  await stop(embeddingProviderRef);
 
   console.log('\n=== Example Complete ===');
 }
@@ -150,8 +140,8 @@ async function createQuestionAnsweringAgent(
   port: number,
   model: string,
   displayName: string
-): Promise<NodeState> {
-  const agentState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: id,
     capabilities: [
@@ -171,9 +161,9 @@ async function createQuestionAnsweringAgent(
     },
   });
 
-  const agent = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  Node.subscribeToTopic(agent, `peer:${Node.getId(agent)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) return;
 
@@ -202,7 +192,7 @@ async function createQuestionAnsweringAgent(
         timestamp: Date.now(),
       };
 
-      await Node.publish(agent, `response:${event.payload.id}`, responseEvent);
+      await publish(agentRef, `response:${event.payload.id}`, responseEvent);
 
       console.log(`[${displayName}] Sent response`);
     } catch (error) {
@@ -216,20 +206,20 @@ async function createQuestionAnsweringAgent(
         },
         timestamp: Date.now(),
       };
-      await Node.publish(agent, `response:${event.payload.id}`, errorEvent);
+      await publish(agentRef, `response:${event.payload.id}`, errorEvent);
     }
   });
 
   console.log(`${displayName} started on port ${port}`);
-  return agent;
+  return agentRef;
 }
 
 async function createEmbeddingProvider(
   id: string,
   port: number,
   displayName: string
-): Promise<NodeState> {
-  const providerState = Node.create({
+): Promise<StateRef<NodeState>> {
+  const providerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: id,
     capabilities: [
@@ -249,16 +239,16 @@ async function createEmbeddingProvider(
     },
   });
 
-  const provider = await Node.start(providerState);
+  const providerRef = await start(providerState);
 
-  const providerWithHandler = setupEmbeddingProvider({
-    nodeState: provider,
+  setupEmbeddingProvider({
+    nodeRef: providerRef,
     embeddingModel: openai.embedding('text-embedding-3-small'),
     modelId: 'text-embedding-3-small',
   });
 
   console.log(`${displayName} started on port ${port} (providing embeddings)`);
-  return providerWithHandler;
+  return providerRef;
 }
 
 main().catch(console.error);

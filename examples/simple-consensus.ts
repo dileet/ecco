@@ -1,10 +1,4 @@
-/**
- * Simple Multi-Agent Consensus Example
- *
- * This is a minimal example showing how to get started with multi-agent consensus
- */
-
-import { Node, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
+import { createInitialState, start, stop, subscribeToTopic, getId, publish, type StateRef, type NodeState, initialOrchestratorState, type MessageEvent } from '@ecco/core';
 import { createMultiAgentProvider, isAgentRequest } from '@ecco/ai-sdk';
 import { generateText } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -16,11 +10,11 @@ async function main() {
   const agent2 = await createSimpleAgent('agent-2', 7772);
   const agent3 = await createSimpleAgent('agent-3', 7773);
 
-  const seekerState = Node.create({
+  const seekerState = createInitialState({
     discovery: ['mdns', 'gossip'],
     capabilities: [],
   });
-  const startedSeekerState = await Node.start(seekerState);
+  const seekerRef = await start(seekerState);
   console.log('Seeker started, discovering peers...\n');
 
   await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -28,7 +22,7 @@ async function main() {
   const orchestratorState = initialOrchestratorState;
 
   const provider = createMultiAgentProvider({
-    nodeState: startedSeekerState,
+    nodeRef: seekerRef,
     orchestratorState,
     multiAgentConfig: {
       selectionStrategy: 'all',
@@ -58,14 +52,14 @@ async function main() {
     console.log('\nNo metadata available');
   }
 
-  await Node.stop(startedSeekerState);
-  await Node.stop(agent1);
-  await Node.stop(agent2);
-  await Node.stop(agent3);
+  await stop(seekerRef);
+  await stop(agent1);
+  await stop(agent2);
+  await stop(agent3);
 }
 
-async function createSimpleAgent(id: string, port: number): Promise<NodeState> {
-  const agentState = Node.create({
+async function createSimpleAgent(id: string, port: number): Promise<StateRef<NodeState>> {
+  const agentState = createInitialState({
     discovery: ['mdns', 'gossip'],
     nodeId: id,
     capabilities: [
@@ -84,9 +78,9 @@ async function createSimpleAgent(id: string, port: number): Promise<NodeState> {
     },
   });
 
-  const startedAgentState = await Node.start(agentState);
+  const agentRef = await start(agentState);
 
-  Node.subscribeToTopic(startedAgentState, `peer:${Node.getId(startedAgentState)}`, async (event) => {
+  subscribeToTopic(agentRef, `peer:${getId(agentRef)}`, async (event) => {
     if (event.type !== 'message') return;
     if (!isAgentRequest(event.payload)) return;
 
@@ -108,7 +102,7 @@ async function createSimpleAgent(id: string, port: number): Promise<NodeState> {
         timestamp: Date.now(),
       };
 
-      await Node.publish(startedAgentState, `response:${event.payload.id}`, responseEvent);
+      await publish(agentRef, `response:${event.payload.id}`, responseEvent);
 
       console.log(`${id} responded: ${result.text}`);
     } catch (error) {
@@ -117,7 +111,7 @@ async function createSimpleAgent(id: string, port: number): Promise<NodeState> {
   });
 
   console.log(`${id} started`);
-  return startedAgentState;
+  return agentRef;
 }
 
 main().catch(console.error);
