@@ -3,10 +3,10 @@ import { tcp } from '@libp2p/tcp';
 import { webSockets } from '@libp2p/websockets';
 import { noise } from '@chainsafe/libp2p-noise';
 import { yamux } from '@chainsafe/libp2p-yamux';
+import { pureJsCrypto } from '../transport/noise-crypto';
 import { identify } from '@libp2p/identify';
 import { ping } from '@libp2p/ping';
 import { mdns } from '@libp2p/mdns';
-import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
@@ -22,7 +22,7 @@ import * as storage from '../storage';
 import { closePool } from '../connection';
 import { publish } from './messaging';
 import { setupEventListeners } from './discovery';
-import { announceCapabilities } from './capabilities';
+import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
 import { loadOrCreateNodeIdentity } from './identity';
 import { createWalletState } from '../services/wallet';
@@ -101,14 +101,6 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
   if (state.config.discovery.includes('mdns')) {
     peerDiscoveryList.push(mdns());
   }
-  if (state.config.bootstrap?.enabled && state.config.bootstrap.peers && state.config.bootstrap.peers.length > 0) {
-    peerDiscoveryList.push(
-      bootstrap({
-        list: state.config.bootstrap.peers,
-        timeout: state.config.bootstrap.timeout || 30000,
-      })
-    );
-  }
 
   const servicesConfig: Libp2pOptions<EccoServices>['services'] = {
     identify: identify(),
@@ -135,7 +127,7 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
   const libp2pOptions: Libp2pOptions<EccoServices> = {
     addresses: { listen: listenAddresses },
     transports: transportsList,
-    connectionEncrypters: [noise()],
+    connectionEncrypters: [noise({ crypto: pureJsCrypto })],
     streamMuxers: [yamux()],
     peerDiscovery: peerDiscoveryList,
     services: servicesConfig,
@@ -383,10 +375,11 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   await initializeStorage(stateRef);
   await setupAuthentication(stateRef);
   await createLibp2pNode(stateRef);
+  await setupTransport(stateRef);
   setupEventListeners(getState(stateRef), stateRef);
+  setupCapabilityTracking(stateRef);
   await setupBootstrap(stateRef);
   await setupRegistry(stateRef);
-  await setupTransport(stateRef);
   await announceCapabilities(getState(stateRef));
 
   return stateRef;
@@ -409,7 +402,7 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   }
 
   if (state.node) {
-    await withTimeout(state.node.stop(), 5000, 'Libp2p node stop timeout').catch(() => {});
+    await withTimeout(Promise.resolve(state.node.stop()), 5000, 'Libp2p node stop timeout').catch(() => {});
     console.log('Ecco node stopped');
   }
 }

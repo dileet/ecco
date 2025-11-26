@@ -11,6 +11,22 @@ import { getState, updateState, removePeer, addPeers } from './state';
 import { delay } from '../utils';
 import { queryCapabilities } from './dht';
 
+function extractPeerIdFromAddr(addr: string): string | null {
+  const match = addr.match(/\/p2p\/([^/]+)$/);
+  return match ? match[1] : null;
+}
+
+function getBootstrapPeerIds(config: NodeState['config']): Set<string> {
+  const peerIds = new Set<string>();
+  if (config.bootstrap?.peers) {
+    for (const addr of config.bootstrap.peers) {
+      const peerId = extractPeerIdFromAddr(addr);
+      if (peerId) peerIds.add(peerId);
+    }
+  }
+  return peerIds;
+}
+
 export function setupEventListeners(
   state: NodeState,
   stateRef: StateRef<NodeState>
@@ -21,18 +37,22 @@ export function setupEventListeners(
 
   const node = state.node;
   const discoveredPeers = new Set<string>();
+  const bootstrapPeerIds = getBootstrapPeerIds(state.config);
 
   node.addEventListener('peer:discovery', async (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
     const { id: peerId } = evt.detail;
     const peerIdStr = peerId.toString();
 
     if (discoveredPeers.has(peerIdStr)) {
-      console.log(`[${state.id}] Already discovered ${peerIdStr}, skipping`);
       return;
     }
 
     discoveredPeers.add(peerIdStr);
     console.log(`[${state.id}] Discovered peer: ${peerIdStr}`);
+
+    if (bootstrapPeerIds.has(peerIdStr)) {
+      return;
+    }
 
     try {
       await node.dial(peerId);
@@ -63,7 +83,7 @@ export function setupEventListeners(
       }]));
     }
     
-    handlePeerConnect(stateRef);
+    handlePeerConnect(stateRef).catch(() => {});
   });
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
@@ -73,11 +93,11 @@ export function setupEventListeners(
   });
 }
 
-function handlePeerConnect(stateRef: StateRef<NodeState>): void {
+async function handlePeerConnect(stateRef: StateRef<NodeState>): Promise<void> {
   setupCapabilityTracking(stateRef);
   updateState(stateRef, setupPerformanceTracking);
   const state = getState(stateRef);
-  announceCapabilities(state);
+  await announceCapabilities(state);
 }
 
 type DiscoveryStrategy = 'local' | 'registry' | 'dht' | 'gossip';

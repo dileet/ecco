@@ -104,4 +104,9 @@ export async function incrementRegistryReputation(
   await incrementReputation(state.registryClient, nodeId, increment);
 }
 
+export async function broadcastCapabilities(ref: StateRef<NodeState>): Promise<void> {
+  const state = getState(ref);
+  await announceCapabilities(state);
+}
+
 export type { NodeState } from './types';

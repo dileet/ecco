@@ -29,10 +29,13 @@ const updateOrAddPeer = (
 };
 
 export async function announceCapabilities(state: NodeState): Promise<void> {
+  const libp2pPeerId = state.node?.peerId?.toString();
+  
   if (state.config.discovery.includes('gossip') && state.node?.services.pubsub) {
     await publish(state, 'ecco:capabilities', {
       type: 'capability-announcement',
       peerId: state.id,
+      libp2pPeerId,
       capabilities: state.capabilities,
       timestamp: Date.now(),
     });
@@ -58,20 +61,22 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
 
   subscribeWithRef(stateRef, 'ecco:capabilities', (event: EccoEvent) => {
     if (event.type !== 'capability-announcement') return;
-    const { peerId, capabilities, timestamp } = event as CapabilityAnnouncementEvent;
+    const { peerId, libp2pPeerId, capabilities, timestamp } = event as CapabilityAnnouncementEvent;
 
     const current = getState(stateRef);
     if (peerId === current.id) return;
+    if (libp2pPeerId && libp2pPeerId === current.node?.peerId?.toString()) return;
     
-    const existingPeer = current.peers[peerId];
+    const targetPeerId = libp2pPeerId ?? peerId;
+    const existingPeer = current.peers[targetPeerId];
 
     if (existingPeer && hasCapabilitiesChanged(existingPeer.capabilities, capabilities)) {
       console.log(`Updated capabilities for peer ${peerId}:`, capabilities.map((c) => c.name).join(', '));
-    } else if (!existingPeer) {
+    } else if (!existingPeer && !current.peers[peerId]) {
       console.log(`Added new peer from announcement: ${peerId}`);
     }
 
-    updateOrAddPeer(stateRef, peerId, capabilities, timestamp);
+    updateOrAddPeer(stateRef, targetPeerId, capabilities, timestamp);
   });
 
   subscribeWithRef(stateRef, 'ecco:capability-request', async (event: EccoEvent) => {

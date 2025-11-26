@@ -19,6 +19,7 @@ const PeerInfoSchema = z.object({
 const CapabilityAnnouncementEventSchema = z.object({
   type: z.literal('capability-announcement'),
   peerId: z.string(),
+  libp2pPeerId: z.string().optional(),
   capabilities: z.array(CapabilitySchema),
   timestamp: z.number(),
 });

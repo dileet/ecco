@@ -1,4 +1,5 @@
 import { multiaddr } from '@multiformats/multiaddr';
+import { peerIdFromString } from '@libp2p/peer-id';
 import type { NodeState } from './types';
 
 export interface BootstrapResult {
@@ -8,9 +9,75 @@ export interface BootstrapResult {
   error?: string;
 }
 
-export async function connectToBootstrapPeers(
+function extractPeerId(addr: string): string | null {
+  const match = addr.match(/\/p2p\/([^/]+)$/);
+  return match ? match[1] : null;
+}
+
+function groupAddressesByPeer(addresses: string[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const addr of addresses) {
+    const peerId = extractPeerId(addr);
+    if (peerId) {
+      const existing = grouped.get(peerId) ?? [];
+      existing.push(addr);
+      grouped.set(peerId, existing);
+    }
+  }
+  return grouped;
+}
+
+async function dialWithTimeout(
+  node: NodeState['node'],
+  addr: string,
+  timeoutMs: number
+): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    await node!.dial(multiaddr(addr), { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function connectToPeer(
   state: NodeState,
-  signal?: AbortSignal
+  peerId: string,
+  addresses: string[],
+  timeoutMs: number
+): Promise<{ peerId: string; success: boolean; address?: string }> {
+  const existingPeers = state.node!.getPeers();
+  const peerIdObj = peerIdFromString(peerId);
+  
+  if (existingPeers.some(p => p.equals(peerIdObj))) {
+    console.log(`Already connected to peer: ${peerId.slice(0, 16)}...`);
+    return { peerId, success: true, address: addresses[0] };
+  }
+
+  const errors: string[] = [];
+  for (const addr of addresses) {
+    try {
+      await dialWithTimeout(state.node, addr, timeoutMs);
+      console.log(`Connected to bootstrap peer: ${peerId.slice(0, 16)}...`);
+      return { peerId, success: true, address: addr };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${addr.split('/').slice(-3).join('/')}: ${msg}`);
+      continue;
+    }
+  }
+
+  console.warn(`Failed to connect to bootstrap peer ${peerId.slice(0, 16)}...`);
+  for (const e of errors) {
+    console.warn(`  - ${e}`);
+  }
+  return { peerId, success: false };
+}
+
+export async function connectToBootstrapPeers(
+  state: NodeState
 ): Promise<BootstrapResult> {
   const bootstrapConfig = state.config.bootstrap;
 
@@ -27,26 +94,22 @@ export async function connectToBootstrapPeers(
     };
   }
 
-  console.log(`Connecting to ${bootstrapConfig.peers.length} bootstrap peers...`);
+  const groupedPeers = groupAddressesByPeer(bootstrapConfig.peers);
+  const uniquePeerCount = groupedPeers.size;
+  
+  console.log(`Connecting to ${uniquePeerCount} unique bootstrap peer(s)...`);
 
   const minPeers = bootstrapConfig.minPeers ?? 1;
+  const dialTimeout = bootstrapConfig.timeout ?? 10000;
 
   const results = await Promise.all(
-    bootstrapConfig.peers.map(async (peerAddr) => {
-      try {
-        await state.node!.dial(multiaddr(peerAddr), signal ? { signal } : undefined);
-        console.log(`Connected to bootstrap peer: ${peerAddr}`);
-        return { peerAddr, success: true };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        console.warn(`Failed to connect to bootstrap peer ${peerAddr}: ${message}`);
-        return { peerAddr, success: false };
-      }
-    })
+    Array.from(groupedPeers.entries()).map(([peerId, addresses]) =>
+      connectToPeer(state, peerId, addresses, dialTimeout)
+    )
   );
 
   const connectedCount = results.filter((r) => r.success).length;
-  const failedPeers = results.filter((r) => !r.success).map((r) => r.peerAddr);
+  const failedPeers = results.filter((r) => !r.success).map((r) => r.peerId);
 
   if (connectedCount < minPeers) {
     const message = `Only connected to ${connectedCount}/${minPeers} required bootstrap peers`;
@@ -56,7 +119,7 @@ export async function connectToBootstrapPeers(
       return { success: false, connectedCount, failedPeers, error: message };
     }
   } else {
-    console.log(`Successfully connected to ${connectedCount}/${bootstrapConfig.peers.length} bootstrap peers`);
+    console.log(`Successfully connected to ${connectedCount}/${uniquePeerCount} bootstrap peers`);
   }
 
   return { success: true, connectedCount, failedPeers };

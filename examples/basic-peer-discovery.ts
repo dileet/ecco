@@ -8,6 +8,7 @@ import {
   sendMessage,
   getMultiaddrs,
   delay,
+  broadcastCapabilities,
   type StateRef,
   type NodeState,
   type Message,
@@ -73,8 +74,15 @@ async function main(): Promise<void> {
     { type: 'service', name: 'translation', version: '1.0.0' },
   ]);
 
-  console.log('\nWaiting for peer discovery...\n');
-  await delay(4000);
+  console.log('\nWaiting for peer discovery and mesh formation...\n');
+  await delay(3000);
+
+  console.log('Re-broadcasting capabilities after mesh formation...\n');
+  await broadcastCapabilities(nodeA);
+  await broadcastCapabilities(nodeB);
+  await broadcastCapabilities(nodeC);
+
+  await delay(2000);
 
   console.log('=== Peer Status ===');
   logPeers('node-a', getPeers(nodeA));

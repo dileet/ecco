@@ -115,6 +115,19 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
     }
   }
 
+  const existingPeers = node.getPeers();
+  for (const peerId of existingPeers) {
+    const peerIdStr = peerId.toString();
+    const peer: TransportPeer = {
+      id: peerIdStr,
+      transport: 'libp2p',
+      addresses: [],
+      lastSeen: Date.now(),
+    };
+    state.connectedPeers.set(peerIdStr, peer);
+    state.discoveredPeers.set(peerIdStr, peer);
+  }
+
   node.addEventListener('peer:discovery', handlePeerDiscovery as EventListener);
   node.addEventListener('peer:connect', handlePeerConnect as EventListener);
   node.addEventListener('peer:disconnect', handlePeerDisconnect as EventListener);

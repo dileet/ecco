@@ -18,6 +18,7 @@ export {
   isRegistryConnected,
   setRegistryReputation,
   incrementRegistryReputation,
+  broadcastCapabilities,
   type StateRef,
 } from './node';
 export {

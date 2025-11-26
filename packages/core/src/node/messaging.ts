@@ -86,8 +86,6 @@ export async function publishDirect(
         return;
       }
     }
-
-    throw new Error(`Peer ${peerId} not connected on any transport`);
   }
 
   if (state.node?.services.pubsub) {
