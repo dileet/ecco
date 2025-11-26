@@ -30,7 +30,6 @@ export {
 } from './registry-client';
 export { configDefaults, mergeConfig } from './config';
 export { validateEvent, isValidEvent } from './events';
-export { Resources } from './node/lifecycle';
 export { createInitialState, getState, setState, updateState, modifyState } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
@@ -115,7 +114,6 @@ export type {
 } from './events';
 
 export type { NodeState } from './node/types';
-export type { NodeCreationError } from './node/lifecycle';
 export type { PoolState } from './connection';
 export type { OrchestratorState } from './orchestrator';
 

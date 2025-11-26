@@ -1,13 +1,12 @@
-import { Effect, Ref } from 'effect';
 import type { PeerId } from '@libp2p/interface';
-import type { NodeState } from './types';
+import type { NodeState, StateRef } from './types';
 import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { setupPerformanceTracking } from './performance-tracking-setup';
-import { removePeerRef } from './state-ref';
+import { getState, updateState, removePeer } from './state';
 
 export function setupEventListeners(
   state: NodeState,
-  stateRef: Ref.Ref<NodeState>
+  stateRef: StateRef<NodeState>
 ): void {
   if (!state.node) {
     return;
@@ -20,7 +19,6 @@ export function setupEventListeners(
     const { id: peerId } = evt.detail;
     const peerIdStr = peerId.toString();
 
-    // Only log and dial if this is the first time discovering this peer
     if (discoveredPeers.has(peerIdStr)) {
       console.log(`[${state.id}] Already discovered ${peerIdStr}, skipping`);
       return;
@@ -43,26 +41,19 @@ export function setupEventListeners(
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
     console.log('Connected to peer:', peerId);
-    handlePeerConnect(stateRef, peerId);
+    handlePeerConnect(stateRef);
   });
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
     console.log('Disconnected from peer:', peerId);
-    Effect.runPromise(removePeerRef(stateRef, peerId));
+    updateState(stateRef, (s) => removePeer(s, peerId));
   });
 }
 
-async function handlePeerConnect(
-  stateRef: Ref.Ref<NodeState>,
-  _peerId: string
-): Promise<void> {
-  const program = Effect.gen(function* () {
-    yield* setupCapabilityTracking(stateRef);
-    yield* setupPerformanceTracking(stateRef);
-    const state = yield* Ref.get(stateRef);
-    yield* Effect.promise(() => announceCapabilities(state));
-  });
-
-  await Effect.runPromise(program);
+function handlePeerConnect(stateRef: StateRef<NodeState>): void {
+  setupCapabilityTracking(stateRef);
+  updateState(stateRef, setupPerformanceTracking);
+  const state = getState(stateRef);
+  announceCapabilities(state);
 }

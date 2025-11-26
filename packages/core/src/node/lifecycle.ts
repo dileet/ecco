@@ -1,4 +1,3 @@
-import { Effect, Ref, Schedule, Duration } from 'effect';
 import { createLibp2p, type Libp2pOptions } from 'libp2p';
 import { tcp } from '@libp2p/tcp';
 import { webSockets } from '@libp2p/websockets';
@@ -20,168 +19,250 @@ import {
   query as queryRegistryClient,
   type ClientState as RegistryClientState,
 } from '../registry-client';
-import { StorageService, StorageServiceLive } from '../storage';
-import { Pool, type PoolState } from '../connection';
+import * as storage from '../storage';
+import { Pool } from '../connection';
 import { publish } from './messaging';
 import type { Capability } from '../types';
-import type { ConnectionPoolConfig } from '../connection/types';
+import { setupEventListeners } from './discovery';
+import { announceCapabilities } from './capabilities';
+import { connectToBootstrapPeers } from './bootstrap';
+import { loadOrCreateNodeIdentity } from './identity';
+import { createWalletState } from '../services/wallet';
+import type { AuthState } from '../services/auth';
 import {
-  makeStateRef,
+  createStateRef,
   getState,
-  setNodeRef,
-  addPeersRef,
+  setState,
   updateState,
-} from './state-ref';
-import type { MessageEvent } from '../events';
-import {
-  withAuthentication,
-  withDiscovery,
-  withDHT,
-  withMessaging,
-  withEventListeners,
-  withBootstrap,
-  withRegistry,
-  withCapabilities,
-  withResilience,
-} from './composition';
-import type { NodeState, EccoServices } from './types';
+  setNode,
+  setMessageAuth,
+  setWallet,
+  setRegistryClient,
+  addPeers,
+} from './state';
+import type { NodeState, EccoServices, StateRef } from './types';
 import type { CapabilityQuery, CapabilityMatch, Message, PeerInfo } from '../types';
-import type { RegistryQueryError } from '../errors';
-import {
-  LibP2PInitError,
-  RegistryConnectionError,
-  RegistryRegistrationError,
-  type AuthError,
-  type ConnectError,
-  type RegistryErrorType,
-  type CapabilityErrorType
-} from '../errors';
+import type { MessageEvent } from '../events';
 
-const createLibp2pNode = (stateRef: Ref.Ref<NodeState>): Effect.Effect<void, LibP2PInitError> =>
-  Effect.gen(function* () {
-    const state = yield* getState(stateRef);
+async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
 
-    const transportsList: Libp2pOptions<EccoServices>['transports'] = [tcp()];
-    if (state.config.transport?.websocket?.enabled) {
-      transportsList.push(webSockets());
-    }
+  const transportsList: Libp2pOptions<EccoServices>['transports'] = [tcp()];
+  if (state.config.transport?.websocket?.enabled) {
+    transportsList.push(webSockets());
+  }
 
-    const peerDiscoveryList: Libp2pOptions<EccoServices>['peerDiscovery'] = [];
-    if (state.config.discovery.includes('mdns')) {
-      peerDiscoveryList.push(mdns());
-    }
-    if (state.config.bootstrap?.enabled && state.config.bootstrap.peers && state.config.bootstrap.peers.length > 0) {
-      peerDiscoveryList.push(
-        bootstrap({
-          list: state.config.bootstrap.peers,
-          timeout: state.config.bootstrap.timeout || 30000,
-        })
-      );
-    }
-
-    const servicesConfig: Libp2pOptions<EccoServices>['services'] = {
-      identify: identify(),
-      ping: ping(),
-    };
-
-    if (state.config.discovery.includes('dht')) {
-      Object.assign(servicesConfig, {
-        dht: kadDHT({
-          clientMode: false,
-          protocol: '/ecco/kad/1.0.0',
-          peerInfoMapper: passthroughMapper,
-          allowQueryWithZeroPeers: true,
-        }),
-      });
-    }
-
-    if (state.config.discovery.includes('gossip')) {
-      Object.assign(servicesConfig, { pubsub: gossipsub({ emitSelf: false, allowPublishToZeroTopicPeers: true }) });
-    }
-
-    const libp2pOptions: Libp2pOptions<EccoServices> = {
-      addresses: { listen: ['/ip4/0.0.0.0/tcp/0'] },
-      transports: transportsList,
-      connectionEncrypters: [noise()],
-      streamMuxers: [yamux()],
-      peerDiscovery: peerDiscoveryList,
-      services: servicesConfig,
-    };
-
-    const node = yield* Effect.promise(() =>
-      createLibp2p<EccoServices>(libp2pOptions)
+  const peerDiscoveryList: Libp2pOptions<EccoServices>['peerDiscovery'] = [];
+  if (state.config.discovery.includes('mdns')) {
+    peerDiscoveryList.push(mdns());
+  }
+  if (state.config.bootstrap?.enabled && state.config.bootstrap.peers && state.config.bootstrap.peers.length > 0) {
+    peerDiscoveryList.push(
+      bootstrap({
+        list: state.config.bootstrap.peers,
+        timeout: state.config.bootstrap.timeout || 30000,
+      })
     );
+  }
 
-    yield* Effect.promise(async () => { await node.start(); });
-    console.log(`Ecco node started: ${state.id}`);
-    console.log(`Listening on:`, node.getMultiaddrs().map(String));
+  const servicesConfig: Libp2pOptions<EccoServices>['services'] = {
+    identify: identify(),
+    ping: ping(),
+  };
 
-    yield* setNodeRef(stateRef, node);
-  });
+  if (state.config.discovery.includes('dht')) {
+    Object.assign(servicesConfig, {
+      dht: kadDHT({
+        clientMode: false,
+        protocol: '/ecco/kad/1.0.0',
+        peerInfoMapper: passthroughMapper,
+        allowQueryWithZeroPeers: true,
+      }),
+    });
+  }
 
-export type NodeCreationError =
-  | AuthError
-  | LibP2PInitError
-  | ConnectError
-  | RegistryErrorType
-  | CapabilityErrorType;
+  if (state.config.discovery.includes('gossip')) {
+    Object.assign(servicesConfig, { pubsub: gossipsub({ emitSelf: false, allowPublishToZeroTopicPeers: true }) });
+  }
 
-export const createNode = (
-  state: NodeState
-): Effect.Effect<Ref.Ref<NodeState>, NodeCreationError, StorageService> =>
-  Effect.gen(function* () {
-    const stateRef = yield* makeStateRef(state);
+  const libp2pOptions: Libp2pOptions<EccoServices> = {
+    addresses: { listen: ['/ip4/0.0.0.0/tcp/0'] },
+    transports: transportsList,
+    connectionEncrypters: [noise()],
+    streamMuxers: [yamux()],
+    peerDiscovery: peerDiscoveryList,
+    services: servicesConfig,
+  };
 
-    const storageService = yield* StorageService;
-    yield* storageService.initialize(state.id);
+  const node = await createLibp2p<EccoServices>(libp2pOptions);
+  await node.start();
+  console.log(`Ecco node started: ${state.id}`);
+  console.log(`Listening on:`, node.getMultiaddrs().map(String));
 
-    const escrowAgreements = yield* storageService.loadEscrowAgreements();
-    const paymentLedger = yield* storageService.loadPaymentLedger();
-    const streamingChannels = yield* storageService.loadStreamingChannels();
-    const stakePositions = yield* storageService.loadStakePositions();
-    const swarmSplits = yield* storageService.loadSwarmSplits();
-    const pendingSettlements = yield* storageService.loadPendingSettlements();
-
-    yield* updateState(stateRef, (currentState) => ({
-      ...currentState,
-      escrowAgreements,
-      paymentLedger,
-      streamingChannels,
-      stakePositions,
-      swarmSplits,
-      pendingSettlements,
-    }));
-
-    yield* withAuthentication(stateRef);
-    yield* withDiscovery(stateRef);
-    yield* createLibp2pNode(stateRef);
-    yield* withEventListeners(stateRef);
-    yield* withBootstrap(stateRef);
-    yield* withDHT(stateRef);
-    yield* withMessaging(stateRef);
-    yield* withRegistry(stateRef);
-    yield* withCapabilities(stateRef);
-    yield* withResilience(stateRef);
-
-    return stateRef;
-  });
-
-export async function start(
-  state: NodeState
-): Promise<Ref.Ref<NodeState>> {
-  const program = createNode(state).pipe(
-    Effect.provide(StorageServiceLive)
-  );
-  return Effect.runPromise(program);
+  updateState(stateRef, (s) => setNode(s, node));
 }
 
-export async function stop(stateRef: Ref.Ref<NodeState>): Promise<void> {
-  const state = await Effect.runPromise(getState(stateRef));
+async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
 
-  if (state.registryClientRef) {
-    const registryState = await Effect.runPromise(Ref.get(state.registryClientRef));
-    await unregisterFromRegistry(registryState);
-    await disconnectRegistry(registryState);
+  if (!(state.config.authentication?.enabled ?? false)) {
+    return;
+  }
+
+  const identity = await loadOrCreateNodeIdentity(state.config);
+  console.log(`Message authentication enabled (${identity.created ? 'generated new keys' : 'loaded keys'})`);
+
+  const authState: AuthState = {
+    config: {
+      enabled: true,
+      privateKey: identity.privateKey,
+      publicKey: identity.publicKey,
+    },
+    keyCache: new Map(),
+  };
+  updateState(stateRef, (s) => setMessageAuth(s, authState));
+
+  if (!state.config.nodeId) {
+    updateState(stateRef, (current) => ({
+      ...current,
+      id: identity.nodeIdFromKeys
+    }));
+  }
+
+  if (state.config.authentication?.walletAutoInit && identity.ethereumPrivateKey) {
+    const walletState = createWalletState({
+      privateKey: identity.ethereumPrivateKey,
+      chains: [],
+      rpcUrls: state.config.authentication.walletRpcUrls,
+    });
+    updateState(stateRef, (s) => setWallet(s, walletState));
+    console.log('Wallet initialized with authentication keys');
+  }
+}
+
+async function setupBootstrap(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
+
+  const shouldBootstrap = state.config.bootstrap?.enabled &&
+                         state.config.bootstrap.peers &&
+                         state.config.bootstrap.peers.length > 0;
+
+  if (!shouldBootstrap) {
+    return;
+  }
+
+  const result = await connectToBootstrapPeers(state);
+  if (!result.success && result.error) {
+    throw new Error(result.error);
+  }
+}
+
+async function setupRegistry(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
+
+  if (!state.config.registry) {
+    return;
+  }
+
+  const registryConfig = {
+    url: state.config.registry,
+    reconnect: true,
+    reconnectInterval: 5000,
+    timeout: 10000,
+  };
+
+  let connectedState: RegistryClientState | null = null;
+  let attempts = 0;
+  const maxAttempts = 3;
+
+  while (attempts < maxAttempts && !connectedState) {
+    try {
+      connectedState = await Promise.race([
+        connectRegistry(registryConfig),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Registry connection timeout')), 10000)
+        ),
+      ]);
+    } catch (error) {
+      attempts++;
+      console.warn(`Registry connection attempt ${attempts} failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      if (attempts < maxAttempts) {
+        const delay = Math.min(2000 * Math.pow(2, attempts - 1), 10000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  if (!connectedState) {
+    if (state.config.fallbackToP2P) {
+      console.log('Failed to connect to registry, falling back to P2P discovery only');
+      return;
+    }
+    throw new Error('Failed to connect to registry after multiple attempts');
+  }
+
+  updateState(stateRef, (s) => setRegistryClient(s, connectedState!));
+
+  const updatedState = getState(stateRef);
+  if (updatedState.node) {
+    const addresses = updatedState.node.getMultiaddrs().map(String);
+    const registeredState = await registerWithRegistry(connectedState, updatedState.id, updatedState.capabilities, addresses);
+    updateState(stateRef, (s) => setRegistryClient(s, registeredState));
+  }
+}
+
+async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
+  await storage.initialize(state.id);
+
+  const [
+    escrowAgreements,
+    paymentLedger,
+    streamingChannels,
+    stakePositions,
+    swarmSplits,
+    pendingSettlements,
+  ] = await Promise.all([
+    storage.loadEscrowAgreements(),
+    storage.loadPaymentLedger(),
+    storage.loadStreamingChannels(),
+    storage.loadStakePositions(),
+    storage.loadSwarmSplits(),
+    storage.loadPendingSettlements(),
+  ]);
+
+  updateState(stateRef, (currentState) => ({
+    ...currentState,
+    escrowAgreements,
+    paymentLedger,
+    streamingChannels,
+    stakePositions,
+    swarmSplits,
+    pendingSettlements,
+  }));
+}
+
+export async function start(state: NodeState): Promise<StateRef<NodeState>> {
+  const stateRef = createStateRef(state);
+
+  await initializeStorage(stateRef);
+  await setupAuthentication(stateRef);
+  await createLibp2pNode(stateRef);
+  setupEventListeners(getState(stateRef), stateRef);
+  await setupBootstrap(stateRef);
+  await setupRegistry(stateRef);
+  await announceCapabilities(getState(stateRef));
+
+  return stateRef;
+}
+
+export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
+  const state = getState(stateRef);
+
+  if (state.registryClient) {
+    await unregisterFromRegistry(state.registryClient);
+    await disconnectRegistry(state.registryClient);
   }
 
   if (state.connectionPool) {
@@ -194,95 +275,6 @@ export async function stop(stateRef: Ref.Ref<NodeState>): Promise<void> {
   }
 }
 
-export namespace Resources {
-  export function makeLibp2pNode(
-    config: Libp2pOptions
-  ): Effect.Effect<unknown, LibP2PInitError, import('effect/Scope').Scope> {
-    return Effect.acquireRelease(
-      Effect.gen(function* () {
-        const node = yield* Effect.tryPromise({
-          try: () => createLibp2p(config),
-          catch: (error) => new LibP2PInitError({
-            message: `Failed to create libp2p node: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            cause: error,
-          }),
-        });
-
-        yield* Effect.tryPromise({
-          try: async () => { await node.start(); },
-          catch: (error) => new LibP2PInitError({
-            message: `Failed to start libp2p node: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            cause: error,
-          }),
-        });
-
-        console.log(`Libp2p node started`);
-        return node;
-      }),
-      (node) => Effect.tryPromise(() => Promise.resolve(node.stop())).pipe(
-        Effect.tap(() => Effect.sync(() => console.log('Libp2p node stopped'))),
-        Effect.catchAll((error) => {
-          console.error('Error stopping libp2p node:', error);
-          return Effect.succeed(void 0);
-        })
-      )
-    );
-  }
-
-  export function makeRegistryClient(
-    config: string,
-    nodeId?: string,
-    capabilities?: Capability[],
-    addresses?: string[]
-  ): Effect.Effect<Ref.Ref<RegistryClientState>, RegistryErrorType, import('effect/Scope').Scope> {
-    return Effect.acquireRelease(
-      Effect.gen(function* () {
-        let clientState = yield* Effect.promise(() => connectRegistry({ url: config }));
-
-        if (nodeId && capabilities && addresses) {
-          clientState = yield* Effect.promise(() => registerWithRegistry(clientState, nodeId, capabilities, addresses));
-        }
-
-        return yield* Ref.make(clientState);
-      }),
-      (registryClientRef) =>
-        Effect.gen(function* () {
-          const clientState = yield* Ref.get(registryClientRef);
-          yield* Effect.promise(() => unregisterFromRegistry(clientState));
-          yield* Effect.promise(() => disconnectRegistry(clientState));
-          console.log('Registry client disconnected');
-        }).pipe(
-          Effect.catchAll((error) => {
-            console.error('Error disconnecting from registry:', error);
-            return Effect.succeed(void 0);
-          })
-        )
-    );
-  }
-
-  export function makeConnectionPool(
-    config?: Partial<ConnectionPoolConfig>
-  ): Effect.Effect<PoolState, never, import('effect/Scope').Scope> {
-    return Effect.acquireRelease(
-      Effect.sync(() => Pool.createState(config)),
-      (pool) => Effect.tryPromise(() => Pool.close(pool)).pipe(
-        Effect.tap(() => Effect.sync(() => console.log('Connection pool closed'))),
-        Effect.catchAll((error) => {
-          console.error('Error closing connection pool:', error);
-          return Effect.succeed(void 0);
-        })
-      )
-    );
-  }
-
-  export function withScoped<A, E, R>(
-    program: Effect.Effect<A, E, R>
-  ): Effect.Effect<A, E, Exclude<R, import('effect/Scope').Scope>> {
-    return Effect.scoped(program);
-  }
-}
-
-// Pure business logic namespace
 namespace PeerDiscoveryLogic {
   export type DiscoveryStrategy = 'local' | 'registry' | 'dht' | 'gossip';
 
@@ -292,24 +284,20 @@ namespace PeerDiscoveryLogic {
     hasRegistry: boolean,
     hasDHT: boolean
   ): DiscoveryStrategy[] {
-    // If we have local matches, use them
     if (localMatches.length > 0) {
       return ['local'];
     }
 
     const strategies: DiscoveryStrategy[] = [];
 
-    // Try registry first (centralized, fastest)
     if (hasRegistry) {
       strategies.push('registry');
     }
 
-    // Then DHT (decentralized discovery)
     if (config.discovery.includes('dht') && hasDHT) {
       strategies.push('dht');
     }
 
-    // Finally gossip (broadcast, slowest but most resilient)
     if (config.discovery.includes('gossip')) {
       strategies.push('gossip');
     }
@@ -318,235 +306,198 @@ namespace PeerDiscoveryLogic {
   }
 
   export function mergePeers(
-    existingPeers: Map<string, PeerInfo>,
+    existingPeers: Record<string, PeerInfo>,
     newPeers: PeerInfo[]
   ): PeerInfo[] {
-    return newPeers.filter(peer => !existingPeers.has(peer.id));
+    return newPeers.filter(peer => !existingPeers[peer.id]);
   }
 }
 
-namespace PeerDiscoveryEffects {
-  export function queryRegistry(
-    registryClientRef: Ref.Ref<RegistryClientState>,
-    query: CapabilityQuery
-  ): Effect.Effect<PeerInfo[], RegistryQueryError> {
-    console.log('No local matches, querying registry...');
-    return Effect.gen(function* () {
-      const clientState = yield* Ref.get(registryClientRef);
-      return yield* Effect.promise(() => queryRegistryClient(clientState, query));
-    }).pipe(
-      Effect.catchAll((error) => {
-        console.error('Registry query failed:', error);
-        return Effect.succeed([]);
-      })
-    );
+async function queryRegistry(
+  registryClient: RegistryClientState,
+  query: CapabilityQuery
+): Promise<PeerInfo[]> {
+  console.log('No local matches, querying registry...');
+  try {
+    return await queryRegistryClient(registryClient, query);
+  } catch (error) {
+    console.error('Registry query failed:', error);
+    return [];
+  }
+}
+
+async function dialRegistryPeers(
+  node: NodeState['node'],
+  peers: PeerInfo[]
+): Promise<void> {
+  if (!node) {
+    return;
   }
 
-  export async function dialRegistryPeers(
-    node: NodeState['node'],
-    peers: PeerInfo[]
-  ): Promise<void> {
-    if (!node) {
-      return;
+  const { multiaddr } = await import('@multiformats/multiaddr');
+
+  for (const peer of peers) {
+    if (peer.addresses.length === 0) {
+      continue;
     }
 
-    const { multiaddr } = await import('@multiformats/multiaddr');
-
-    for (const peer of peers) {
-      if (peer.addresses.length === 0) {
+    for (const addrStr of peer.addresses) {
+      try {
+        const addr = multiaddr(addrStr);
+        await node.dial(addr);
+        console.log(`Dialed registry peer ${peer.id} at ${addrStr}`);
+        break;
+      } catch {
         continue;
       }
-
-      for (const addrStr of peer.addresses) {
-        try {
-          const addr = multiaddr(addrStr);
-          await node.dial(addr);
-          console.log(`Dialed registry peer ${peer.id} at ${addrStr}`);
-          break;
-        } catch (error) {
-          continue;
-        }
-      }
     }
   }
+}
 
-  export async function queryGossip(
-    stateRef: Ref.Ref<NodeState>,
-    query: CapabilityQuery
-  ): Promise<CapabilityMatch[]> {
-    console.log('No local matches, broadcasting capability request...');
-    const { requestCapabilities } = await import('./capabilities');
-    return await Effect.runPromise(requestCapabilities(stateRef, query));
-  }
+async function queryGossip(
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery,
+  timeoutMs = 2000
+): Promise<CapabilityMatch[]> {
+  console.log('No local matches, broadcasting capability request...');
+  const { requestCapabilities, findMatchingPeers } = await import('./capabilities');
+  const state = getState(stateRef);
+
+  await requestCapabilities(stateRef, query);
+  await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+
+  const updatedState = getState(stateRef);
+  return findMatchingPeers(updatedState, query);
 }
 
 export async function findPeers(
-  stateRef: Ref.Ref<NodeState>,
+  stateRef: StateRef<NodeState>,
   query: CapabilityQuery
 ): Promise<CapabilityMatch[]> {
-  const program = Effect.gen(function* () {
-    let state = yield* getState(stateRef);
-    const peerList = Array.from(state.peers.values());
-    let matches = matchPeers(peerList, query);
+  let state = getState(stateRef);
+  const peerList = Object.values(state.peers);
+  let matches = matchPeers(peerList, query);
 
-    const isRegistryConnected = state.registryClientRef
-      ? yield* Effect.promise(async () => {
-          const clientState = await Effect.runPromise(Ref.get(state.registryClientRef!));
-          return clientState.connected;
-        })
-      : false;
+  const isRegistryConnected = state.registryClient?.connected ?? false;
 
-    const strategies = PeerDiscoveryLogic.selectDiscoveryStrategy(
-      matches,
-      state.config,
-      isRegistryConnected,
-      !!(state.node?.services.dht)
-    );
+  const strategies = PeerDiscoveryLogic.selectDiscoveryStrategy(
+    matches,
+    state.config,
+    isRegistryConnected,
+    !!(state.node?.services.dht)
+  );
 
-    const hasGossipEnabled = state.config.discovery.includes('gossip');
-    const shouldTryGossip = hasGossipEnabled && state.node?.services.pubsub;
+  const hasGossipEnabled = state.config.discovery.includes('gossip');
+  const shouldTryGossip = hasGossipEnabled && state.node?.services.pubsub;
 
-    for (const strategy of strategies) {
-      if (strategy === 'local') {
-        if (shouldTryGossip) {
-          const gossipMatches = yield* Effect.promise(() =>
-            PeerDiscoveryEffects.queryGossip(stateRef, query)
-          );
-          if (gossipMatches.length > 0) {
-            const existingMatchIds = new Set(matches.map(m => m.peer.id));
-            const newMatches = gossipMatches.filter(m => !existingMatchIds.has(m.peer.id));
-            matches = [...matches, ...newMatches];
-          }
+  for (const strategy of strategies) {
+    if (strategy === 'local') {
+      if (shouldTryGossip) {
+        const gossipMatches = await queryGossip(stateRef, query);
+        if (gossipMatches.length > 0) {
+          const existingMatchIds = new Set(matches.map(m => m.peer.id));
+          const newMatches = gossipMatches.filter(m => !existingMatchIds.has(m.peer.id));
+          matches = [...matches, ...newMatches];
         }
+      }
+      return matches;
+    }
+
+    if (strategy === 'registry' && state.registryClient) {
+      const registryPeers = await queryRegistry(state.registryClient, query);
+      const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, registryPeers);
+
+      updateState(stateRef, (s) => addPeers(s, newPeers));
+
+      if (state.node && newPeers.length > 0) {
+        await dialRegistryPeers(state.node, newPeers);
+      }
+
+      state = getState(stateRef);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      state = getState(stateRef);
+      const updatedPeerList = Object.values(state.peers);
+      matches = matchPeers(updatedPeerList, query);
+      if (matches.length > 0) {
         return matches;
-      }
-
-      if (strategy === 'registry' && state.registryClientRef) {
-        const registryPeers = yield* PeerDiscoveryEffects.queryRegistry(
-          state.registryClientRef,
-          query
-        );
-        const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, registryPeers);
-
-        yield* addPeersRef(stateRef, newPeers);
-
-        if (state.node && newPeers.length > 0) {
-          yield* Effect.promise(() =>
-            PeerDiscoveryEffects.dialRegistryPeers(state.node!, newPeers)
-          );
-        }
-
-        state = yield* getState(stateRef);
-        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 2000)));
-
-        state = yield* getState(stateRef);
-        const updatedPeerList = Array.from(state.peers.values());
-        matches = matchPeers(updatedPeerList, query);
-        if (matches.length > 0) {
-          return matches;
-        }
-      }
-
-      if (strategy === 'dht' && state.node?.services.dht) {
-        console.log('No matches from registry, querying DHT...');
-        const dhtPeers = yield* Effect.promise(async () => {
-          const currentNode = state.node;
-          if (!currentNode) {
-            throw new Error('Node not initialized');
-          }
-          const { DHT } = await import('./dht');
-          return DHT.queryCapabilities(currentNode, query);
-        });
-        const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, dhtPeers);
-
-        yield* addPeersRef(stateRef, newPeers);
-
-        state = yield* getState(stateRef);
-        const updatedPeerList = Array.from(state.peers.values());
-        matches = matchPeers(updatedPeerList, query);
-        if (matches.length > 0) {
-          return matches;
-        }
-      }
-
-      if (strategy === 'gossip') {
-        matches = yield* Effect.promise(() =>
-          PeerDiscoveryEffects.queryGossip(stateRef, query)
-        );
-        if (matches.length > 0) {
-          return matches;
-        }
       }
     }
 
-    return matches;
-  });
+    if (strategy === 'dht' && state.node?.services.dht) {
+      console.log('No matches from registry, querying DHT...');
+      const currentNode = state.node;
+      const { DHT } = await import('./dht');
+      const dhtPeers = await DHT.queryCapabilities(currentNode, query);
+      const newPeers = PeerDiscoveryLogic.mergePeers(state.peers, dhtPeers);
 
-  return Effect.runPromise(program);
+      updateState(stateRef, (s) => addPeers(s, newPeers));
+
+      state = getState(stateRef);
+      const updatedPeerList = Object.values(state.peers);
+      matches = matchPeers(updatedPeerList, query);
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+
+    if (strategy === 'gossip') {
+      matches = await queryGossip(stateRef, query);
+      if (matches.length > 0) {
+        return matches;
+      }
+    }
+  }
+
+  return matches;
 }
 
 export async function sendMessage(
-  stateRef: Ref.Ref<NodeState>,
+  stateRef: StateRef<NodeState>,
   peerId: string,
   message: Message
 ): Promise<void> {
-  const program = Effect.gen(function* () {
-    const state = yield* getState(stateRef);
+  const state = getState(stateRef);
 
-    const maxAttempts = state.config.retry?.maxAttempts || 3;
-    const initialDelay = state.config.retry?.initialDelay || 1000;
-    const maxDelay = state.config.retry?.maxDelay || 10000;
+  const maxAttempts = state.config.retry?.maxAttempts || 3;
+  const initialDelay = state.config.retry?.initialDelay || 1000;
+  const maxDelay = state.config.retry?.maxDelay || 10000;
 
-    const sendEffect = Effect.tryPromise({
-      try: async () => {
-        let messageToSend = message;
-        if (state.messageAuth) {
-          messageToSend = await signMessage(state.messageAuth, message);
-        }
+  let attempt = 0;
+  let lastError: Error | undefined;
 
-        const messageEvent: MessageEvent = {
-          type: 'message',
-          from: messageToSend.from,
-          to: messageToSend.to,
-          payload: messageToSend,
-          timestamp: Date.now(),
-        };
+  while (attempt < maxAttempts) {
+    try {
+      let messageToSend = message;
+      if (state.messageAuth) {
+        messageToSend = await signMessage(state.messageAuth, message);
+      }
 
-        if (state.connectionPool) {
-          await sendMessageWithPool(state, peerId, messageEvent);
-        } else {
-          await publish(state, `peer:${peerId}`, messageEvent);
-        }
-      },
-      catch: (error) => error as Error,
-    });
+      const messageEvent: MessageEvent = {
+        type: 'message',
+        from: messageToSend.from,
+        to: messageToSend.to,
+        payload: messageToSend,
+        timestamp: Date.now(),
+      };
 
-    const retrySchedule = Schedule.exponential(Duration.millis(initialDelay)).pipe(
-      Schedule.intersect(Schedule.recurs(maxAttempts - 1)),
-      Schedule.whileOutput((delay) => Duration.toMillis(delay) <= maxDelay)
-    );
+      if (state.connectionPool) {
+        await publish(state, `peer:${peerId}`, messageEvent);
+      } else {
+        await publish(state, `peer:${peerId}`, messageEvent);
+      }
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      attempt++;
 
-    yield* sendEffect.pipe(
-      Effect.retry({
-        schedule: retrySchedule,
-        while: () => true,
-      }),
-      Effect.tapError((error) =>
-        Effect.sync(() => {
-          console.warn(`Failed to send message to ${peerId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        })
-      )
-    );
-  });
-
-  return Effect.runPromise(program);
-}
-
-async function sendMessageWithPool(state: NodeState, peerId: string, messageEvent: MessageEvent): Promise<void> {
-  if (!state.connectionPool) {
-    throw new Error('Connection pool not initialized');
+      if (attempt < maxAttempts) {
+        const delay = Math.min(initialDelay * Math.pow(2, attempt - 1), maxDelay);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
 
-  await publish(state, `peer:${peerId}`, messageEvent);
+  console.warn(`Failed to send message to ${peerId}: ${lastError?.message ?? 'Unknown error'}`);
+  throw lastError;
 }
-

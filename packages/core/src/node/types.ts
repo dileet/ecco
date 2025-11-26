@@ -18,7 +18,6 @@ import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';
 import type { GossipSub } from '@libp2p/gossipsub';
 import type { PeerPerformanceState } from './peer-performance';
-import type { BadBehaviorTracker } from './bad-behavior-sketch';
 
 export type StateRef<T> = { current: T };
 
@@ -46,7 +45,6 @@ export interface NodeState {
   wallet?: WalletState;
   capabilityTrackingSetup: boolean;
   performanceTracker?: PeerPerformanceState;
-  badBehaviorTracker?: BadBehaviorTracker;
   paymentLedger: Record<string, PaymentLedgerEntry>;
   streamingChannels: Record<string, StreamingAgreement>;
   escrowAgreements: Record<string, EscrowAgreement>;
