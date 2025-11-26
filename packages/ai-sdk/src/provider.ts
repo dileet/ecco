@@ -7,7 +7,7 @@ import type {
   LanguageModelV2Content,
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
-import { findPeers, subscribeToTopic, sendMessage, getId, type StateRef, type NodeState, type CapabilityQuery } from '@ecco/core';
+import { findPeers, subscribeToTopic, sendMessage, getId, withTimeout, type StateRef, type NodeState, type CapabilityQuery } from '@ecco/core';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -88,26 +88,21 @@ const waitForResponse = (
   nodeRef: StateRef<NodeState>,
   requestId: string,
   timeout: number
-): Promise<unknown> =>
-  new Promise((resolve, reject) => {
+): Promise<unknown> => {
+  const responsePromise = new Promise<unknown>((resolve) => {
     let resolved = false;
-
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        reject(new Error('Request timeout'));
-      }
-    }, timeout);
 
     subscribeToTopic(nodeRef, `response:${requestId}`, (data: unknown) => {
       if (!resolved) {
         resolved = true;
-        clearTimeout(timer);
         const message = MessagePayloadSchema.safeParse(data);
         resolve(message.success ? message.data.payload : data);
       }
     });
   });
+
+  return withTimeout(responsePromise, timeout, 'Request timeout');
+};
 
 const parseResponse = (response: unknown): GenerateResult => {
   const parsed = ResponseSchema.safeParse(response);

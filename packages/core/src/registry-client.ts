@@ -1,6 +1,7 @@
 import type { Capability, CapabilityQuery, PeerInfo } from './types';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
+import { delay, withTimeout } from './utils';
 
 const RegistryNodeSchema = z.object({
   nodeId: z.string(),
@@ -119,16 +120,17 @@ function stopPingInterval(state: ClientState): ClientState {
 function scheduleReconnect(state: ClientState): void {
   if (state.reconnectTimer) return;
 
-  console.log(`Reconnecting to registry in ${state.config.reconnectInterval}ms...`);
+  const reconnectInterval = state.config.reconnectInterval || 5000;
+  console.log(`Reconnecting to registry in ${reconnectInterval}ms...`);
 
-  setTimeout(async () => {
+  delay(reconnectInterval).then(async () => {
     try {
       await connect(state.config);
     } catch (error) {
       console.error('Reconnection failed:', error);
       scheduleReconnect({ ...state, reconnectTimer: undefined });
     }
-  }, state.config.reconnectInterval || 5000);
+  });
 }
 
 function sendWsMessage(state: ClientState, id: string, type: string, payload: unknown): void {
@@ -156,7 +158,7 @@ export async function connect(config: ClientConfig): Promise<ClientState> {
     return newState;
   }
 
-  return new Promise((resolve, reject) => {
+  const connectionPromise = new Promise<ClientState>((resolve, reject) => {
     const ws = new WebSocket(config.url);
     let newState: ClientState = { ...baseState, ws };
 
@@ -182,13 +184,9 @@ export async function connect(config: ClientConfig): Promise<ClientState> {
         scheduleReconnect(newState);
       }
     };
-
-    setTimeout(() => {
-      if (!newState.connected) {
-        reject(new Error('Connection timeout'));
-      }
-    }, baseState.config.timeout);
   });
+
+  return withTimeout(connectionPromise, baseState.config.timeout!, 'Connection timeout');
 }
 
 export async function disconnect(state: ClientState): Promise<ClientState> {
@@ -281,22 +279,18 @@ export async function query(state: ClientState, capabilityQuery: CapabilityQuery
   }
 
   const id = nanoid();
-  const response = await Promise.race([
-    new Promise<z.infer<typeof NodesResponseSchema>>((resolve, reject) => {
-      state.messageHandlers.set(id, (res) => {
-        try {
-          resolve(NodesResponseSchema.parse(res));
-        } catch {
-          reject(new Error('Invalid response'));
-        }
-      });
-      sendWsMessage(state, id, 'query', capabilityQuery);
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Registry request timeout')), state.config.timeout!)
-    ),
-  ]);
+  const queryPromise = new Promise<z.infer<typeof NodesResponseSchema>>((resolve, reject) => {
+    state.messageHandlers.set(id, (res) => {
+      try {
+        resolve(NodesResponseSchema.parse(res));
+      } catch {
+        reject(new Error('Invalid response'));
+      }
+    });
+    sendWsMessage(state, id, 'query', capabilityQuery);
+  });
 
+  const response = await withTimeout(queryPromise, state.config.timeout!, 'Registry request timeout');
   return response.data.nodes.map(toNode).sort((a, b) => (b.reputation || 0) - (a.reputation || 0));
 }
 

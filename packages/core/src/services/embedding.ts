@@ -4,6 +4,7 @@ import type { NodeState, StateRef } from '../node/types';
 import { subscribeToTopic, getId, publish, findPeers, getPeers, getState, setState } from '../node';
 import type { CapabilityQuery, PeerInfo } from '../types';
 import type { MessageEvent } from '../events';
+import { withTimeout } from '../utils';
 
 export const EmbeddingRequestSchema = z.object({
   type: z.literal('embedding-request'),
@@ -126,19 +127,15 @@ function createEmbeddingResponsePromise(
   requestId: string,
   textCount: number,
   targetPeerId: string,
-  request: EmbeddingRequest
+  request: EmbeddingRequest,
+  timeoutMs: number
 ): Promise<EmbeddingResponse> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Embedding request timeout'));
-    }, 30000);
-
+  const collectorPromise = new Promise<EmbeddingResponse>((resolve) => {
     const collectorState = createResponseCollectorState(textCount);
 
     const responseHandler = (response: EmbeddingResponse) => {
       const { complete, embeddings } = processEmbeddingResponse(collectorState, response);
       if (complete) {
-        clearTimeout(timeout);
         resolve({
           type: 'embedding-response',
           requestId,
@@ -176,13 +173,17 @@ function createEmbeddingResponsePromise(
     };
     publish(ref, `peer:${targetPeerId}`, messageEvent);
   });
+
+  return withTimeout(collectorPromise, timeoutMs, 'Embedding request timeout');
 }
 
 export async function requestEmbeddings(
   ref: StateRef<NodeState>,
   texts: string[],
-  config: { requireExchange?: boolean; model?: string; preferredPeers?: string[] } = {}
+  config: { requireExchange?: boolean; model?: string; preferredPeers?: string[]; timeout?: number } = {}
 ): Promise<number[][]> {
+  const timeoutMs = config.timeout ?? 30000;
+
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'embedding' }],
     preferredPeers: config.preferredPeers,
@@ -205,7 +206,8 @@ export async function requestEmbeddings(
       requestId,
       texts.length,
       targetPeerId,
-      request
+      request,
+      timeoutMs
     );
 
     const state = getState(ref);
@@ -257,7 +259,8 @@ export async function requestEmbeddings(
     requestId,
     texts.length,
     selectedPeer.id,
-    request
+    request,
+    timeoutMs
   );
 
   const state = getState(ref);

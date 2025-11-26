@@ -156,3 +156,10 @@ export type {
   AgentLoadState,
   SemanticSimilarityConfig,
 } from './orchestrator/types';
+
+export {
+  delay,
+  withTimeout,
+  retryWithBackoff,
+  type RetryOptions,
+} from './utils';

@@ -10,6 +10,7 @@ import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
+import { withTimeout, retryWithBackoff } from '../utils';
 import {
   connect as connectRegistry,
   disconnect as disconnectRegistry,
@@ -167,29 +168,20 @@ async function setupRegistry(stateRef: StateRef<NodeState>): Promise<void> {
   };
 
   let connectedState: RegistryClientState | null = null;
-  let attempts = 0;
-  const maxAttempts = 3;
 
-  while (attempts < maxAttempts && !connectedState) {
-    try {
-      connectedState = await Promise.race([
-        connectRegistry(registryConfig),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Registry connection timeout')), 10000)
-        ),
-      ]);
-    } catch (error) {
-      attempts++;
-      console.warn(`Registry connection attempt ${attempts} failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-
-      if (attempts < maxAttempts) {
-        const delay = Math.min(2000 * Math.pow(2, attempts - 1), 10000);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+  try {
+    connectedState = await retryWithBackoff(
+      () => withTimeout(connectRegistry(registryConfig), 10000, 'Registry connection timeout'),
+      {
+        maxAttempts: 3,
+        initialDelay: 2000,
+        maxDelay: 10000,
+        onRetry: (attempt, error) => {
+          console.warn(`Registry connection attempt ${attempt} failed: ${error.message}`);
+        },
       }
-    }
-  }
-
-  if (!connectedState) {
+    );
+  } catch {
     if (state.config.fallbackToP2P) {
       console.log('Failed to connect to registry, falling back to P2P discovery only');
       return;
@@ -281,37 +273,33 @@ export async function sendMessage(
   const initialDelay = state.config.retry?.initialDelay || 1000;
   const maxDelay = state.config.retry?.maxDelay || 10000;
 
-  let attempt = 0;
-  let lastError: Error | undefined;
+  try {
+    await retryWithBackoff(
+      async () => {
+        let messageToSend = message;
+        if (state.messageAuth) {
+          messageToSend = await signMessage(state.messageAuth, message);
+        }
 
-  while (attempt < maxAttempts) {
-    try {
-      let messageToSend = message;
-      if (state.messageAuth) {
-        messageToSend = await signMessage(state.messageAuth, message);
+        const messageEvent: MessageEvent = {
+          type: 'message',
+          from: messageToSend.from,
+          to: messageToSend.to,
+          payload: messageToSend,
+          timestamp: Date.now(),
+        };
+
+        await publish(state, `peer:${peerId}`, messageEvent);
+      },
+      {
+        maxAttempts,
+        initialDelay,
+        maxDelay,
       }
-
-      const messageEvent: MessageEvent = {
-        type: 'message',
-        from: messageToSend.from,
-        to: messageToSend.to,
-        payload: messageToSend,
-        timestamp: Date.now(),
-      };
-
-      await publish(state, `peer:${peerId}`, messageEvent);
-      return;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown error');
-      attempt++;
-
-      if (attempt < maxAttempts) {
-        const delay = Math.min(initialDelay * Math.pow(2, attempt - 1), maxDelay);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.warn(`Failed to send message to ${peerId}: ${errorMessage}`);
+    throw error;
   }
-
-  console.warn(`Failed to send message to ${peerId}: ${lastError?.message ?? 'Unknown error'}`);
-  throw lastError;
 }

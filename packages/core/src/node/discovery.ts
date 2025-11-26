@@ -7,6 +7,7 @@ import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
 import { getState, updateState, removePeer, addPeers } from './state';
+import { delay } from '../utils';
 
 export function setupEventListeners(
   state: NodeState,
@@ -139,6 +140,32 @@ async function dialRegistryPeers(
   }
 }
 
+const pollForMatches = async (
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery,
+  findMatchingPeers: (state: NodeState, query: CapabilityQuery) => CapabilityMatch[],
+  maxWaitMs: number,
+  pollIntervalMs = 100
+): Promise<CapabilityMatch[]> => {
+  const deadline = Date.now() + maxWaitMs;
+
+  const checkMatches = (): CapabilityMatch[] => {
+    const state = getState(stateRef);
+    return findMatchingPeers(state, query);
+  };
+
+  let matches = checkMatches();
+  if (matches.length > 0) return matches;
+
+  while (Date.now() < deadline) {
+    await delay(pollIntervalMs);
+    matches = checkMatches();
+    if (matches.length > 0) return matches;
+  }
+
+  return matches;
+};
+
 async function queryGossip(
   stateRef: StateRef<NodeState>,
   query: CapabilityQuery,
@@ -146,13 +173,10 @@ async function queryGossip(
 ): Promise<CapabilityMatch[]> {
   console.log('No local matches, broadcasting capability request...');
   const { requestCapabilities, findMatchingPeers } = await import('./capabilities');
-  const state = getState(stateRef);
 
   await requestCapabilities(stateRef, query);
-  await new Promise((resolve) => setTimeout(resolve, timeoutMs));
 
-  const updatedState = getState(stateRef);
-  return findMatchingPeers(updatedState, query);
+  return pollForMatches(stateRef, query, findMatchingPeers, timeoutMs);
 }
 
 export async function findPeers(
@@ -194,17 +218,14 @@ export async function findPeers(
 
       updateState(stateRef, (s) => addPeers(s, newPeers));
 
-      if (state.node && newPeers.length > 0) {
-        await dialRegistryPeers(state.node, newPeers);
-      }
-
-      state = getState(stateRef);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
       state = getState(stateRef);
       const updatedPeerList = Object.values(state.peers);
       matches = matchPeers(updatedPeerList, query);
+
       if (matches.length > 0) {
+        if (state.node && newPeers.length > 0) {
+          dialRegistryPeers(state.node, newPeers);
+        }
         return matches;
       }
     }

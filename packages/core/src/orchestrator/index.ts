@@ -9,6 +9,7 @@ import type {
 } from './types';
 import { aggregateResponses } from './aggregation';
 import { findPeers, getId, subscribeToTopic, sendMessage } from '../node';
+import { withTimeout } from '../utils';
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -237,15 +238,13 @@ export const executeOrchestration = async (
     }> => {
       const timeout = config.timeout || 30000;
       const sendTime = Date.now();
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout')), timeout);
-      });
 
       try {
-        const response = await Promise.race([
+        const response = await withTimeout(
           responsePromises.get(req.message.id)!,
-          timeoutPromise,
-        ]);
+          timeout,
+          'Request timeout'
+        );
 
         const latency = Date.now() - sendTime;
 
