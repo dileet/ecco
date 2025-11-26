@@ -1,7 +1,30 @@
 import type { NodeState } from './types';
+import { z } from 'zod';
 import { verifyMessage } from '../services/auth';
 import { addSubscription } from './state';
 import { validateEvent, isValidEvent, type EccoEvent } from '../events';
+
+const PubSubMessageSchema = z.object({
+  topic: z.string(),
+  data: z.instanceof(Uint8Array),
+});
+
+const GossipsubMessageDetailSchema = z.object({
+  msg: PubSubMessageSchema,
+});
+
+const MessageDetailSchema = z.union([PubSubMessageSchema, GossipsubMessageDetailSchema]);
+
+function extractMessageData(detail: object): { topic: string; data: Uint8Array } | null {
+  const result = MessageDetailSchema.safeParse(detail);
+  if (!result.success) {
+    return null;
+  }
+  if ('msg' in result.data) {
+    return { topic: result.data.msg.topic, data: result.data.msg.data };
+  }
+  return { topic: result.data.topic, data: result.data.data };
+}
 
 export async function publish(state: NodeState, topic: string, event: EccoEvent): Promise<void> {
   if (!state.node?.services.pubsub) {
@@ -38,63 +61,43 @@ export function subscribe(
     console.log(`[${currentState.id}] Subscribing to topic: ${topic}`);
     pubsub.subscribe(topic);
 
-    pubsub.addEventListener('message', async (evt: CustomEvent<unknown>) => {
+    pubsub.addEventListener('message', async (evt) => {
       const detail = evt.detail;
-      let incomingTopic: string | undefined;
-      let incomingData: Uint8Array | undefined;
-
-      if (typeof detail === 'object' && detail !== null) {
-        const d = detail as Record<string, unknown>;
-
-        const directTopic = typeof d.topic === 'string' ? d.topic : undefined;
-        const directData = d.data instanceof Uint8Array ? d.data : undefined;
-
-        if (directTopic && directData) {
-          incomingTopic = directTopic;
-          incomingData = directData;
-        } else if (typeof d.msg === 'object' && d.msg !== null) {
-          const m = d.msg as Record<string, unknown>;
-          const msgTopic = typeof m.topic === 'string' ? m.topic : undefined;
-          const msgData = m.data instanceof Uint8Array ? m.data : undefined;
-          if (msgTopic && msgData) {
-            incomingTopic = msgTopic;
-            incomingData = msgData;
-          }
-        } else if (detail && typeof (detail as { topic?: unknown }).topic === 'string') {
-          const msg = detail as { topic: string; data?: Uint8Array };
-          incomingTopic = msg.topic;
-          incomingData = msg.data;
-        }
+      if (typeof detail !== 'object' || detail === null) {
+        return;
       }
 
-      if (incomingTopic === topic && incomingData) {
-        try {
-          const rawData = JSON.parse(new TextDecoder().decode(incomingData));
+      const messageData = extractMessageData(detail);
+      if (!messageData || messageData.topic !== topic) {
+        return;
+      }
 
-          if (messageAuth && rawData.signature) {
-            const { valid } = await verifyMessage(messageAuth, rawData);
-            if (!valid) {
-              console.warn('Received message with invalid signature, ignoring');
-              return;
-            }
-          }
+      try {
+        const rawData = JSON.parse(new TextDecoder().decode(messageData.data));
 
-          if (!isValidEvent(rawData)) {
-            console.warn('Received invalid event, ignoring');
+        if (messageAuth && rawData.signature) {
+          const { valid } = await verifyMessage(messageAuth, rawData);
+          if (!valid) {
+            console.warn('Received message with invalid signature, ignoring');
             return;
           }
-
-          const validatedEvent = validateEvent(rawData);
-
-          const handlers = currentState.subscriptions[topic];
-          if (handlers && handlers.length > 0) {
-            handlers.forEach((h) => h(validatedEvent));
-          } else {
-            console.warn(`[${currentState.id}] No handlers found for topic ${topic}`);
-          }
-        } catch (error) {
-          console.error(`[${currentState.id}] Error processing message on topic ${topic}:`, error);
         }
+
+        if (!isValidEvent(rawData)) {
+          console.warn('Received invalid event, ignoring');
+          return;
+        }
+
+        const validatedEvent = validateEvent(rawData);
+
+        const handlers = currentState.subscriptions[topic];
+        if (handlers && handlers.length > 0) {
+          handlers.forEach((h) => h(validatedEvent));
+        } else {
+          console.warn(`[${currentState.id}] No handlers found for topic ${topic}`);
+        }
+      } catch (error) {
+        console.error(`[${currentState.id}] Error processing message on topic ${topic}:`, error);
       }
     });
   }

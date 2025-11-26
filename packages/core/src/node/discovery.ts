@@ -1,7 +1,7 @@
 import type { PeerId } from '@libp2p/interface';
 import type { NodeState, StateRef } from './types';
 import { announceCapabilities, setupCapabilityTracking } from './capabilities';
-import { setupPerformanceTracking } from './performance-tracking-setup';
+import { setupPerformanceTracking } from './peer-performance';
 import { getState, updateState, removePeer } from './state';
 
 export function setupEventListeners(

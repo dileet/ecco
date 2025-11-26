@@ -1,3 +1,5 @@
+import type { NodeState } from './types';
+
 export type PeerMetrics = {
   peerId: string;
   successCount: number;
@@ -16,6 +18,23 @@ export type PeerPerformanceState = {
   maxPeers: number;
   ttlMs: number;
   windowSize: number;
+};
+
+export const createPerformanceTracker = (): PeerPerformanceState => ({
+  metrics: new Map(),
+  maxPeers: 50000,
+  ttlMs: 7 * 24 * 60 * 60 * 1000,
+  windowSize: 100,
+});
+
+export const setupPerformanceTracking = (state: NodeState): NodeState => {
+  if (state.performanceTracker) {
+    return state;
+  }
+  return {
+    ...state,
+    performanceTracker: createPerformanceTracker(),
+  };
 };
 
 const evictStaleEntries = (state: PeerPerformanceState): void => {
