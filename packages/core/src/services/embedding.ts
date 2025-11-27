@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { NodeState, StateRef } from '../node/types';
-import { subscribeToTopic, getId, publish, findPeers, getPeers, getState, setState } from '../node';
+import { subscribeToTopic, getId, publish, findPeers, getState, setState } from '../node';
 import type { CapabilityQuery, PeerInfo } from '../types';
 import type { MessageEvent } from '../events';
 import { withTimeout } from '../utils';
@@ -282,12 +282,11 @@ export async function requestEmbeddings(
 }
 
 export function updatePeerServiceProvided(ref: StateRef<NodeState>, peerId: string): void {
-  const peers = getPeers(ref);
-  const peer = peers.find((p) => p.id === peerId);
+  const state = getState(ref);
+  const peer = state.peers[peerId];
   if (!peer) {
     return;
   }
-  const state = getState(ref);
   setState(ref, {
     ...state,
     peers: {

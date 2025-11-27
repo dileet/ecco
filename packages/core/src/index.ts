@@ -1,4 +1,5 @@
 export {
+  init,
   createInitialState,
   createStateRef,
   getState,
@@ -12,7 +13,6 @@ export {
   sendMessage,
   getCapabilities,
   addCapability,
-  getPeers,
   getMultiaddrs,
   getId,
   isRegistryConnected,
@@ -20,6 +20,8 @@ export {
   incrementRegistryReputation,
   broadcastCapabilities,
   type StateRef,
+  type EccoNode,
+  type InitOptions,
 } from './node';
 export {
   initialOrchestratorState,

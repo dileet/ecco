@@ -1,61 +1,53 @@
 import {
-  createInitialState,
-  start,
+  init,
   stop,
-  subscribeToTopic,
-  getId,
-  getPeers,
+  findPeers,
   sendMessage,
-  getMultiaddrs,
   delay,
   broadcastCapabilities,
-  type StateRef,
-  type NodeState,
+  type EccoNode,
   type Message,
-  type PeerInfo,
+  type CapabilityMatch,
 } from '@ecco/core';
 
 async function createNode(
   name: string,
   capabilities: { type: string; name: string; version: string }[]
-): Promise<StateRef<NodeState>> {
-  const state = createInitialState({
-    discovery: ['mdns', 'gossip'],
-    nodeId: name,
-    capabilities,
-    transport: {
-      websocket: {
-        enabled: true,
+): Promise<EccoNode> {
+  const node = await init(
+    {
+      discovery: ['mdns', 'gossip'],
+      nodeId: name,
+      capabilities,
+      transport: {
+        websocket: {
+          enabled: true,
+        },
       },
     },
-  });
+    {
+      onMessage: (msg) => {
+        console.log(`[${name}] Received message from ${msg.from}: "${msg.payload}"`);
+      },
+    }
+  );
 
-  const ref = await start(state);
-  const id = getId(ref);
-  const addrs = getMultiaddrs(ref);
+  console.log(`[${name}] Started with ID: ${node.id}`);
+  console.log(`[${name}] Listening on: ${node.addrs[0] ?? 'no address'}`);
 
-  console.log(`[${name}] Started with ID: ${id}`);
-  console.log(`[${name}] Listening on: ${addrs[0] ?? 'no address'}`);
-
-  subscribeToTopic(ref, `peer:${id}`, (event) => {
-    if (event.type !== 'message') return;
-    const msg = event.payload as Message;
-    console.log(`[${name}] Received message from ${msg.from}: "${msg.payload}"`);
-  });
-
-  return ref;
+  return node;
 }
 
-function logPeers(name: string, peers: PeerInfo[]): void {
-  if (peers.length === 0) {
+function logPeers(name: string, matches: CapabilityMatch[]): void {
+  if (matches.length === 0) {
     console.log(`[${name}] No peers discovered yet`);
     return;
   }
 
-  console.log(`[${name}] Discovered ${peers.length} peer(s):`);
-  for (const peer of peers) {
-    const caps = peer.capabilities.map((c) => c.name).join(', ') || 'none';
-    console.log(`  - ${peer.id} (capabilities: ${caps})`);
+  console.log(`[${name}] Discovered ${matches.length} peer(s):`);
+  for (const match of matches) {
+    const caps = match.peer.capabilities.map((c) => c.name).join(', ') || 'none';
+    console.log(`  - ${match.peer.id} (capabilities: ${caps})`);
   }
 }
 
@@ -78,25 +70,25 @@ async function main(): Promise<void> {
   await delay(3000);
 
   console.log('Re-broadcasting capabilities after mesh formation...\n');
-  await broadcastCapabilities(nodeA);
-  await broadcastCapabilities(nodeB);
-  await broadcastCapabilities(nodeC);
+  await broadcastCapabilities(nodeA.ref);
+  await broadcastCapabilities(nodeB.ref);
+  await broadcastCapabilities(nodeC.ref);
 
   await delay(2000);
 
   console.log('=== Peer Status ===');
-  logPeers('node-a', getPeers(nodeA));
-  logPeers('node-b', getPeers(nodeB));
-  logPeers('node-c', getPeers(nodeC));
+  logPeers('node-a', await findPeers(nodeA.ref));
+  logPeers('node-b', await findPeers(nodeB.ref));
+  logPeers('node-c', await findPeers(nodeC.ref));
 
   console.log('\n=== Sending Messages ===');
 
-  const peersOfA = getPeers(nodeA);
+  const peersOfA = await findPeers(nodeA.ref);
   if (peersOfA.length > 0) {
-    const targetPeer = peersOfA[0];
+    const targetPeer = peersOfA[0].peer;
     const message: Message = {
       id: crypto.randomUUID(),
-      from: getId(nodeA),
+      from: nodeA.id,
       to: targetPeer.id,
       type: 'ping',
       payload: 'Hello from node-a!',
@@ -104,7 +96,7 @@ async function main(): Promise<void> {
     };
 
     console.log(`[node-a] Sending message to ${targetPeer.id}`);
-    await sendMessage(nodeA, targetPeer.id, message);
+    await sendMessage(nodeA.ref, targetPeer.id, message);
   } else {
     console.log('[node-a] No peers to message');
   }
@@ -112,11 +104,11 @@ async function main(): Promise<void> {
   await delay(1000);
 
   console.log('\n=== Shutting Down ===');
-  await stop(nodeA);
+  await stop(nodeA.ref);
   console.log('[node-a] Stopped');
-  await stop(nodeB);
+  await stop(nodeB.ref);
   console.log('[node-b] Stopped');
-  await stop(nodeC);
+  await stop(nodeC.ref);
   console.log('[node-c] Stopped');
 
   console.log('\nExample complete!');

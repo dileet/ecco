@@ -206,7 +206,6 @@ async function queryGossip(
   query: CapabilityQuery,
   timeoutMs = 2000
 ): Promise<CapabilityMatch[]> {
-  console.log('No local matches, broadcasting capability request...');
   await requestCapabilities(stateRef, query);
   return pollForMatches(stateRef, query, findMatchingPeers, timeoutMs);
 }
@@ -278,6 +277,7 @@ export async function findPeers(
     }
 
     if (strategy === 'gossip') {
+      console.log('No local matches, querying via gossip...');
       matches = await queryGossip(stateRef, query);
       if (matches.length > 0) {
         return matches;

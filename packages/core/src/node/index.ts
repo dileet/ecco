@@ -3,9 +3,9 @@ import type {
   CapabilityQuery,
   CapabilityMatch,
   Message,
-  PeerInfo,
+  EccoConfig,
 } from '../types';
-import { getState, setState } from './state';
+import { createInitialState as createInitialStateImpl, getState, setState } from './state';
 import * as lifecycle from './lifecycle';
 import { findPeers as findPeersImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
@@ -16,6 +16,35 @@ import { setReputation, incrementReputation } from '../registry-client';
 
 export { createInitialState, createStateRef, getState, setState, updateState } from './state';
 export type { StateRef } from './types';
+
+export interface EccoNode {
+  ref: StateRef<NodeState>;
+  id: string;
+  addrs: string[];
+}
+
+export interface InitOptions {
+  onMessage?: (message: Message) => void;
+}
+
+export async function init(config: EccoConfig, options?: InitOptions): Promise<EccoNode> {
+  const state = createInitialStateImpl(config);
+  const ref = await lifecycle.start(state);
+  const nodeState = getState(ref);
+  const id = nodeState.id;
+  const addrs = nodeState.node ? nodeState.node.getMultiaddrs().map(String) : [];
+
+  if (options?.onMessage) {
+    const handler = options.onMessage;
+    subscribeWithRef(ref, `peer:${id}`, (event) => {
+      if (event.type === 'message') {
+        handler(event.payload as Message);
+      }
+    });
+  }
+
+  return { ref, id, addrs };
+}
 
 export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   return lifecycle.start(state);
@@ -36,9 +65,10 @@ export function subscribeToTopic(ref: StateRef<NodeState>, topic: string, handle
 
 export async function findPeers(
   ref: StateRef<NodeState>,
-  query: CapabilityQuery
+  query?: CapabilityQuery
 ): Promise<CapabilityMatch[]> {
-  return findPeersImpl(ref, query);
+  const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] };
+  return findPeersImpl(ref, effectiveQuery);
 }
 
 export async function sendMessage(ref: StateRef<NodeState>, peerId: string, message: Message): Promise<void> {
@@ -55,11 +85,6 @@ export async function addCapability(ref: StateRef<NodeState>, capability: Capabi
   const newState = { ...state, capabilities: [...state.capabilities, capability] };
   setState(ref, newState);
   await announceCapabilities(newState);
-}
-
-export function getPeers(ref: StateRef<NodeState>): PeerInfo[] {
-  const state = getState(ref);
-  return Object.values(state.peers);
 }
 
 export function getMultiaddrs(ref: StateRef<NodeState>): string[] {

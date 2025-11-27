@@ -113,8 +113,6 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
   subscribeWithRef(stateRef, 'ecco:capability-response', (event: EccoEvent) => {
     if (event.type !== 'capability-response') return;
     const { peerId, capabilities, timestamp } = event as CapabilityResponseEvent;
-
-    console.log(`Received capability response from ${peerId}`);
     updateOrAddPeer(stateRef, peerId, capabilities, timestamp);
   });
 
