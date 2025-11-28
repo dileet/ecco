@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --minify",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --sourcemap",
     "dev": "bun build ./src/index.ts --outdir ./dist --target bun --watch",
     "test": "bun test"
   },

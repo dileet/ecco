@@ -48,7 +48,6 @@ export function setupEventListeners(
     }
 
     discoveredPeers.add(peerIdStr);
-    console.log(`[${state.id}] Discovered peer: ${peerIdStr}`);
 
     if (bootstrapPeerIds.has(peerIdStr)) {
       return;
@@ -56,7 +55,6 @@ export function setupEventListeners(
 
     try {
       await node.dial(peerId);
-      console.log(`[${state.id}] Dialed peer: ${peerIdStr}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (!errorMessage.includes('ECONNREFUSED') && !errorMessage.includes('timeout')) {
@@ -67,8 +65,6 @@ export function setupEventListeners(
 
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
-    console.log('Connected to peer:', peerId);
-    
     const currentState = getState(stateRef);
     if (!currentState.peers[peerId]) {
       const peerAddresses = node.getConnections()
@@ -88,7 +84,6 @@ export function setupEventListeners(
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
-    console.log('Disconnected from peer:', peerId);
     updateState(stateRef, (s) => removePeer(s, peerId));
   });
 }
@@ -140,7 +135,6 @@ async function queryRegistry(
   registryClient: RegistryClientState,
   query: CapabilityQuery
 ): Promise<PeerInfo[]> {
-  console.log('No local matches, querying registry...');
   try {
     return await queryRegistryClient(registryClient, query);
   } catch (error) {
@@ -166,7 +160,6 @@ async function dialRegistryPeers(
       try {
         const addr = multiaddr(addrStr);
         await node.dial(addr);
-        console.log(`Dialed registry peer ${peer.id} at ${addrStr}`);
         break;
       } catch {
         continue;
@@ -262,7 +255,6 @@ export async function findPeers(
     }
 
     if (strategy === 'dht' && state.node?.services.dht) {
-      console.log('No matches from registry, querying DHT...');
       const dhtPeers = await queryCapabilities(state.node, query);
       const newPeers = mergePeers(state.peers, dhtPeers);
 
@@ -277,7 +269,6 @@ export async function findPeers(
     }
 
     if (strategy === 'gossip') {
-      console.log('No local matches, querying via gossip...');
       matches = await queryGossip(stateRef, query);
       if (matches.length > 0) {
         return matches;

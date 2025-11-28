@@ -52,7 +52,6 @@ async function connectToPeer(
   const peerIdObj = peerIdFromString(peerId);
   
   if (existingPeers.some(p => p.equals(peerIdObj))) {
-    console.log(`Already connected to peer: ${peerId.slice(0, 16)}...`);
     return { peerId, success: true, address: addresses[0] };
   }
 
@@ -60,7 +59,6 @@ async function connectToPeer(
   for (const addr of addresses) {
     try {
       await dialWithTimeout(state.node, addr, timeoutMs);
-      console.log(`Connected to bootstrap peer: ${peerId.slice(0, 16)}...`);
       return { peerId, success: true, address: addr };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -69,10 +67,6 @@ async function connectToPeer(
     }
   }
 
-  console.warn(`Failed to connect to bootstrap peer ${peerId.slice(0, 16)}...`);
-  for (const e of errors) {
-    console.warn(`  - ${e}`);
-  }
   return { peerId, success: false };
 }
 
@@ -96,9 +90,6 @@ export async function connectToBootstrapPeers(
 
   const groupedPeers = groupAddressesByPeer(bootstrapConfig.peers);
   const uniquePeerCount = groupedPeers.size;
-  
-  console.log(`Connecting to ${uniquePeerCount} unique bootstrap peer(s)...`);
-
   const minPeers = bootstrapConfig.minPeers ?? 1;
   const dialTimeout = bootstrapConfig.timeout ?? 10000;
 
@@ -113,13 +104,10 @@ export async function connectToBootstrapPeers(
 
   if (connectedCount < minPeers) {
     const message = `Only connected to ${connectedCount}/${minPeers} required bootstrap peers`;
-    console.warn(message);
 
     if (!state.config.fallbackToP2P) {
       return { success: false, connectedCount, failedPeers, error: message };
     }
-  } else {
-    console.log(`Successfully connected to ${connectedCount}/${uniquePeerCount} bootstrap peers`);
   }
 
   return { success: true, connectedCount, failedPeers };

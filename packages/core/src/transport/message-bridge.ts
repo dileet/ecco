@@ -269,7 +269,7 @@ export async function handleIncomingBroadcast(
       }
 
       const handlers = currentState.topicHandlers.get(topicMessage.topic);
-      if (handlers) {
+      if (handlers && handlers.size > 0) {
         for (const handler of handlers) {
           handler(message as Message);
         }

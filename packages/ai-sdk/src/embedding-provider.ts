@@ -16,6 +16,7 @@ interface EmbeddingProviderConfig {
   nodeRef: StateRef<NodeState>;
   embeddingModel: EmbeddingModel<string>;
   modelId: string;
+  libp2pPeerId?: string;
 }
 
 // Chunk size: 32 floats = ~350 bytes JSON (safe for Bun's ChaCha20)
@@ -100,9 +101,9 @@ const processEmbeddingRequest = async (
 };
 
 function setupEmbeddingProvider(config: EmbeddingProviderConfig): void {
-  const { nodeRef } = config;
+  const { nodeRef, libp2pPeerId } = config;
 
-  subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, async (event) => {
+  const handleEmbeddingRequest = async (event: unknown): Promise<void> => {
     const messageEvent = MessageEventSchema.safeParse(event);
     if (!messageEvent.success) return;
 
@@ -114,7 +115,13 @@ function setupEmbeddingProvider(config: EmbeddingProviderConfig): void {
     } catch (error) {
       console.error(`[${getId(nodeRef)}] Embedding error:`, error);
     }
-  });
+  };
+
+  subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, handleEmbeddingRequest);
+
+  if (libp2pPeerId) {
+    subscribeToTopic(nodeRef, `peer:${libp2pPeerId}`, handleEmbeddingRequest);
+  }
 }
 
 export { setupEmbeddingProvider, type EmbeddingProviderConfig };

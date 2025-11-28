@@ -1,5 +1,5 @@
 import {
-  init,
+  ecco,
   stop,
   findPeers,
   sendMessage,
@@ -14,7 +14,7 @@ async function createNode(
   name: string,
   capabilities: { type: string; name: string; version: string }[]
 ): Promise<EccoNode> {
-  const node = await init(
+  const node = await ecco(
     {
       discovery: ['mdns', 'gossip'],
       nodeId: name,

@@ -35,8 +35,6 @@ export async function publish(state: NodeState, topic: string, event: EccoEvent)
   const validatedEvent = validateEvent(event);
 
   if (hasTransportLayer(state)) {
-    console.log(`[${state.id}] Publishing to topic ${topic} via transport layer, event type: ${event.type}`);
-
     const bridgeMessage = createMessage(
       state.messageBridge!,
       'broadcast',
@@ -60,7 +58,6 @@ export async function publish(state: NodeState, topic: string, event: EccoEvent)
 
   if (state.node?.services.pubsub) {
     const message = new TextEncoder().encode(JSON.stringify(validatedEvent));
-    console.log(`[${state.id}] Publishing to topic ${topic} via libp2p pubsub (fallback), event type: ${event.type}`);
     await state.node.services.pubsub.publish(topic, message);
     return;
   }
@@ -73,28 +70,26 @@ export async function publishDirect(
   peerId: string,
   message: Message
 ): Promise<void> {
+  let messageToSend = message;
+  if (state.messageAuth) {
+    messageToSend = await signMessage(state.messageAuth, message);
+  }
+
+  const messageEvent: EccoEvent = {
+    type: 'message',
+    from: messageToSend.from,
+    to: messageToSend.to,
+    payload: messageToSend,
+    timestamp: Date.now(),
+  };
+
   if (hasTransportLayer(state)) {
-    const { serializeMessage } = await import('../transport/message-bridge');
-    const transportMessage = await serializeMessage(state.messageBridge!, message);
-
-    for (const adapter of state.transport!.adapters.values()) {
-      const connectedPeers = adapter.getConnectedPeers();
-      const isConnected = connectedPeers.some(p => p.id === peerId);
-
-      if (isConnected) {
-        await adapter.send(peerId, transportMessage);
-        return;
-      }
-    }
+    await publish(state, `peer:${peerId}`, messageEvent);
+    return;
   }
 
   if (state.node?.services.pubsub) {
-    let messageToSend = message;
-    if (state.messageAuth) {
-      messageToSend = await signMessage(state.messageAuth, message);
-    }
-
-    const encoded = new TextEncoder().encode(JSON.stringify(messageToSend));
+    const encoded = new TextEncoder().encode(JSON.stringify(messageEvent));
     await state.node.services.pubsub.publish(`peer:${peerId}`, encoded);
     return;
   }
@@ -125,8 +120,6 @@ export function subscribeWithRef(
   nodeTopics.add(topic);
 
   if (hasTransportLayer(state)) {
-    console.log(`[${state.id}] Subscribing to topic: ${topic} via transport layer`);
-
     updateState(stateRef, (s) => {
       if (!s.messageBridge) return s;
 
@@ -161,8 +154,6 @@ export function subscribeWithRef(
 
   if (state.node?.services.pubsub) {
     const pubsub = state.node.services.pubsub;
-
-    console.log(`[${state.id}] Subscribing to topic: ${topic} via libp2p pubsub (fallback)`);
     pubsub.subscribe(topic);
 
     pubsub.addEventListener('message', async (evt) => {
@@ -220,8 +211,6 @@ export function subscribe(
   if (isFirstSubscription) {
     if (currentState.node?.services.pubsub) {
       const pubsub = currentState.node.services.pubsub;
-
-      console.log(`[${currentState.id}] Subscribing to topic: ${topic} via libp2p pubsub`);
       pubsub.subscribe(topic);
 
       pubsub.addEventListener('message', async (evt) => {
@@ -259,8 +248,6 @@ export function subscribe(
         }
       });
     } else if (currentState.messageBridge) {
-      console.log(`[${currentState.id}] Subscribing to topic: ${topic} via message bridge`);
-
       currentState = {
         ...currentState,
         messageBridge: bridgeSubscribeToTopic(

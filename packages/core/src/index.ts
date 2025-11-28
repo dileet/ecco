@@ -1,5 +1,5 @@
 export {
-  init,
+  ecco,
   createInitialState,
   createStateRef,
   getState,
@@ -21,7 +21,7 @@ export {
   broadcastCapabilities,
   type StateRef,
   type EccoNode,
-  type InitOptions,
+  type EccoOptions,
 } from './node';
 export {
   initialOrchestratorState,

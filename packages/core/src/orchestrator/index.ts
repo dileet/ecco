@@ -190,10 +190,6 @@ export const executeOrchestration = async (
     getId(nodeRef)
   );
 
-  console.log(
-    `Executing multi-agent request with ${selectedAgents.length} agents using ${config.selectionStrategy} selection and ${config.aggregationStrategy} aggregation`
-  );
-
   let currentState = state;
   if (config.loadBalancing?.enabled) {
     const newLoadStates = updateLoadStatesForExecution(currentState.loadStates, selectedAgents);

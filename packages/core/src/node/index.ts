@@ -23,24 +23,29 @@ export interface EccoNode {
   addrs: string[];
 }
 
-export interface InitOptions {
+export interface EccoOptions {
   onMessage?: (message: Message) => void;
 }
 
-export async function init(config: EccoConfig, options?: InitOptions): Promise<EccoNode> {
+export async function ecco(config: EccoConfig, options?: EccoOptions): Promise<EccoNode> {
   const state = createInitialStateImpl(config);
   const ref = await lifecycle.start(state);
   const nodeState = getState(ref);
   const id = nodeState.id;
   const addrs = nodeState.node ? nodeState.node.getMultiaddrs().map(String) : [];
+  const libp2pPeerId = nodeState.node?.peerId?.toString();
 
   if (options?.onMessage) {
     const handler = options.onMessage;
-    subscribeWithRef(ref, `peer:${id}`, (event) => {
+    const messageHandler = (event: EccoEvent) => {
       if (event.type === 'message') {
         handler(event.payload as Message);
       }
-    });
+    };
+
+    if (libp2pPeerId) {
+      subscribeWithRef(ref, `peer:${libp2pPeerId}`, messageHandler);
+    }
   }
 
   return { ref, id, addrs };

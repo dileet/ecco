@@ -1,5 +1,5 @@
 import {
-  init,
+  ecco,
   stop,
   sendMessage,
   delay,
@@ -15,7 +15,7 @@ async function createBootstrapNode(
   name: string,
   capabilities: { type: string; name: string; version: string }[]
 ): Promise<EccoNode> {
-  const node = await init(
+  const node = await ecco(
     {
       discovery: ['dht', 'gossip'],
       nodeId: name,
@@ -44,7 +44,7 @@ async function createNode(
   capabilities: { type: string; name: string; version: string }[],
   bootstrapAddrs: string[]
 ): Promise<EccoNode> {
-  const node = await init(
+  const node = await ecco(
     {
       discovery: ['dht', 'gossip'],
       nodeId: name,

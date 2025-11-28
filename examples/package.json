@@ -6,6 +6,7 @@
   "scripts": {
     "basic": "bun run basic-peer-discovery.ts",
     "dht": "bun run dht-peer-discovery.ts",
+    "consensus": "bun run multi-agent-consensus.ts",
     "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts"
   },
   "dependencies": {

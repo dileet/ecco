@@ -135,12 +135,6 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
 
   const node = await createLibp2p<EccoServices>(libp2pOptions);
   await node.start();
-  console.log(`Ecco node started: ${state.id}`);
-  if (state.config.networkId) {
-    console.log(`Network: ${state.config.networkId}`);
-  }
-  console.log(`Listening on:`, node.getMultiaddrs().map(String));
-
   updateState(stateRef, (s) => setNode(s, node));
 }
 
@@ -152,7 +146,6 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
   }
 
   const identity = await loadOrCreateNodeIdentity(state.config);
-  console.log(`Message authentication enabled (${identity.created ? 'generated new keys' : 'loaded keys'})`);
 
   const authState: AuthState = {
     config: {
@@ -178,7 +171,6 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
       rpcUrls: state.config.authentication.walletRpcUrls,
     });
     updateState(stateRef, (s) => setWallet(s, walletState));
-    console.log('Wallet initialized with authentication keys');
   }
 }
 
@@ -229,7 +221,6 @@ async function setupRegistry(stateRef: StateRef<NodeState>): Promise<void> {
     );
   } catch {
     if (state.config.fallbackToP2P) {
-      console.log('Failed to connect to registry, falling back to P2P discovery only');
       return;
     }
     throw new Error('Failed to connect to registry after multiple attempts');
@@ -337,7 +328,6 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     
     bleAdapterState = setBLELocalContext(bleAdapterState, localContext);
     hybridDiscovery = registerHybridAdapter(hybridDiscovery, toBLEAdapter(bleAdapterState));
-    console.log('BLE adapter registered for proximity discovery');
   }
 
   if (state.config.transport?.webrtc?.enabled) {
@@ -348,7 +338,6 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     
     const initializedWebRTC = await initWebRTCAdapter(webrtcAdapterState);
     hybridDiscovery = registerHybridAdapter(hybridDiscovery, toWebRTCAdapter(initializedWebRTC));
-    console.log('WebRTC adapter registered for internet-phase discovery');
   }
 
   hybridDiscovery = await startHybridDiscovery(hybridDiscovery);
@@ -366,7 +355,6 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
   });
 
   updateState(stateRef, (s) => setTransport(s, hybridDiscovery));
-  console.log('Transport layer initialized with hybrid discovery');
 }
 
 export async function start(state: NodeState): Promise<StateRef<NodeState>> {
@@ -403,7 +391,6 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
 
   if (state.node) {
     await withTimeout(Promise.resolve(state.node.stop()), 5000, 'Libp2p node stop timeout').catch(() => {});
-    console.log('Ecco node stopped');
   }
 }
 
@@ -413,6 +400,7 @@ export async function sendMessage(
   message: Message
 ): Promise<void> {
   const state = getState(stateRef);
+
 
   const maxAttempts = state.config.retry?.maxAttempts || 3;
   const initialDelay = state.config.retry?.initialDelay || 1000;
@@ -428,7 +416,6 @@ export async function sendMessage(
           await publishDirect(currentState, peerId, message);
           return;
         }
-
         let messageToSend = message;
         if (currentState.messageAuth) {
           messageToSend = await signMessage(currentState.messageAuth, message);

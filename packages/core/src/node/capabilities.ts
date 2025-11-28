@@ -54,7 +54,6 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
   }
 
   if (!state.node?.services.pubsub) {
-    console.log('[Capabilities] Gossipsub not enabled, skipping capability tracking setup');
     updateState(stateRef, (s) => setCapabilityTrackingSetup(s, true));
     return;
   }
@@ -68,14 +67,6 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     if (libp2pPeerId && libp2pPeerId === current.node?.peerId?.toString()) return;
     
     const targetPeerId = libp2pPeerId ?? peerId;
-    const existingPeer = current.peers[targetPeerId];
-
-    if (existingPeer && hasCapabilitiesChanged(existingPeer.capabilities, capabilities)) {
-      console.log(`Updated capabilities for peer ${peerId}:`, capabilities.map((c) => c.name).join(', '));
-    } else if (!existingPeer && !current.peers[peerId]) {
-      console.log(`Added new peer from announcement: ${peerId}`);
-    }
-
     updateOrAddPeer(stateRef, targetPeerId, capabilities, timestamp);
   });
 
@@ -84,7 +75,6 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     const { requestId, from, requiredCapabilities, preferredPeers, timestamp } = event as CapabilityRequestEvent;
 
     const current = getState(stateRef);
-    console.log(`[${current.id}] Received capability request from ${from}`);
 
     if (!current.peers[from]) {
       updateOrAddPeer(stateRef, from, [], timestamp);
@@ -99,21 +89,23 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
 
     if (matches.length > 0) {
       const latestState = getState(stateRef);
+      const libp2pPeerId = latestState.node?.peerId?.toString();
       await publish(latestState, 'ecco:capability-response', {
         type: 'capability-response',
         requestId,
         peerId: latestState.id,
+        libp2pPeerId,
         capabilities: latestState.capabilities,
         timestamp: Date.now(),
       });
-      console.log(`[${latestState.id}] Sent capability response to ${from}`);
     }
   });
 
   subscribeWithRef(stateRef, 'ecco:capability-response', (event: EccoEvent) => {
     if (event.type !== 'capability-response') return;
-    const { peerId, capabilities, timestamp } = event as CapabilityResponseEvent;
-    updateOrAddPeer(stateRef, peerId, capabilities, timestamp);
+    const { peerId, libp2pPeerId, capabilities, timestamp } = event as CapabilityResponseEvent;
+    const targetPeerId = libp2pPeerId ?? peerId;
+    updateOrAddPeer(stateRef, targetPeerId, capabilities, timestamp);
   });
 
   updateState(stateRef, (s) => setCapabilityTrackingSetup(s, true));

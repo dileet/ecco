@@ -197,7 +197,6 @@ export const calculateSimilarity = async (
   switch (method) {
     case 'peer-embedding':
       if (!config.nodeRef) {
-        console.warn('NodeRef not provided for peer-embedding, falling back to text-overlap');
         similarity = textOverlapSimilarity(text1, text2);
       } else {
         similarity = await peerEmbeddingSimilarity(text1, text2, config.nodeRef, {
