@@ -8,8 +8,13 @@ import type {
   AgentLoadState,
 } from './types';
 import { aggregateResponses } from './aggregation';
-import { findPeers, getId, subscribeToTopic, sendMessage } from '../node';
+import { findPeers, getId, getLibp2pPeerId, sendMessage, getState, updateState, subscribeToTopic } from '../node';
 import { withTimeout } from '../utils';
+import {
+  subscribeToAllDirectMessages,
+  type MessageBridgeState,
+} from '../transport/message-bridge';
+import type { EccoEvent } from '../events';
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -183,11 +188,14 @@ export const executeOrchestration = async (
 
   const selectedAgents = selectAgents(allMatches, config, state.loadStates);
 
+  const libp2pPeerId = getLibp2pPeerId(nodeRef);
+  const senderId = libp2pPeerId ?? getId(nodeRef);
+
   const requests = prepareAgentRequests(
     selectedAgents,
     requestId,
     payload,
-    getId(nodeRef)
+    senderId
   );
 
   let currentState = state;
@@ -196,29 +204,68 @@ export const executeOrchestration = async (
     currentState = { ...currentState, loadStates: newLoadStates };
   }
 
-  try {
-    const responsePromises = new Map<string, Promise<unknown>>();
-    const responseResolvers = new Map<
-      string,
-      { resolve: (data: unknown) => void; reject: (error: Error) => void }
-    >();
+  const responsePromises = new Map<string, Promise<unknown>>();
+  const responseResolvers = new Map<
+    string,
+    { resolve: (data: unknown) => void; reject: (error: Error) => void }
+  >();
 
-    for (const req of requests) {
-      const promise = new Promise<unknown>((resolve, reject) => {
-        responseResolvers.set(req.message.id, { resolve, reject });
-      });
-      responsePromises.set(req.message.id, promise);
+  for (const req of requests) {
+    const promise = new Promise<unknown>((resolve, reject) => {
+      responseResolvers.set(req.message.id, { resolve, reject });
+    });
+    responsePromises.set(req.message.id, promise);
+  }
 
-      const handler = (data: unknown) => {
-        const resolver = responseResolvers.get(req.message.id);
-        if (resolver) {
-          resolver.resolve(data);
-        }
-      };
-
-      subscribeToTopic(nodeRef, `response:${req.message.id}`, handler);
+  const directMessageHandler = (message: Message) => {
+    if (message.type === 'agent-response') {
+      const responsePayload = message.payload as { requestId?: string; response?: unknown };
+      const msgRequestId = responsePayload?.requestId ?? message.id;
+      
+      const resolver = responseResolvers.get(msgRequestId);
+      if (resolver) {
+        resolver.resolve(responsePayload?.response ?? message.payload);
+        responseResolvers.delete(msgRequestId);
+      }
     }
+  };
 
+  const nodeState = getState(nodeRef);
+  let updatedBridge: MessageBridgeState | undefined;
+  
+  if (nodeState.messageBridge) {
+    updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, directMessageHandler);
+    updateState(nodeRef, (s) => ({ ...s, messageBridge: updatedBridge }));
+  }
+
+  const topicHandler = (event: EccoEvent) => {
+    if (event.type === 'message' && event.payload) {
+      const message = event.payload as Message;
+      directMessageHandler(message);
+    }
+  };
+  
+  let unsubscribeTopic: (() => void) | undefined;
+  if (libp2pPeerId) {
+    unsubscribeTopic = subscribeToTopic(nodeRef, `peer:${libp2pPeerId}`, topicHandler);
+  }
+
+  const cleanup = () => {
+    if (unsubscribeTopic) {
+      unsubscribeTopic();
+    }
+    if (updatedBridge) {
+      const latestNodeState = getState(nodeRef);
+      if (latestNodeState.messageBridge) {
+        const handlers = latestNodeState.messageBridge.directHandlers.get('*');
+        if (handlers) {
+          handlers.delete(directMessageHandler);
+        }
+      }
+    }
+  };
+
+  try {
     for (const req of requests) {
       sendMessage(nodeRef, req.message.to, req.message).catch((error) => {
         const resolver = responseResolvers.get(req.message.id);
@@ -318,6 +365,8 @@ export const executeOrchestration = async (
 
     return { result, state: currentState };
   } finally {
+    cleanup();
+
     if (config.loadBalancing?.enabled) {
       const newLoadStates = finalizeLoadStates(currentState.loadStates, selectedAgents);
       currentState = { ...currentState, loadStates: newLoadStates };

@@ -315,24 +315,22 @@ export async function sendWithFallback(
     ? getTransportPriority(state, result)
     : Array.from(state.adapters.keys());
 
+  let lastError: Error | undefined;
+
   for (const transport of transportPriority) {
     const adapter = state.adapters.get(transport);
-    if (!adapter) continue;
+    if (!adapter || adapter.state !== 'connected') continue;
 
-    const connectedPeers = adapter.getConnectedPeers();
-    const isConnected = connectedPeers.some((p) => p.id === peerId);
-
-    if (isConnected) {
-      try {
-        await adapter.send(peerId, message);
-        return { success: true, transport };
-      } catch {
-        continue;
-      }
+    try {
+      await adapter.send(peerId, message);
+      return { success: true, transport };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      continue;
     }
   }
 
-  return { success: false, error: new Error('No connected transport for peer') };
+  return { success: false, error: lastError ?? new Error('No connected transport for peer') };
 }
 
 export function getDiscoveredPeers(state: HybridDiscoveryState): DiscoveryResult[] {

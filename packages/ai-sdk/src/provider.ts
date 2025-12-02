@@ -84,15 +84,17 @@ const createState = (modelId: string, config: EccoProviderConfig): EccoLanguageM
   config,
 });
 
-const waitForResponse = (
+const waitForResponse = async (
   nodeRef: StateRef<NodeState>,
   requestId: string,
   timeout: number
 ): Promise<unknown> => {
+  let unsubscribe: (() => void) | undefined;
+
   const responsePromise = new Promise<unknown>((resolve) => {
     let resolved = false;
 
-    subscribeToTopic(nodeRef, `response:${requestId}`, (data: unknown) => {
+    unsubscribe = subscribeToTopic(nodeRef, `response:${requestId}`, (data: unknown) => {
       if (!resolved) {
         resolved = true;
         const message = MessagePayloadSchema.safeParse(data);
@@ -101,7 +103,11 @@ const waitForResponse = (
     });
   });
 
-  return withTimeout(responsePromise, timeout, 'Request timeout');
+  try {
+    return await withTimeout(responsePromise, timeout, 'Request timeout');
+  } finally {
+    unsubscribe?.();
+  }
 };
 
 const parseResponse = (response: unknown): GenerateResult => {
@@ -182,8 +188,6 @@ const doStream = async (
   const bestMatch = matches[0];
   const requestId = nanoid();
 
-  subscribeToTopic(state.config.nodeRef, `response:${requestId}`, () => {});
-
   await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
     id: requestId,
     from: getId(state.config.nodeRef),
@@ -193,9 +197,11 @@ const doStream = async (
     timestamp: Date.now(),
   });
 
+  let unsubscribe: (() => void) | undefined;
+
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
-      subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
+      unsubscribe = subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
         const chunk = StreamChunkSchema.safeParse(data);
         if (chunk.success) {
           controller.enqueue({ type: 'text-delta', id: nanoid(), delta: chunk.data.text });
@@ -211,9 +217,13 @@ const doStream = async (
             finishReason: FinishReasonSchema.parse(done.data.finishReason),
             usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
           });
+          unsubscribe?.();
           controller.close();
         }
       });
+    },
+    cancel() {
+      unsubscribe?.();
     },
   });
 

@@ -37,6 +37,7 @@ import {
   setRegistryClient,
   setTransport,
   setMessageBridge,
+  runCleanupHandlers,
 } from './state';
 import type { NodeState, EccoServices, StateRef } from './types';
 import type { Message } from '../types';
@@ -376,6 +377,14 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   const state = getState(stateRef);
 
+  await runCleanupHandlers(state);
+
+  updateState(stateRef, (s) => ({
+    ...s,
+    subscriptions: {},
+    subscribedTopics: new Map(),
+  }));
+
   if (state.transport) {
     await stopHybridDiscovery(state.transport);
   }
@@ -400,7 +409,6 @@ export async function sendMessage(
   message: Message
 ): Promise<void> {
   const state = getState(stateRef);
-
 
   const maxAttempts = state.config.retry?.maxAttempts || 3;
   const initialDelay = state.config.retry?.initialDelay || 1000;

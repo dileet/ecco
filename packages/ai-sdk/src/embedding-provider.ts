@@ -5,6 +5,7 @@ import {
   getId,
   publish,
   updatePeerServiceProvided,
+  registerCleanup,
   EmbeddingRequestSchema,
   MessageEventSchema,
   type StateRef,
@@ -31,34 +32,37 @@ const chunkArray = <T>(array: T[], size: number): T[][] => {
   return chunks;
 };
 
-const createResponseEvent = (
+const createBatchedResponseEvent = (
   nodeRef: StateRef<NodeState>,
   from: string,
   requestId: string,
-  chunk: number[],
+  chunks: number[][],
   index: number,
   total: number,
   modelId: string,
-  dimensions: number,
-  chunkIndex: number,
-  totalChunks: number
-): MessageEvent => ({
-  type: 'message',
-  from: getId(nodeRef),
-  to: from,
-  payload: {
-    type: 'embedding-response',
-    requestId,
-    embeddings: [chunk],
-    index,
-    total,
-    model: modelId,
-    dimensions,
-    chunkIndex,
-    totalChunks,
-  },
-  timestamp: Date.now(),
-});
+  dimensions: number
+): MessageEvent => {
+  const fullEmbedding: number[] = [];
+  for (const chunk of chunks) {
+    fullEmbedding.push(...chunk);
+  }
+
+  return {
+    type: 'message',
+    from: getId(nodeRef),
+    to: from,
+    payload: {
+      type: 'embedding-response',
+      requestId,
+      embeddings: [fullEmbedding],
+      index,
+      total,
+      model: modelId,
+      dimensions,
+    },
+    timestamp: Date.now(),
+  };
+};
 
 const processEmbeddingRequest = async (
   config: EmbeddingProviderConfig,
@@ -73,28 +77,18 @@ const processEmbeddingRequest = async (
     const plainEmbedding = Array.from(embedding);
     const chunks = chunkArray(plainEmbedding, CHUNK_SIZE);
 
-    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
-      const responseEvent = createResponseEvent(
-        nodeRef,
-        event.from,
-        requestId,
-        chunks[chunkIdx],
-        i,
-        texts.length,
-        modelId,
-        plainEmbedding.length,
-        chunkIdx,
-        chunks.length
-      );
+    const responseEvent = createBatchedResponseEvent(
+      nodeRef,
+      event.from,
+      requestId,
+      chunks,
+      i,
+      texts.length,
+      modelId,
+      plainEmbedding.length
+    );
 
-      await publish(nodeRef, `embedding-response:${requestId}`, responseEvent);
-      await publish(nodeRef, `peer:${event.from}`, responseEvent);
-
-      // Small delay between chunks to avoid overwhelming transport (Bun ChaCha20 limit)
-      if (chunkIdx < chunks.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-    }
+    await publish(nodeRef, `peer:${event.from}`, responseEvent);
   }
 
   updatePeerServiceProvided(nodeRef, event.from);
@@ -117,10 +111,12 @@ function setupEmbeddingProvider(config: EmbeddingProviderConfig): void {
     }
   };
 
-  subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, handleEmbeddingRequest);
+  const unsubscribe1 = subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, handleEmbeddingRequest);
+  registerCleanup(nodeRef, unsubscribe1);
 
   if (libp2pPeerId) {
-    subscribeToTopic(nodeRef, `peer:${libp2pPeerId}`, handleEmbeddingRequest);
+    const unsubscribe2 = subscribeToTopic(nodeRef, `peer:${libp2pPeerId}`, handleEmbeddingRequest);
+    registerCleanup(nodeRef, unsubscribe2);
   }
 }
 

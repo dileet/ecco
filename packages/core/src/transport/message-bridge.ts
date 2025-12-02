@@ -186,21 +186,33 @@ export async function handleIncomingTransportMessage(
   const { message, valid, updatedState } = await deserializeMessage(state, transportMessage);
 
   if (!valid || !message) {
-    console.warn(`Invalid message from ${peerId}, discarding`);
     return updatedState;
   }
 
+  let handlersCalled = false;
+
   const peerHandlers = updatedState.directHandlers.get(peerId);
-  if (peerHandlers) {
+  if (peerHandlers && peerHandlers.size > 0) {
     for (const handler of peerHandlers) {
       handler(message);
+      handlersCalled = true;
     }
   }
 
   const globalHandlers = updatedState.directHandlers.get('*');
-  if (globalHandlers) {
+  if (globalHandlers && globalHandlers.size > 0) {
     for (const handler of globalHandlers) {
       handler(message);
+      handlersCalled = true;
+    }
+  }
+
+  if (!handlersCalled && message.to) {
+    const topicHandlers = updatedState.topicHandlers.get(`peer:${message.to}`);
+    if (topicHandlers && topicHandlers.size > 0) {
+      for (const handler of topicHandlers) {
+        handler(message);
+      }
     }
   }
 

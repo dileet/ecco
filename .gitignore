@@ -5,6 +5,7 @@ node_modules/
 
 .keys/
 .ecco/
+.internal/
 
 # Build outputs
 dist/

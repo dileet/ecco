@@ -7,6 +7,21 @@ export type DiscoveryMethod =
   | 'wifi-direct'
   | 'nfc';
 
+export interface MemoryLimitsConfig {
+  maxPeers?: number;
+  maxSubscriptionsPerTopic?: number;
+  peerEvictionPolicy?: 'lru' | 'oldest' | 'lowest-reputation';
+  stalePeerTimeoutMs?: number;
+}
+
+export interface FloodProtectionConfig {
+  dedupMaxMessages?: number;
+  dedupFalsePositiveRate?: number;
+  rateLimitMaxTokens?: number;
+  rateLimitRefillRate?: number;
+  rateLimitRefillIntervalMs?: number;
+}
+
 export interface EccoConfig {
   discovery: DiscoveryMethod[];
   registry?: string;
@@ -18,6 +33,8 @@ export interface EccoConfig {
   transport?: TransportConfig;
   bootstrap?: BootstrapConfig;
   proximity?: ProximityConfig;
+  memoryLimits?: MemoryLimitsConfig;
+  floodProtection?: FloodProtectionConfig;
   authentication?: {
     enabled: boolean;
     generateKeys?: boolean;

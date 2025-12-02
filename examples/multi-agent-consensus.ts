@@ -6,11 +6,10 @@ import {
   delay,
   findPeers,
   broadcastCapabilities,
-  publish,
+  sendMessage,
   initialOrchestratorState,
   type EccoNode,
   type MultiAgentConfig,
-  type MessageEvent,
   type Message,
 } from '@ecco/core';
 import {
@@ -134,26 +133,28 @@ async function createAgentNode(
             prompt: promptText,
           });
 
-          const responseEvent: MessageEvent = {
-            type: 'message',
+          const responseMessage: Message = {
+            id: `response-${requestId}`,
             from: libp2pPeerId,
             to: fromPeer,
-            payload: { text: result.text, finishReason: 'stop' },
+            type: 'agent-response',
+            payload: { requestId, response: { text: result.text, finishReason: 'stop' } },
             timestamp: Date.now(),
           };
 
-          await publish(nodeRef, `response:${requestId}`, responseEvent);
+          await sendMessage(nodeRef, fromPeer, responseMessage);
           console.log(`[${name}] Sent response for request ${requestId.slice(0, 8)}...`);
         } catch (error) {
           console.error(`[${name}] Error:`, error);
-          const errorEvent: MessageEvent = {
-            type: 'message',
+          const errorMessage: Message = {
+            id: `response-${requestId}`,
             from: libp2pPeerId,
             to: fromPeer,
-            payload: { error: String(error) },
+            type: 'agent-response',
+            payload: { requestId, response: { error: String(error) } },
             timestamp: Date.now(),
           };
-          await publish(nodeRef, `response:${requestId}`, errorEvent);
+          await sendMessage(nodeRef, fromPeer, errorMessage);
         }
       },
     }
@@ -174,6 +175,7 @@ async function createCoordinatorNode(name: string, bootstrapAddrs: string[]): Pr
       capabilities: [{ type: 'coordinator', name: 'orchestrator', version: '1.0.0' }],
       transport: { websocket: { enabled: true } },
       bootstrap: { enabled: true, peers: bootstrapAddrs, timeout: 10000, minPeers: 1 },
+      floodProtection: { rateLimitMaxTokens: 500, rateLimitRefillRate: 100 },
     },
     { onMessage: () => {} }
   );

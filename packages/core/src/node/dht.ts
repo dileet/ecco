@@ -55,15 +55,35 @@ export const announceCapabilities = async (
 const queryProviders = async (
   node: DHTCapableNode,
   cid: CID,
+  capability: Partial<Capability>,
   discoveredPeers: Map<string, PeerInfo>
 ): Promise<void> => {
   for await (const provider of node.contentRouting.findProviders(cid)) {
-    discoveredPeers.set(provider.id.toString(), {
-      id: provider.id.toString(),
-      addresses: provider.multiaddrs.map(String),
-      capabilities: [],
-      lastSeen: Date.now(),
-    });
+    const peerId = provider.id.toString();
+    const existing = discoveredPeers.get(peerId);
+    
+    const capabilityEntry: Capability = {
+      type: capability.type ?? 'service',
+      name: capability.name ?? 'unknown',
+      version: capability.version ?? '1.0.0',
+      ...(capability.metadata && { metadata: capability.metadata }),
+    };
+
+    if (existing) {
+      const hasCapability = existing.capabilities.some(
+        (c) => c.type === capabilityEntry.type && c.name === capabilityEntry.name
+      );
+      if (!hasCapability) {
+        existing.capabilities.push(capabilityEntry);
+      }
+    } else {
+      discoveredPeers.set(peerId, {
+        id: peerId,
+        addresses: provider.multiaddrs.map(String),
+        capabilities: [capabilityEntry],
+        lastSeen: Date.now(),
+      });
+    }
   }
 };
 
@@ -75,7 +95,7 @@ export const queryCapabilities = async (
 
   const queries = query.requiredCapabilities.map(async (requiredCap) => {
     const cid = await keyToCID(generateCapabilityKey(requiredCap));
-    await queryProviders(node, cid, discoveredPeers);
+    await queryProviders(node, cid, requiredCap, discoveredPeers);
   });
 
   await Promise.allSettled(queries);

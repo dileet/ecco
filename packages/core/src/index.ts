@@ -15,10 +15,20 @@ export {
   addCapability,
   getMultiaddrs,
   getId,
+  getLibp2pPeerId,
   isRegistryConnected,
   setRegistryReputation,
   incrementRegistryReputation,
   broadcastCapabilities,
+  addPeer,
+  removePeer,
+  updatePeer,
+  addPeers,
+  getPeer,
+  hasPeer,
+  getAllPeers,
+  getPeerCount,
+  evictStalePeers,
   type StateRef,
   type EccoNode,
   type EccoOptions,
@@ -67,7 +77,7 @@ export {
   type NetworkName,
 } from './networks';
 export { validateEvent, isValidEvent, MessageEventSchema } from './events';
-export { modifyState } from './node/state';
+export { getVersion, modifyState, registerCleanup } from './node/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
   createWalletState,
@@ -134,6 +144,7 @@ export type {
   DiscoveryMethod,
   TransportConfig,
   ProximityConfig,
+  MemoryLimitsConfig,
   Pricing,
   Invoice,
   PaymentProof,
@@ -179,7 +190,11 @@ export {
   delay,
   withTimeout,
   retryWithBackoff,
+  createLRUCache,
+  cloneLRUCache,
+  fromRecord,
   type RetryOptions,
+  type LRUCache,
 } from './utils';
 
 export {

@@ -20,8 +20,13 @@ import type { GossipSub } from '@libp2p/gossipsub';
 import type { PeerPerformanceState } from './peer-performance';
 import type { HybridDiscoveryState } from '../transport/hybrid-discovery';
 import type { MessageBridgeState } from '../transport/message-bridge';
+import type { LRUCache } from '../utils/lru-cache';
+import type { MessageDeduplicator, RateLimiter } from '../utils/bloom-filter';
 
-export type StateRef<T> = { current: T };
+export type StateRef<T> = { 
+  current: T;
+  version: number;
+};
 
 export type EventHandler = (event: EccoEvent) => void;
 
@@ -34,13 +39,23 @@ export interface EccoServices extends Record<string, unknown> {
 
 export type EccoLibp2p = Libp2p<EccoServices>;
 
+export type CleanupHandler = () => void | Promise<void>;
+
+export interface MessageFloodProtection {
+  deduplicator: MessageDeduplicator;
+  rateLimiter: RateLimiter;
+  topicSubscribers: Map<string, Set<string>>;
+}
+
 export interface NodeState {
   id: string;
   config: EccoConfig;
   node: EccoLibp2p | null;
   capabilities: Capability[];
-  peers: Record<string, PeerInfo>;
+  peers: LRUCache<string, PeerInfo>;
   subscriptions: Record<string, EventHandler[]>;
+  subscribedTopics: Map<string, Set<string>>;
+  cleanupHandlers: CleanupHandler[];
   messageAuth?: AuthState;
   connectionPool?: PoolState;
   registryClient?: RegistryClientState;
@@ -55,4 +70,5 @@ export interface NodeState {
   pendingSettlements: SettlementIntent[];
   transport?: HybridDiscoveryState;
   messageBridge?: MessageBridgeState;
+  floodProtection: MessageFloodProtection;
 }

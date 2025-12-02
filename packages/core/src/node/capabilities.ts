@@ -3,7 +3,7 @@ import type { NodeState, StateRef } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
 import { publish, subscribeWithRef } from './messaging';
 import { matchPeers } from '../orchestrator/capability-matcher';
-import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup } from './state';
+import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup, hasPeer, getAllPeers } from './state';
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
 import { announceCapabilities as announceDHT } from './dht';
 
@@ -17,7 +17,7 @@ const updateOrAddPeer = (
   timestamp: number
 ): void => {
   const current = getState(stateRef);
-  if (current.peers[peerId]) {
+  if (hasPeer(current, peerId)) {
     updateState(stateRef, (s) =>
       updatePeer(s, peerId, { capabilities, lastSeen: timestamp })
     );
@@ -76,7 +76,7 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
 
     const current = getState(stateRef);
 
-    if (!current.peers[from]) {
+    if (!hasPeer(current, from)) {
       updateOrAddPeer(stateRef, from, [], timestamp);
     }
 
@@ -112,7 +112,7 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
 }
 
 export function findMatchingPeers(state: NodeState, query: CapabilityQuery): CapabilityMatch[] {
-  return matchPeers(Object.values(state.peers), query);
+  return matchPeers(getAllPeers(state), query);
 }
 
 export async function requestCapabilities(stateRef: StateRef<NodeState>, query: CapabilityQuery): Promise<void> {

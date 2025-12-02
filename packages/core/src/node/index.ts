@@ -14,7 +14,23 @@ import { publish as publishFn, subscribeWithRef } from './messaging';
 import { announceCapabilities } from './capabilities';
 import { setReputation, incrementReputation } from '../registry-client';
 
-export { createInitialState, createStateRef, getState, setState, updateState } from './state';
+export { 
+  createInitialState,
+  createStateRef, 
+  getState, 
+  getVersion, 
+  setState, 
+  updateState,
+  addPeer,
+  removePeer,
+  updatePeer,
+  addPeers,
+  getPeer,
+  hasPeer,
+  getAllPeers,
+  getPeerCount,
+  evictStalePeers,
+} from './state';
 export type { StateRef } from './types';
 
 export interface EccoNode {
@@ -46,6 +62,12 @@ export async function ecco(config: EccoConfig, options?: EccoOptions): Promise<E
     if (libp2pPeerId) {
       subscribeWithRef(ref, `peer:${libp2pPeerId}`, messageHandler);
     }
+
+    if (nodeState.messageBridge) {
+      const { subscribeToAllDirectMessages } = await import('../transport/message-bridge');
+      const updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, handler);
+      setState(ref, { ...getState(ref), messageBridge: updatedBridge });
+    }
   }
 
   return { ref, id, addrs };
@@ -64,8 +86,8 @@ export async function publish(ref: StateRef<NodeState>, topic: string, event: Ec
   await publishFn(state, topic, event);
 }
 
-export function subscribeToTopic(ref: StateRef<NodeState>, topic: string, handler: (event: EccoEvent) => void): void {
-  subscribeWithRef(ref, topic, handler);
+export function subscribeToTopic(ref: StateRef<NodeState>, topic: string, handler: (event: EccoEvent) => void): () => void {
+  return subscribeWithRef(ref, topic, handler);
 }
 
 export async function findPeers(
@@ -103,6 +125,11 @@ export function getMultiaddrs(ref: StateRef<NodeState>): string[] {
 export function getId(ref: StateRef<NodeState>): string {
   const state = getState(ref);
   return state.id;
+}
+
+export function getLibp2pPeerId(ref: StateRef<NodeState>): string | undefined {
+  const state = getState(ref);
+  return state.node?.peerId?.toString();
 }
 
 export function isRegistryConnected(ref: StateRef<NodeState>): boolean {

@@ -241,8 +241,6 @@ const doStream = async (
   const requestId = `stream-${Date.now()}`;
   const bestMatch = matches[0];
 
-  subscribeToTopic(state.config.nodeRef, `response:${requestId}`, () => {});
-
   await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
     id: requestId,
     from: getId(state.config.nodeRef),
@@ -252,9 +250,11 @@ const doStream = async (
     timestamp: Date.now(),
   });
 
+  let unsubscribe: (() => void) | undefined;
+
   const stream = new ReadableStream<LanguageModelV2StreamPart>({
     start(controller) {
-      subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
+      unsubscribe = subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
         const chunk = StreamChunkSchema.safeParse(data);
         if (chunk.success) {
           controller.enqueue({ type: 'text-delta', id: requestId, delta: chunk.data.text });
@@ -270,9 +270,13 @@ const doStream = async (
             finishReason: FinishReasonSchema.parse(done.data.finishReason),
             usage: { inputTokens: input, outputTokens: output, totalTokens: input + output },
           });
+          unsubscribe?.();
           controller.close();
         }
       });
+    },
+    cancel() {
+      unsubscribe?.();
     },
   });
 

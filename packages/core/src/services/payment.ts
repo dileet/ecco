@@ -7,6 +7,28 @@ import type {
 } from '../types';
 import { nanoid } from 'nanoid';
 
+const PRECISION_DECIMALS = 18;
+const PRECISION_MULTIPLIER = 10n ** BigInt(PRECISION_DECIMALS);
+
+function parseDecimalToBigInt(value: string): bigint {
+  const [integerPart, fractionalPart = ''] = value.split('.');
+  const paddedFractional = fractionalPart
+    .slice(0, PRECISION_DECIMALS)
+    .padEnd(PRECISION_DECIMALS, '0');
+  const combined = integerPart + paddedFractional;
+  return BigInt(combined);
+}
+
+function bigIntToDecimalString(value: bigint): string {
+  const isNegative = value < 0n;
+  const absoluteValue = isNegative ? -value : value;
+  const str = absoluteValue.toString().padStart(PRECISION_DECIMALS + 1, '0');
+  const integerPart = str.slice(0, -PRECISION_DECIMALS) || '0';
+  const fractionalPart = str.slice(-PRECISION_DECIMALS).replace(/0+$/, '');
+  const result = fractionalPart ? `${integerPart}.${fractionalPart}` : integerPart;
+  return isNegative ? `-${result}` : result;
+}
+
 export function validateInvoice(invoice: Invoice): boolean {
   if (Date.now() > invoice.validUntil) {
     throw new Error('Invoice has expired');
@@ -18,15 +40,17 @@ export function recordStreamingTick(
   agreement: StreamingAgreement,
   tokensGenerated: number
 ): { agreement: StreamingAgreement; amountOwed: string } {
-  const currentAmount = parseFloat(agreement.accumulatedAmount);
-  const rate = parseFloat(agreement.ratePerToken);
-  const newAmount = currentAmount + tokensGenerated * rate;
-  const amountOwed = (newAmount - currentAmount).toString();
+  const currentAmount = parseDecimalToBigInt(agreement.accumulatedAmount);
+  const rate = parseDecimalToBigInt(agreement.ratePerToken);
+  const tokensBigInt = BigInt(tokensGenerated);
+  const increment = (tokensBigInt * rate) / PRECISION_MULTIPLIER;
+  const newAmount = currentAmount + increment;
+  const amountOwed = bigIntToDecimalString(increment);
 
   return {
     agreement: {
       ...agreement,
-      accumulatedAmount: newAmount.toString(),
+      accumulatedAmount: bigIntToDecimalString(newAmount),
       lastTick: Date.now(),
     },
     amountOwed,
@@ -75,16 +99,17 @@ export function createSwarmSplit(
   participants: Array<{ peerId: string; walletAddress: string; contribution: number }>
 ): SwarmSplit {
   const totalContribution = participants.reduce((sum, p) => sum + p.contribution, 0);
-  const totalAmountNum = parseFloat(totalAmount);
+  const totalAmountBigInt = parseDecimalToBigInt(totalAmount);
 
   const swarmParticipants: SwarmParticipant[] = participants.map((p) => {
-    const proportion = p.contribution / totalContribution;
-    const amount = (totalAmountNum * proportion).toString();
+    const contributionBigInt = BigInt(Math.round(p.contribution * 1e9));
+    const totalContributionBigInt = BigInt(Math.round(totalContribution * 1e9));
+    const amount = (totalAmountBigInt * contributionBigInt) / totalContributionBigInt;
     return {
       peerId: p.peerId,
       walletAddress: p.walletAddress,
       contribution: p.contribution,
-      amount,
+      amount: bigIntToDecimalString(amount),
     };
   });
 

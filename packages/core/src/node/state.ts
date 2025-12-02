@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { NodeState, StateRef, EventHandler } from './types';
+import type { NodeState, StateRef, EventHandler, CleanupHandler, MessageFloodProtection } from './types';
 import type {
   PeerInfo,
   PaymentLedgerEntry,
@@ -17,21 +17,52 @@ import type { MessageBridgeState } from '../transport/message-bridge';
 import { DEFAULT_CONFIG, type PoolState } from '../connection';
 import { configDefaults, mergeConfig } from '../config';
 import * as storage from '../storage';
+import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
+import { createMessageDeduplicator, createRateLimiter } from '../utils/bloom-filter';
 
 export type { StateRef } from './types';
 
-export const createStateRef = <T>(initial: T): StateRef<T> => ({ current: initial });
+const MAX_CAS_RETRIES = 100;
+const DEFAULT_MAX_PEERS = 10000;
+const DEFAULT_STALE_PEER_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_DEDUP_MAX_MESSAGES = 10000;
+const DEFAULT_DEDUP_FALSE_POSITIVE_RATE = 0.01;
+const DEFAULT_RATE_LIMIT_MAX_TOKENS = 100;
+const DEFAULT_RATE_LIMIT_REFILL_RATE = 10;
+const DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS = 1000;
+
+export const createStateRef = <T>(initial: T): StateRef<T> => ({ 
+  current: initial,
+  version: 0,
+});
+
+export const createFloodProtection = (config: EccoConfig): MessageFloodProtection => {
+  const dedupMaxMessages = config.floodProtection?.dedupMaxMessages ?? DEFAULT_DEDUP_MAX_MESSAGES;
+  const dedupFalsePositiveRate = config.floodProtection?.dedupFalsePositiveRate ?? DEFAULT_DEDUP_FALSE_POSITIVE_RATE;
+  const rateLimitMaxTokens = config.floodProtection?.rateLimitMaxTokens ?? DEFAULT_RATE_LIMIT_MAX_TOKENS;
+  const rateLimitRefillRate = config.floodProtection?.rateLimitRefillRate ?? DEFAULT_RATE_LIMIT_REFILL_RATE;
+  const rateLimitRefillIntervalMs = config.floodProtection?.rateLimitRefillIntervalMs ?? DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS;
+
+  return {
+    deduplicator: createMessageDeduplicator(dedupMaxMessages, dedupFalsePositiveRate),
+    rateLimiter: createRateLimiter(rateLimitMaxTokens, rateLimitRefillRate, rateLimitRefillIntervalMs),
+    topicSubscribers: new Map(),
+  };
+};
 
 export const createInitialState = (config: EccoConfig): NodeState => {
   const fullConfig = mergeConfig(configDefaults, config);
+  const maxPeers = fullConfig.memoryLimits?.maxPeers ?? DEFAULT_MAX_PEERS;
 
   return {
     id: fullConfig.nodeId || nanoid(),
     config: fullConfig,
     node: null,
     capabilities: fullConfig.capabilities || [],
-    peers: {},
+    peers: createLRUCache<string, PeerInfo>(maxPeers),
     subscriptions: {},
+    subscribedTopics: new Map(),
+    cleanupHandlers: [],
     capabilityTrackingSetup: false,
     paymentLedger: {},
     streamingChannels: {},
@@ -39,6 +70,7 @@ export const createInitialState = (config: EccoConfig): NodeState => {
     stakePositions: {},
     swarmSplits: {},
     pendingSettlements: [],
+    floodProtection: createFloodProtection(fullConfig),
     ...(fullConfig.connectionPool ? { connectionPool: {
       config: { ...DEFAULT_CONFIG, ...fullConfig.connectionPool },
       connections: new Map(),
@@ -47,46 +79,96 @@ export const createInitialState = (config: EccoConfig): NodeState => {
   };
 };
 
+export const getStalePeerTimeoutMs = (config: EccoConfig): number =>
+  config.memoryLimits?.stalePeerTimeoutMs ?? DEFAULT_STALE_PEER_TIMEOUT_MS;
+
 export const getState = <T>(ref: StateRef<T>): T => ref.current;
+
+export const getVersion = <T>(ref: StateRef<T>): number => ref.version;
 
 export const setState = <T>(ref: StateRef<T>, value: T): void => {
   ref.current = value;
+  ref.version += 1;
 };
 
 export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
-  ref.current = fn(ref.current);
+  for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+    const versionBefore = ref.version;
+    const newState = fn(ref.current);
+    if (ref.version === versionBefore) {
+      ref.current = newState;
+      ref.version = versionBefore + 1;
+      return;
+    }
+  }
+  throw new Error('updateState: exceeded max retries - concurrent state modification detected');
 };
 
 export const modifyState = <T, A>(ref: StateRef<T>, fn: (state: T) => readonly [A, T]): A => {
-  const [result, newState] = fn(ref.current);
-  ref.current = newState;
-  return result;
+  for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+    const versionBefore = ref.version;
+    const [result, newState] = fn(ref.current);
+    if (ref.version === versionBefore) {
+      ref.current = newState;
+      ref.version = versionBefore + 1;
+      return result;
+    }
+  }
+  throw new Error('modifyState: exceeded max retries - concurrent state modification detected');
 };
 
-export const addPeer = (state: NodeState, peer: PeerInfo): NodeState => ({
-  ...state,
-  peers: { ...state.peers, [peer.id]: peer },
-});
+export const addPeer = (state: NodeState, peer: PeerInfo): NodeState => {
+  const newPeers = cloneLRUCache(state.peers);
+  newPeers.set(peer.id, { ...peer, lastSeen: Date.now() });
+  return { ...state, peers: newPeers };
+};
 
 export const removePeer = (state: NodeState, peerId: string): NodeState => {
-  const { [peerId]: _, ...remainingPeers } = state.peers;
-  return { ...state, peers: remainingPeers };
+  const newPeers = cloneLRUCache(state.peers);
+  newPeers.delete(peerId);
+  return { ...state, peers: newPeers };
 };
 
 export const updatePeer = (state: NodeState, peerId: string, updates: Partial<PeerInfo>): NodeState => {
-  const existing = state.peers[peerId];
+  const existing = state.peers.get(peerId);
   if (!existing) return state;
-  return {
-    ...state,
-    peers: { ...state.peers, [peerId]: { ...existing, ...updates } },
-  };
+  const newPeers = cloneLRUCache(state.peers);
+  newPeers.set(peerId, { ...existing, ...updates, lastSeen: Date.now() });
+  return { ...state, peers: newPeers };
 };
 
 export const addPeers = (state: NodeState, peers: PeerInfo[]): NodeState => {
-  const newPeers = peers.reduce(
-    (acc, peer) => ({ ...acc, [peer.id]: peer }),
-    state.peers
-  );
+  const newPeers = cloneLRUCache(state.peers);
+  const now = Date.now();
+  for (const peer of peers) {
+    newPeers.set(peer.id, { ...peer, lastSeen: now });
+  }
+  return { ...state, peers: newPeers };
+};
+
+export const getPeer = (state: NodeState, peerId: string): PeerInfo | undefined =>
+  state.peers.get(peerId);
+
+export const hasPeer = (state: NodeState, peerId: string): boolean =>
+  state.peers.has(peerId);
+
+export const getAllPeers = (state: NodeState): PeerInfo[] =>
+  state.peers.values();
+
+export const getPeerCount = (state: NodeState): number =>
+  state.peers.size;
+
+export const evictStalePeers = (state: NodeState): NodeState => {
+  const stalePeerTimeoutMs = getStalePeerTimeoutMs(state.config);
+  const now = Date.now();
+  const newPeers = cloneLRUCache(state.peers);
+  
+  for (const [peerId, peer] of state.peers.entries()) {
+    if (now - peer.lastSeen > stalePeerTimeoutMs) {
+      newPeers.delete(peerId);
+    }
+  }
+  
   return { ...state, peers: newPeers };
 };
 
@@ -103,6 +185,47 @@ export const addSubscription = (
       [topic]: [...existingHandlers, handler],
     },
   };
+};
+
+export const removeSubscription = (
+  state: NodeState,
+  topic: string,
+  handler: EventHandler
+): NodeState => {
+  const existingHandlers = state.subscriptions[topic];
+  if (!existingHandlers) return state;
+
+  const filteredHandlers = existingHandlers.filter((h) => h !== handler);
+
+  if (filteredHandlers.length === 0) {
+    const { [topic]: _, ...remainingSubscriptions } = state.subscriptions;
+    return { ...state, subscriptions: remainingSubscriptions };
+  }
+
+  return {
+    ...state,
+    subscriptions: {
+      ...state.subscriptions,
+      [topic]: filteredHandlers,
+    },
+  };
+};
+
+export const registerCleanup = (ref: StateRef<NodeState>, handler: CleanupHandler): void => {
+  updateState(ref, (state) => ({
+    ...state,
+    cleanupHandlers: [...state.cleanupHandlers, handler],
+  }));
+};
+
+export const runCleanupHandlers = async (state: NodeState): Promise<void> => {
+  for (const handler of state.cleanupHandlers) {
+    try {
+      await handler();
+    } catch (error) {
+      console.error('Cleanup handler error:', error);
+    }
+  }
 };
 
 export const setRegistryClient = (state: NodeState, client: RegistryClientState): NodeState => ({
@@ -150,6 +273,21 @@ export const setMessageBridge = (state: NodeState, messageBridge: MessageBridgeS
 });
 
 export const getMessageBridge = (state: NodeState): MessageBridgeState | undefined => state.messageBridge;
+
+export const getFloodProtection = (state: NodeState): MessageFloodProtection => state.floodProtection;
+
+export const resetFloodProtection = (state: NodeState): NodeState => ({
+  ...state,
+  floodProtection: createFloodProtection(state.config),
+});
+
+export const clearRateLimits = (state: NodeState): void => {
+  state.floodProtection.rateLimiter.clear();
+};
+
+export const resetPeerRateLimit = (state: NodeState, peerId: string): void => {
+  state.floodProtection.rateLimiter.reset(peerId);
+};
 
 export const addPaymentLedgerEntry = async (
   state: NodeState,

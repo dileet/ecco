@@ -7,9 +7,10 @@ import { query as queryRegistryClient } from '../registry-client';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
-import { getState, updateState, removePeer, addPeers } from './state';
+import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers } from './state';
 import { delay } from '../utils';
 import { queryCapabilities } from './dht';
+import type { LRUCache } from '../utils/lru-cache';
 
 function extractPeerIdFromAddr(addr: string): string | null {
   const match = addr.match(/\/p2p\/([^/]+)$/);
@@ -66,7 +67,7 @@ export function setupEventListeners(
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
     const currentState = getState(stateRef);
-    if (!currentState.peers[peerId]) {
+    if (!hasPeer(currentState, peerId)) {
       const peerAddresses = node.getConnections()
         .filter(conn => conn.remotePeer.toString() === peerId)
         .flatMap(conn => conn.remoteAddr ? [conn.remoteAddr.toString()] : []);
@@ -125,10 +126,10 @@ function selectDiscoveryStrategy(
 }
 
 function mergePeers(
-  existingPeers: Record<string, PeerInfo>,
+  existingPeers: LRUCache<string, PeerInfo>,
   newPeers: PeerInfo[]
 ): PeerInfo[] {
-  return newPeers.filter(peer => !existingPeers[peer.id]);
+  return newPeers.filter(peer => !existingPeers.has(peer.id));
 }
 
 async function queryRegistry(
@@ -208,7 +209,7 @@ export async function findPeers(
   query: CapabilityQuery
 ): Promise<CapabilityMatch[]> {
   let state = getState(stateRef);
-  const peerList = Object.values(state.peers);
+  const peerList = getAllPeers(state);
   let matches = matchPeers(peerList, query);
 
   const isRegistryConnected = state.registryClient?.connected ?? false;
@@ -243,7 +244,7 @@ export async function findPeers(
       updateState(stateRef, (s) => addPeers(s, newPeers));
 
       state = getState(stateRef);
-      const updatedPeerList = Object.values(state.peers);
+      const updatedPeerList = getAllPeers(state);
       matches = matchPeers(updatedPeerList, query);
 
       if (matches.length > 0) {
@@ -261,7 +262,7 @@ export async function findPeers(
       updateState(stateRef, (s) => addPeers(s, newPeers));
 
       state = getState(stateRef);
-      const updatedPeerList = Object.values(state.peers);
+      const updatedPeerList = getAllPeers(state);
       matches = matchPeers(updatedPeerList, query);
       if (matches.length > 0) {
         return matches;

@@ -1,5 +1,6 @@
-import type { Libp2p, PeerId } from '@libp2p/interface';
+import type { Libp2p, PeerId, Stream } from '@libp2p/interface';
 import type { GossipSub } from '@libp2p/gossipsub';
+import { peerIdFromString } from '@libp2p/peer-id';
 import { z } from 'zod';
 import type {
   TransportAdapter,
@@ -9,6 +10,7 @@ import type {
   TransportDiscoveryEvent,
   TransportConnectionEvent,
 } from '../types';
+const { multiaddr } = await import('@multiformats/multiaddr');
 
 interface EccoLibp2pServices extends Record<string, unknown> {
   pubsub?: GossipSub;
@@ -33,6 +35,7 @@ export interface Libp2pAdapterState {
 }
 
 const ECCO_TRANSPORT_TOPIC = 'ecco/transport/v1';
+const ECCO_DIRECT_PROTOCOL = '/ecco/direct/1.0.0';
 
 export function createLibp2pAdapter(
   config: Libp2pAdapterConfig
@@ -65,6 +68,73 @@ const messageDetailSchema = z.union([
 function extractMessageData(detail: unknown): z.infer<typeof pubSubMessageSchema> | null {
   const result = messageDetailSchema.safeParse(detail);
   return result.success ? result.data : null;
+}
+
+interface IncomingStreamData {
+  stream: Stream;
+  connection: { remotePeer: { toString(): string } };
+}
+
+function isIncomingStreamData(data: unknown): data is IncomingStreamData {
+  if (typeof data !== 'object' || data === null) return false;
+  return 'stream' in data && 'connection' in data;
+}
+
+function isAsyncIterable(data: unknown): data is Stream {
+  if (typeof data !== 'object' || data === null) return false;
+  return Symbol.asyncIterator in data;
+}
+
+function encodeVarint(value: number): Uint8Array {
+  const bytes: number[] = [];
+  while (value >= 0x80) {
+    bytes.push((value & 0x7f) | 0x80);
+    value >>>= 7;
+  }
+  bytes.push(value);
+  return new Uint8Array(bytes);
+}
+
+function decodeVarint(data: Uint8Array, offset: number): { value: number; bytesRead: number } {
+  let value = 0;
+  let shift = 0;
+  let bytesRead = 0;
+  
+  while (offset + bytesRead < data.length) {
+    const byte = data[offset + bytesRead];
+    value |= (byte & 0x7f) << shift;
+    bytesRead++;
+    if ((byte & 0x80) === 0) break;
+    shift += 7;
+  }
+  
+  return { value, bytesRead };
+}
+
+function lengthPrefixEncode(data: Uint8Array): Uint8Array {
+  const prefix = encodeVarint(data.length);
+  const result = new Uint8Array(prefix.length + data.length);
+  result.set(prefix, 0);
+  result.set(data, prefix.length);
+  return result;
+}
+
+function lengthPrefixDecode(data: Uint8Array): Uint8Array[] {
+  const messages: Uint8Array[] = [];
+  let offset = 0;
+  
+  while (offset < data.length) {
+    const { value: length, bytesRead } = decodeVarint(data, offset);
+    offset += bytesRead;
+    if (offset + length <= data.length) {
+      messages.push(data.slice(offset, offset + length));
+      offset += length;
+    } else {
+      break;
+    }
+  }
+  
+  return messages;
 }
 
 export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
@@ -136,6 +206,63 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
     node.removeEventListener('peer:discovery', handlePeerDiscovery as EventListener);
     node.removeEventListener('peer:connect', handlePeerConnect as EventListener);
     node.removeEventListener('peer:disconnect', handlePeerDisconnect as EventListener);
+  });
+
+  node.handle(ECCO_DIRECT_PROTOCOL, async (incomingData) => {
+    try {
+      const stream = isIncomingStreamData(incomingData) 
+        ? incomingData.stream 
+        : isAsyncIterable(incomingData) 
+          ? incomingData 
+          : null;
+      
+      const remotePeerIdFromConnection = isIncomingStreamData(incomingData)
+        ? incomingData.connection.remotePeer.toString()
+        : null;
+      
+      if (!stream) {
+        return;
+      }
+      
+      const chunks: Uint8Array[] = [];
+      
+      for await (const chunk of stream) {
+        const data = chunk instanceof Uint8Array ? chunk : chunk.subarray();
+        chunks.push(data);
+      }
+      
+      if (chunks.length === 0) {
+        return;
+      }
+      
+      const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      
+      const messages = lengthPrefixDecode(combined);
+      
+      for (const data of messages) {
+        const decoded = decodeMessage(data);
+        if (decoded) {
+          const remotePeerId = remotePeerIdFromConnection ?? decoded.from;
+          for (const handler of state.messageHandlers) {
+            handler(remotePeerId, decoded);
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && !error.message.includes('aborted')) {
+        console.warn('Failed to handle direct stream message:', error);
+      }
+    }
+  });
+
+  cleanups.push(() => {
+    node.unhandle(ECCO_DIRECT_PROTOCOL).catch(() => {});
   });
 
   const pubsub = node.services.pubsub;
@@ -223,18 +350,44 @@ export async function disconnect(
 
 export async function send(
   state: Libp2pAdapterState,
-  _peerId: string,
+  peerId: string,
   message: TransportMessage
 ): Promise<void> {
-  const { node, topic } = state.config;
-  const pubsub = node.services.pubsub;
-
-  if (!pubsub) {
-    throw new Error('Pubsub not available on this node');
+  const { node } = state.config;
+  const targetPeerId = peerIdFromString(peerId);
+  
+  let connections = node.getConnections(targetPeerId);
+  if (connections.length === 0) {
+    const peer = state.discoveredPeers.get(peerId);
+    if (peer?.addresses.length) {
+      const addr = multiaddr(peer.addresses[0]);
+      await node.dial(addr);
+    } else {
+      await node.dial(targetPeerId);
+    }
+    connections = node.getConnections(targetPeerId);
   }
 
+  if (connections.length === 0) {
+    throw new Error(`No connection to peer ${peerId}`);
+  }
+
+  const stream = await node.dialProtocol(targetPeerId, ECCO_DIRECT_PROTOCOL);
+  
+  if (!stream) {
+    throw new Error('dialProtocol returned null stream');
+  }
+  
   const data = encodeMessage(message);
-  await pubsub.publish(topic!, data);
+  const framedData = lengthPrefixEncode(data);
+  
+  try {
+    stream.send(framedData);
+    await stream.close();
+  } catch (err) {
+    stream.abort(err instanceof Error ? err : new Error(String(err)));
+    throw err;
+  }
 }
 
 export async function broadcast(
