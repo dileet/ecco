@@ -7,7 +7,6 @@ import * as cache from './cache';
 import * as metrics from './metrics';
 import type { RegistryStats, WebSocketMessage } from './types';
 import { logger } from './logger';
-import { nanoid } from 'nanoid';
 
 const app = new Hono();
 
@@ -413,7 +412,7 @@ const activeConnections = new Map<string, { nodeId?: string }>();
 
 function sendMessage(ws: WebSocketLike, type: string, payload: unknown, id?: string): void {
   const message = {
-    id: id || nanoid(),
+    id: id || crypto.randomUUID(),
     type,
     payload,
     timestamp: Date.now(),
@@ -429,8 +428,8 @@ function sendResponse(ws: WebSocketLike, data: unknown, id: string): void {
   sendMessage(ws, 'response', { success: true, data }, id);
 }
 
-app.get('/ws', upgradeWebSocket((c) => {
-  const connectionId = nanoid();
+app.get('/ws', upgradeWebSocket(() => {
+  const connectionId = crypto.randomUUID();
   
   return {
     onOpen(event, ws) {

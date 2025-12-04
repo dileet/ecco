@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import type { NodeState, StateRef, EventHandler, CleanupHandler, MessageFloodProtection } from './types';
 import type {
   PeerInfo,
@@ -55,7 +54,7 @@ export const createInitialState = (config: EccoConfig): NodeState => {
   const maxPeers = fullConfig.memoryLimits?.maxPeers ?? DEFAULT_MAX_PEERS;
 
   return {
-    id: fullConfig.nodeId || nanoid(),
+    id: fullConfig.nodeId || crypto.randomUUID(),
     config: fullConfig,
     node: null,
     capabilities: fullConfig.capabilities || [],

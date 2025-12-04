@@ -83,11 +83,23 @@ export {
   createWalletState,
   getPublicClient,
   getWalletClient,
+  getAddress,
   pay,
   verifyPayment,
+  batchSettle,
   type WalletConfig,
   type WalletState,
+  type BatchSettlementResult,
 } from './services/wallet';
+export {
+  validateInvoice,
+  recordStreamingTick,
+  releaseEscrowMilestone,
+  createSwarmSplit,
+  distributeSwarmSplit,
+  aggregateInvoices,
+  type AggregatedInvoice,
+} from './services/payment';
 
 export {
   initialize as storageInitialize,

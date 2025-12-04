@@ -18,8 +18,7 @@
   "dependencies": {
     "@ai-sdk/provider": "^2.0.0",
     "@ecco/core": "workspace:*",
-    "ai": "^5.0.87",
-    "nanoid": "^5.0.4"
+    "ai": "^5.0.87"
   },
   "peerDependencies": {
     "ai": "^5.0.0"

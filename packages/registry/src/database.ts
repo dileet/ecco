@@ -1,7 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { eq, and, gt, lt, desc, sql, inArray } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
 import * as schema from './schema';
 import type { RegisteredNode, Capability } from './types';
 
@@ -290,7 +289,7 @@ export async function logEvent(
 ): Promise<void> {
   const database = getDb();
   await database.insert(schema.events).values({
-    id: nanoid(),
+    id: crypto.randomUUID(),
     eventType,
     nodeId,
     data,

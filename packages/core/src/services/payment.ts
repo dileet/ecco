@@ -5,10 +5,8 @@ import type {
   SwarmSplit,
   SwarmParticipant,
 } from '../types';
-import { nanoid } from 'nanoid';
 
 const PRECISION_DECIMALS = 18;
-const PRECISION_MULTIPLIER = 10n ** BigInt(PRECISION_DECIMALS);
 
 function parseDecimalToBigInt(value: string): bigint {
   const [integerPart, fractionalPart = ''] = value.split('.');
@@ -43,7 +41,7 @@ export function recordStreamingTick(
   const currentAmount = parseDecimalToBigInt(agreement.accumulatedAmount);
   const rate = parseDecimalToBigInt(agreement.ratePerToken);
   const tokensBigInt = BigInt(tokensGenerated);
-  const increment = (tokensBigInt * rate) / PRECISION_MULTIPLIER;
+  const increment = tokensBigInt * rate;
   const newAmount = currentAmount + increment;
   const amountOwed = bigIntToDecimalString(increment);
 
@@ -114,7 +112,7 @@ export function createSwarmSplit(
   });
 
   return {
-    id: nanoid(),
+    id: crypto.randomUUID(),
     jobId,
     payer,
     totalAmount,
@@ -131,7 +129,7 @@ export function distributeSwarmSplit(split: SwarmSplit): {
   invoices: Invoice[];
 } {
   const invoices: Invoice[] = split.participants.map((participant) => ({
-    id: nanoid(),
+    id: crypto.randomUUID(),
     jobId: split.jobId,
     chainId: split.chainId,
     amount: participant.amount,
@@ -148,4 +146,45 @@ export function distributeSwarmSplit(split: SwarmSplit): {
     },
     invoices,
   };
+}
+
+export interface AggregatedInvoice {
+  recipient: string;
+  chainId: number;
+  token: string;
+  totalAmount: string;
+  invoiceIds: string[];
+  jobIds: string[];
+}
+
+export function aggregateInvoices(invoices: Invoice[]): AggregatedInvoice[] {
+  const groups = new Map<string, { invoices: Invoice[]; totalAmount: bigint }>();
+
+  for (const invoice of invoices) {
+    const key = `${invoice.recipient}:${invoice.chainId}:${invoice.token}`;
+    const existing = groups.get(key);
+    const amount = parseDecimalToBigInt(invoice.amount);
+
+    if (existing) {
+      existing.invoices.push(invoice);
+      existing.totalAmount = existing.totalAmount + amount;
+    } else {
+      groups.set(key, { invoices: [invoice], totalAmount: amount });
+    }
+  }
+
+  const result: AggregatedInvoice[] = [];
+  for (const [, group] of groups) {
+    const first = group.invoices[0];
+    result.push({
+      recipient: first.recipient,
+      chainId: first.chainId,
+      token: first.token,
+      totalAmount: bigIntToDecimalString(group.totalAmount),
+      invoiceIds: group.invoices.map((i) => i.id),
+      jobIds: [...new Set(group.invoices.map((i) => i.jobId))],
+    });
+  }
+
+  return result;
 }

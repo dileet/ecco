@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import type { CapabilityQuery, Message, CapabilityMatch } from '../types';
 import type { NodeState, StateRef } from '../node/types';
 import type {
@@ -177,7 +176,7 @@ export const executeOrchestration = async (
   config: MultiAgentConfig
 ): Promise<{ result: AggregatedResult; state: OrchestratorState }> => {
   const startTime = Date.now();
-  const requestId = nanoid();
+  const requestId = crypto.randomUUID();
 
   const allMatches = await findPeers(nodeRef, query);
 

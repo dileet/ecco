@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { parseEther } from 'viem';
 import { sepolia, baseSepolia } from 'viem/chains';
 import type { Invoice, PaymentProof } from '../types';
+import { aggregateInvoices, type AggregatedInvoice } from './payment';
 
 const DEFAULT_CHAINS = [sepolia, baseSepolia];
 
@@ -133,4 +134,53 @@ export async function verifyPayment(
   }
 
   return true;
+}
+
+export interface BatchSettlementResult {
+  aggregatedInvoice: AggregatedInvoice;
+  txHash: string;
+  success: boolean;
+  error?: string;
+}
+
+export async function batchSettle(
+  state: WalletState,
+  invoices: Invoice[]
+): Promise<BatchSettlementResult[]> {
+  if (invoices.length === 0) {
+    return [];
+  }
+
+  const aggregated = aggregateInvoices(invoices);
+  const results: BatchSettlementResult[] = [];
+
+  for (const group of aggregated) {
+    try {
+      const invoice: Invoice = {
+        id: `batch-${Date.now()}`,
+        jobId: group.jobIds.join(','),
+        chainId: group.chainId,
+        amount: group.totalAmount,
+        token: group.token,
+        recipient: group.recipient,
+        validUntil: Date.now() + 3600000,
+      };
+
+      const proof = await pay(state, invoice);
+      results.push({
+        aggregatedInvoice: group,
+        txHash: proof.txHash,
+        success: true,
+      });
+    } catch (err) {
+      results.push({
+        aggregatedInvoice: group,
+        txHash: '',
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
 }

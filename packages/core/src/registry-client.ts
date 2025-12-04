@@ -1,5 +1,4 @@
 import type { Capability, CapabilityQuery, PeerInfo } from './types';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { delay, withTimeout } from './utils';
 
@@ -98,7 +97,7 @@ function startPingInterval(state: ClientState): ClientState {
 
     if (state.ws) {
       state.ws.send(JSON.stringify({
-        id: nanoid(),
+        id: crypto.randomUUID(),
         type: 'ping',
         payload: { nodeId: state.nodeId, timestamp: Date.now() },
         timestamp: Date.now(),
@@ -232,7 +231,7 @@ export async function register(
     return { ...state, nodeId };
   }
 
-  sendWsMessage(state, nanoid(), 'register', { nodeId, capabilities, addresses });
+  sendWsMessage(state, crypto.randomUUID(), 'register', { nodeId, capabilities, addresses });
   return { ...state, nodeId };
 }
 
@@ -248,7 +247,7 @@ export async function unregister(state: ClientState): Promise<ClientState> {
     return { ...state, nodeId: undefined };
   }
 
-  sendWsMessage(state, nanoid(), 'unregister', { nodeId: state.nodeId });
+  sendWsMessage(state, crypto.randomUUID(), 'unregister', { nodeId: state.nodeId });
   return { ...state, nodeId: undefined };
 }
 
@@ -278,7 +277,7 @@ export async function query(state: ClientState, capabilityQuery: CapabilityQuery
     }
   }
 
-  const id = nanoid();
+  const id = crypto.randomUUID();
   const queryPromise = new Promise<z.infer<typeof NodesResponseSchema>>((resolve, reject) => {
     state.messageHandlers.set(id, (res) => {
       try {

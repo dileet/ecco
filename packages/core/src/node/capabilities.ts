@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import type { NodeState, StateRef } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
 import { publish, subscribeWithRef } from './messaging';
@@ -120,7 +119,7 @@ export async function requestCapabilities(stateRef: StateRef<NodeState>, query: 
 
   await publish(state, 'ecco:capability-request', {
     type: 'capability-request',
-    requestId: nanoid(),
+    requestId: crypto.randomUUID(),
     from: state.id,
     requiredCapabilities: query.requiredCapabilities,
     preferredPeers: query.preferredPeers,

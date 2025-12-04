@@ -8,7 +8,6 @@ import type {
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import { findPeers, subscribeToTopic, sendMessage, getId, withTimeout, type StateRef, type NodeState, type CapabilityQuery } from '@ecco/core';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 const FinishReasonSchema = z
@@ -152,7 +151,7 @@ const doGenerate = async (
   }
 
   const bestMatch = matches[0];
-  const requestId = nanoid();
+  const requestId = crypto.randomUUID();
 
   await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
     id: requestId,
@@ -186,7 +185,7 @@ const doStream = async (
   }
 
   const bestMatch = matches[0];
-  const requestId = nanoid();
+  const requestId = crypto.randomUUID();
 
   await sendMessage(state.config.nodeRef, bestMatch.peer.id, {
     id: requestId,
@@ -204,7 +203,7 @@ const doStream = async (
       unsubscribe = subscribeToTopic(state.config.nodeRef, `response:${requestId}`, (data: unknown) => {
         const chunk = StreamChunkSchema.safeParse(data);
         if (chunk.success) {
-          controller.enqueue({ type: 'text-delta', id: nanoid(), delta: chunk.data.text });
+          controller.enqueue({ type: 'text-delta', id: crypto.randomUUID(), delta: chunk.data.text });
           return;
         }
 
