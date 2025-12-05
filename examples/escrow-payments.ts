@@ -30,9 +30,7 @@ async function main(): Promise<void> {
   const service = await createAgent({
     name: 'escrow-service',
     capabilities: [{ type: 'agent', name: 'code-review-service', version: '1.0.0' }],
-    wallet: process.env.SERVICE_PRIVATE_KEY
-      ? { privateKey: process.env.SERVICE_PRIVATE_KEY, rpcUrls }
-      : undefined,
+    wallet: { rpcUrls },
     pricing: ESCROW_PRICING,
     handler: async (_message, ctx: MessageContext) => {
       console.log(`[service] Received work request, starting milestone-based work...`)
@@ -58,9 +56,7 @@ async function main(): Promise<void> {
     name: 'escrow-client',
     network: service.addrs,
     capabilities: [],
-    wallet: process.env.CLIENT_PRIVATE_KEY
-      ? { privateKey: process.env.CLIENT_PRIVATE_KEY, rpcUrls }
-      : undefined,
+    wallet: { rpcUrls },
   })
 
   console.log(`[client] Started: ${client.id}`)

@@ -5,9 +5,11 @@ import {
   stop as stopNode,
   broadcastCapabilities,
   findPeers as findPeersBase,
+  findPeersWithPriority,
   sendMessage,
   getLibp2pPeerId,
   subscribeToTopic,
+  loadOrCreateNodeIdentity,
 } from '../node'
 import { createWalletState, getAddress, type WalletState } from '../services/wallet'
 import { ECCO_TESTNET, ECCO_MAINNET } from '../networks'
@@ -25,6 +27,9 @@ import type {
   ConsensusRequestOptions,
   ConsensusResult,
   StreamChunk,
+  QueryConfig,
+  DiscoveryOptions,
+  DiscoveryPriority,
 } from './types'
 import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement } from './payments'
@@ -74,11 +79,21 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const bootstrapAddrs = resolveBootstrapAddrs(config.network)
   const hasBootstrap = bootstrapAddrs.length > 0
 
+  const identity = await loadOrCreateNodeIdentity({
+    nodeId: config.name,
+    capabilities: config.capabilities,
+    discovery: config.discovery ?? ['dht', 'gossip'],
+  })
+
+  const ethereumPrivateKey = config.wallet?.privateKey
+    ? (config.wallet.privateKey as `0x${string}`)
+    : identity.ethereumPrivateKey
+
   let walletState: WalletState | null = null
-  if (config.wallet?.privateKey) {
+  if (ethereumPrivateKey) {
     walletState = createWalletState({
-      privateKey: config.wallet.privateKey as `0x${string}`,
-      rpcUrls: config.wallet.rpcUrls,
+      privateKey: ethereumPrivateKey,
+      rpcUrls: config.wallet?.rpcUrls,
     })
   }
 
@@ -101,12 +116,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         minPeers: 1,
       },
     }),
-    ...(walletState && {
-      authentication: {
-        enabled: true,
-        walletRpcUrls: config.wallet?.rpcUrls,
-      },
-    }),
+    authentication: {
+      enabled: true,
+      walletRpcUrls: config.wallet?.rpcUrls,
+    },
   }
 
   const messageHandler = config.handler ??
@@ -244,11 +257,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       from: baseAgent.id,
       to: peerId,
       type: 'agent-request',
-      payload: {
-        options: {
-          prompt: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-        },
-      },
+      payload: { prompt },
       timestamp: Date.now(),
     }
 
@@ -308,20 +317,16 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       ...options.config,
     }
 
-    const query: CapabilityQuery = {
+    const capabilityQuery: CapabilityQuery = {
       requiredCapabilities: [{ type: 'agent' }],
     }
 
-    const payload = {
-      options: {
-        prompt: [{ role: 'user', content: [{ type: 'text', text: options.query }] }],
-      },
-    }
+    const payload = { prompt: options.query }
 
     const { result, state } = await executeOrchestration(
       baseAgent.ref,
       orchestratorState,
-      query,
+      capabilityQuery,
       payload,
       mergedConfig
     )
@@ -344,6 +349,50 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       agentResponses: result.responses,
       raw: result,
     }
+  }
+
+  const query = async (prompt: string, queryConfig?: QueryConfig): Promise<ConsensusResult> => {
+    const defaultDiscovery: DiscoveryOptions = {
+      phases: ['proximity', 'local', 'internet', 'fallback'] as DiscoveryPriority[],
+      phaseTimeout: 5000,
+      preferProximity: true,
+      minPeers: 1,
+    }
+
+    const discoveryConfig = {
+      ...defaultDiscovery,
+      ...queryConfig?.discovery,
+    }
+
+    const capabilityQuery: CapabilityQuery = queryConfig?.discovery?.capabilityQuery ?? {
+      requiredCapabilities: [{ type: 'agent' }],
+    }
+
+    const peers = await findPeersWithPriority(baseAgent.ref, capabilityQuery, {
+      phases: discoveryConfig.phases as DiscoveryPriority[],
+      phaseTimeout: discoveryConfig.phaseTimeout ?? 5000,
+      minPeers: discoveryConfig.minPeers ?? 1,
+      preferProximity: discoveryConfig.preferProximity ?? true,
+    })
+
+    if (peers.length === 0) {
+      throw new Error('No peers discovered for query')
+    }
+
+    return requestConsensus({
+      query: prompt,
+      config: {
+        selectionStrategy: queryConfig?.selectionStrategy ?? 'all',
+        aggregationStrategy: queryConfig?.aggregationStrategy ?? 'consensus-threshold',
+        consensusThreshold: queryConfig?.consensusThreshold ?? 0.6,
+        timeout: queryConfig?.timeout ?? 60000,
+        allowPartialResults: queryConfig?.allowPartialResults ?? true,
+        agentCount: queryConfig?.agentCount,
+        minAgents: queryConfig?.minAgents ?? 1,
+        semanticSimilarity: queryConfig?.semanticSimilarity,
+        loadBalancing: queryConfig?.loadBalancing,
+      },
+    })
   }
 
   const send = async (peerId: string, type: MessageType, payload: unknown): Promise<void> => {
@@ -375,6 +424,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     requestConsensus,
     send,
     stop,
+    query,
   }
 
   return agentInstance

@@ -7,6 +7,7 @@ import type {
   Message,
   MessageType,
   PaymentProof,
+  PeerInfo,
 } from '../types'
 import type { NodeState, StateRef } from '../node/types'
 import type { WalletState } from '../services/wallet'
@@ -175,6 +176,7 @@ export interface Agent {
   requestConsensus: (options: ConsensusRequestOptions) => Promise<ConsensusResult>
   send: (peerId: string, type: MessageType, payload: unknown) => Promise<void>
   stop: () => Promise<void>
+  query: (prompt: string, config?: QueryConfig) => Promise<ConsensusResult>
 }
 
 export interface LocalNetworkConfig {
@@ -200,4 +202,37 @@ export interface LocalNetwork {
   embedding: Agent | null
   query: (prompt: string, config?: NetworkQueryConfig) => Promise<ConsensusResult>
   shutdown: () => Promise<void>
+}
+
+export type DiscoveryPriority = 'proximity' | 'local' | 'internet' | 'fallback'
+
+export interface DiscoveryOptions {
+  phases?: DiscoveryPriority[]
+  phaseTimeout?: number
+  preferProximity?: boolean
+  minPeers?: number
+  capabilityQuery?: CapabilityQuery
+}
+
+export interface PeerScoringConfig {
+  reputationWeight?: number
+  latencyWeight?: number
+  proximityBonus?: number
+}
+
+export interface QueryConfig extends NetworkQueryConfig {
+  discovery?: DiscoveryOptions
+  peerScoring?: PeerScoringConfig
+}
+
+export interface PriorityDiscoveryConfig {
+  phases: DiscoveryPriority[]
+  phaseTimeout: number
+  minPeers: number
+  preferProximity: boolean
+}
+
+export interface PriorityPeerInfo extends PeerInfo {
+  phase: DiscoveryPriority
+  proximityScore?: number
 }

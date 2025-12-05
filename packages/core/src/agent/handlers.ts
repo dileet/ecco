@@ -61,15 +61,8 @@ export function createLLMHandler(
   }
 
   return async (msg: Message, ctx: MessageContext): Promise<void> => {
-    const PayloadSchema = z.object({
-      options: z.object({ prompt: z.unknown() }).optional(),
-      prompt: z.unknown().optional(),
-    })
-
-    const payloadResult = PayloadSchema.safeParse(msg.payload)
-    const payload = payloadResult.success ? payloadResult.data : {}
-    const prompt = payload?.options?.prompt ?? payload?.prompt ?? ''
-    const promptText = extractPromptText(prompt)
+    const payload = msg.payload as { prompt?: string } | undefined
+    const promptText = payload?.prompt ?? ''
 
     if (!promptText) {
       await ctx.reply({ error: 'No prompt provided' }, 'agent-response')

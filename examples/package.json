@@ -9,6 +9,7 @@
     "consensus": "bun run multi-agent-consensus.ts",
     "streaming": "bun run streaming-payments.ts",
     "escrow": "bun run escrow-payments.ts",
+    "coffee": "bun run coffee-shop-agents.ts",
     "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts",
     "db:push:streaming": "ECCO_DB_PATH=.ecco/streaming-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/streaming-client.sqlite bun run ../packages/core/bin/db-push.ts",
     "db:push:escrow": "ECCO_DB_PATH=.ecco/escrow-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/escrow-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/escrow-approver.sqlite bun run ../packages/core/bin/db-push.ts",

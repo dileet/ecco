@@ -8,7 +8,7 @@ import type {
 } from '../types';
 import { createInitialState as createInitialStateImpl, getState, setState } from './state';
 import * as lifecycle from './lifecycle';
-import { findPeers as findPeersImpl } from './discovery';
+import { findPeers as findPeersImpl, findPeersWithPriority as findPeersWithPriorityImpl } from './discovery';
 import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
 import { publish as publishFn, subscribeWithRef } from './messaging';
@@ -192,6 +192,8 @@ export async function findPeers(
   return findPeersImpl(ref, effectiveQuery);
 }
 
+export { findPeersWithPriorityImpl as findPeersWithPriority };
+
 export async function sendMessage(ref: StateRef<NodeState>, peerId: string, message: Message): Promise<void> {
   await lifecycle.sendMessage(ref, peerId, message);
 }
@@ -261,3 +263,4 @@ export async function broadcastCapabilities(ref: StateRef<NodeState>): Promise<v
 }
 
 export type { NodeState } from './types';
+export { loadOrCreateNodeIdentity } from './identity';

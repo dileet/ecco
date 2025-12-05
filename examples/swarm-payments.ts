@@ -21,18 +21,16 @@ async function main(): Promise<void> {
   const client = await createAgent({
     name: 'swarm-client',
     capabilities: [],
-    wallet: process.env.CLIENT_PRIVATE_KEY
-      ? { privateKey: process.env.CLIENT_PRIVATE_KEY, rpcUrls }
-      : undefined,
+    wallet: { rpcUrls },
   })
 
   console.log(`[client] Started: ${client.id}`)
   console.log(`[client] Wallet: ${client.address ?? 'simulation mode'}`)
 
   const workerConfigs = [
-    { name: 'worker1', task: 'data-processing', contribution: 40, key: process.env.WORKER1_PRIVATE_KEY },
-    { name: 'worker2', task: 'image-rendering', contribution: 35, key: process.env.WORKER2_PRIVATE_KEY },
-    { name: 'worker3', task: 'analysis', contribution: 25, key: process.env.WORKER3_PRIVATE_KEY },
+    { name: 'swarm-worker1', task: 'data-processing', contribution: 40 },
+    { name: 'swarm-worker2', task: 'image-rendering', contribution: 35 },
+    { name: 'swarm-worker3', task: 'analysis', contribution: 25 },
   ]
 
   const workers = await Promise.all(
@@ -41,10 +39,10 @@ async function main(): Promise<void> {
         name: cfg.name,
         network: client.addrs,
         capabilities: [{ type: 'agent', name: 'distributed-worker', version: '1.0.0', metadata: { task: cfg.task } }],
-        wallet: cfg.key ? { privateKey: cfg.key, rpcUrls } : undefined,
+        wallet: { rpcUrls },
         handler: async (_message, ctx: MessageContext) => {
           console.log(`[${cfg.name}] Received job, completing task: ${cfg.task}`)
-          await delay(1000) 
+          await delay(1000)
           await ctx.reply({ task: cfg.task, contribution: cfg.contribution, completed: true })
           console.log(`[${cfg.name}] Task completed`)
         },

@@ -297,6 +297,11 @@ export {
   type LocalNetwork,
   type NetworkQueryConfig,
   type StreamChunk,
+  type QueryConfig,
+  type DiscoveryOptions,
+  type DiscoveryPriority,
+  type PeerScoringConfig,
+  type PriorityDiscoveryConfig,
 } from './agent';
 
 export { createLocalNetwork } from './agent/local-network';

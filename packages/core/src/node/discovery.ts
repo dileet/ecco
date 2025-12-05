@@ -11,6 +11,8 @@ import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers } fro
 import { delay } from '../utils';
 import { queryCapabilities } from './dht';
 import type { LRUCache } from '../utils/lru-cache';
+import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
+import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from '../transport/hybrid-discovery';
 
 function extractPeerIdFromAddr(addr: string): string | null {
   const match = addr.match(/\/p2p\/([^/]+)$/);
@@ -278,4 +280,116 @@ export async function findPeers(
   }
 
   return matches;
+}
+
+function discoveryResultToPeerInfo(result: DiscoveryResult): PeerInfo {
+  return {
+    id: result.peer.id,
+    addresses: result.peer.addresses,
+    capabilities: [],
+    lastSeen: result.peer.lastSeen,
+  };
+}
+
+function sortByProximity(
+  matches: CapabilityMatch[],
+  proximityPeerIds: Set<string>
+): CapabilityMatch[] {
+  return [...matches].sort((a, b) => {
+    const aIsProximity = proximityPeerIds.has(a.peer.id) ? 1 : 0;
+    const bIsProximity = proximityPeerIds.has(b.peer.id) ? 1 : 0;
+    return bIsProximity - aIsProximity;
+  });
+}
+
+async function discoverInPhase(
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery,
+  phase: DiscoveryPriority,
+  timeout: number
+): Promise<CapabilityMatch[]> {
+  const state = getState(stateRef);
+
+  switch (phase) {
+    case 'proximity': {
+      if (!state.transport) {
+        return [];
+      }
+      const proximityResults = getProximityPeers(state.transport);
+      const peerInfos = proximityResults.map(discoveryResultToPeerInfo);
+      updateState(stateRef, (s) => addPeers(s, peerInfos));
+      const updatedState = getState(stateRef);
+      return matchPeers(getAllPeers(updatedState), query);
+    }
+
+    case 'local': {
+      if (state.transport) {
+        const localResults = getPeersByPhase(state.transport, 'local');
+        const peerInfos = localResults.map(discoveryResultToPeerInfo);
+        updateState(stateRef, (s) => addPeers(s, peerInfos));
+      }
+      return queryGossip(stateRef, query, timeout);
+    }
+
+    case 'internet': {
+      let matches: CapabilityMatch[] = [];
+
+      if (state.registryClient?.connected) {
+        const registryPeers = await queryRegistry(state.registryClient, query);
+        const newPeers = mergePeers(state.peers, registryPeers);
+        updateState(stateRef, (s) => addPeers(s, newPeers));
+
+        const updatedState = getState(stateRef);
+        matches = matchPeers(getAllPeers(updatedState), query);
+        if (matches.length > 0 && state.node && newPeers.length > 0) {
+          dialRegistryPeers(state.node, newPeers);
+        }
+      }
+
+      if (matches.length === 0 && state.node?.services.dht) {
+        const dhtPeers = await queryCapabilities(state.node, query);
+        const newPeers = mergePeers(state.peers, dhtPeers);
+        updateState(stateRef, (s) => addPeers(s, newPeers));
+
+        const updatedState = getState(stateRef);
+        matches = matchPeers(getAllPeers(updatedState), query);
+      }
+
+      return matches;
+    }
+
+    case 'fallback': {
+      return findPeers(stateRef, query);
+    }
+  }
+}
+
+export async function findPeersWithPriority(
+  stateRef: StateRef<NodeState>,
+  query: CapabilityQuery,
+  config: PriorityDiscoveryConfig
+): Promise<CapabilityMatch[]> {
+  const state = getState(stateRef);
+  let allMatches: CapabilityMatch[] = [];
+
+  for (const phase of config.phases) {
+    const phaseMatches = await discoverInPhase(stateRef, query, phase, config.phaseTimeout);
+
+    const existingIds = new Set(allMatches.map((m) => m.peer.id));
+    const newMatches = phaseMatches.filter((m) => !existingIds.has(m.peer.id));
+    allMatches = [...allMatches, ...newMatches];
+
+    if (allMatches.length >= config.minPeers) {
+      break;
+    }
+  }
+
+  if (config.preferProximity && state.transport) {
+    const proximityPeerIds = new Set(
+      getProximityPeers(state.transport).map((r) => r.peer.id)
+    );
+    allMatches = sortByProximity(allMatches, proximityPeerIds);
+  }
+
+  return allMatches;
 }

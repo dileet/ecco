@@ -25,9 +25,7 @@ async function main(): Promise<void> {
     personality: 'helpful assistant',
     model: {},
     streamGenerateFn: streamGenerate,
-    wallet: process.env.SERVICE_PRIVATE_KEY
-      ? { privateKey: process.env.SERVICE_PRIVATE_KEY, rpcUrls }
-      : undefined,
+    wallet: { rpcUrls },
     pricing: {
       type: 'streaming',
       chainId: ETH_SEPOLIA_CHAIN_ID,
@@ -42,9 +40,7 @@ async function main(): Promise<void> {
     name: 'streaming-client',
     network: service.addrs,
     capabilities: [],
-    wallet: process.env.CLIENT_PRIVATE_KEY
-      ? { privateKey: process.env.CLIENT_PRIVATE_KEY, rpcUrls }
-      : undefined,
+    wallet: { rpcUrls },
   })
 
   console.log(`[client] Started: ${client.id}`)
