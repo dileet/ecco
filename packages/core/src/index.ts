@@ -141,8 +141,10 @@ export {
   EmbeddingResponseSchema,
   updatePeerServiceProvided,
   requestEmbeddings,
+  setupEmbeddingProvider,
   type EmbeddingRequest,
   type EmbeddingResponse,
+  type EmbeddingProviderConfig,
 } from './services/embedding';
 
 export type {
@@ -287,10 +289,13 @@ export {
   type ConsensusRequestOptions,
   type ConsensusResult,
   type GenerateFn,
+  type StreamGenerateFn,
+  type EmbedFn,
+  type AgentEmbeddingConfig,
   type NetworkOption,
-  type LocalNetworkAgentConfig,
   type LocalNetworkConfig,
   type LocalNetwork,
+  type NetworkQueryConfig,
   type StreamChunk,
 } from './agent';
 

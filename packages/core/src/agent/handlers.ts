@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Message } from '../types'
-import type { MessageContext, GenerateFn } from './types'
+import type { MessageContext, GenerateFn, StreamGenerateFn } from './types'
 
 const TextPartSchema = z.object({
   type: z.literal('text'),
@@ -43,7 +43,8 @@ export function extractPromptText(prompt: unknown): string {
 interface LLMHandlerConfig {
   personality: string
   model: unknown
-  generateFn: GenerateFn
+  generateFn?: GenerateFn
+  streamGenerateFn?: StreamGenerateFn
   systemTemplate?: (personality: string) => string
 }
 
@@ -53,7 +54,11 @@ const defaultSystemTemplate = (personality: string): string =>
 export function createLLMHandler(
   config: LLMHandlerConfig
 ): (msg: Message, ctx: MessageContext) => Promise<void> {
-  const { personality, model, generateFn, systemTemplate = defaultSystemTemplate } = config
+  const { personality, model, generateFn, streamGenerateFn, systemTemplate = defaultSystemTemplate } = config
+
+  if (!generateFn && !streamGenerateFn) {
+    throw new Error('Either generateFn or streamGenerateFn must be provided')
+  }
 
   return async (msg: Message, ctx: MessageContext): Promise<void> => {
     const PayloadSchema = z.object({
@@ -71,17 +76,27 @@ export function createLLMHandler(
       return
     }
 
-    try {
-      const result = await generateFn({
-        model,
-        system: systemTemplate(personality),
-        prompt: promptText,
-      })
+    const genOptions = {
+      model,
+      system: systemTemplate(personality),
+      prompt: promptText,
+    }
 
-      await ctx.reply(
-        { requestId: msg.id, response: { text: result.text, finishReason: 'stop' } },
-        'agent-response'
-      )
+    try {
+      if (streamGenerateFn) {
+        await ctx.streamResponse(async function* () {
+          const generator = streamGenerateFn(genOptions)
+          for await (const chunk of generator) {
+            yield { text: chunk.text, tokens: chunk.tokens ?? 0 }
+          }
+        })
+      } else if (generateFn) {
+        const result = await generateFn(genOptions)
+        await ctx.reply(
+          { requestId: msg.id, response: { text: result.text, finishReason: 'stop' } },
+          'agent-response'
+        )
+      }
     } catch (error) {
       await ctx.reply(
         { requestId: msg.id, response: { error: String(error) } },

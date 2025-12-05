@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { NodeState, StateRef } from '../node/types';
-import { subscribeToTopic, getId, publish, findPeers, getState, setState, getPeer, addPeer, updatePeer } from '../node';
+import { subscribeToTopic, getId, publish, findPeers, getState, setState, getPeer, addPeer, updatePeer, registerCleanup } from '../node';
 import type { CapabilityQuery, PeerInfo } from '../types';
-import type { MessageEvent } from '../events';
+import { MessageEventSchema, type MessageEvent } from '../events';
 import { withTimeout } from '../utils';
+import type { EmbedFn } from '../agent/types';
 
 export const EmbeddingRequestSchema = z.object({
   type: z.literal('embedding-request'),
@@ -292,4 +293,112 @@ export function updatePeerServiceProvided(ref: StateRef<NodeState>, peerId: stri
   setState(ref, updatePeer(state, peerId, {
     servicesProvided: (peer.servicesProvided || 0) + 1,
   }));
+}
+
+export interface EmbeddingProviderConfig {
+  nodeRef: StateRef<NodeState>
+  embedFn: EmbedFn
+  modelId: string
+  libp2pPeerId?: string
+}
+
+// Chunk size: 32 floats = ~350 bytes JSON (safe for Bun's ChaCha20)
+const CHUNK_SIZE = 32
+
+// Split embedding into chunks to avoid Bun ChaCha20 cipher size limits
+const chunkArray = <T>(array: T[], size: number): T[][] => {
+  const chunks: T[][] = []
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size))
+  }
+  return chunks
+}
+
+const createBatchedResponseEvent = (
+  nodeRef: StateRef<NodeState>,
+  from: string,
+  requestId: string,
+  chunks: number[][],
+  index: number,
+  total: number,
+  modelId: string,
+  dimensions: number
+): MessageEvent => {
+  const fullEmbedding: number[] = []
+  for (const chunk of chunks) {
+    fullEmbedding.push(...chunk)
+  }
+
+  return {
+    type: 'message',
+    from: getId(nodeRef),
+    to: from,
+    payload: {
+      type: 'embedding-response',
+      requestId,
+      embeddings: [fullEmbedding],
+      index,
+      total,
+      model: modelId,
+      dimensions,
+    },
+    timestamp: Date.now(),
+  }
+}
+
+const processEmbeddingProviderRequest = async (
+  config: EmbeddingProviderConfig,
+  event: MessageEvent,
+  texts: string[],
+  requestId: string
+): Promise<void> => {
+  const { nodeRef, embedFn, modelId } = config
+
+  const embeddings = await embedFn(texts)
+
+  for (let i = 0; i < embeddings.length; i++) {
+    const embedding = embeddings[i]!
+    const chunks = chunkArray(embedding, CHUNK_SIZE)
+
+    const responseEvent = createBatchedResponseEvent(
+      nodeRef,
+      event.from,
+      requestId,
+      chunks,
+      i,
+      texts.length,
+      modelId,
+      embedding.length
+    )
+
+    await publish(nodeRef, `peer:${event.from}`, responseEvent)
+  }
+
+  updatePeerServiceProvided(nodeRef, event.from)
+}
+
+export function setupEmbeddingProvider(config: EmbeddingProviderConfig): void {
+  const { nodeRef, libp2pPeerId } = config
+
+  const handleEmbeddingRequest = async (event: unknown): Promise<void> => {
+    const messageEvent = MessageEventSchema.safeParse(event)
+    if (!messageEvent.success) return
+
+    const request = EmbeddingRequestSchema.safeParse(messageEvent.data.payload)
+    if (!request.success) return
+
+    try {
+      await processEmbeddingProviderRequest(config, messageEvent.data, request.data.texts, request.data.requestId)
+    } catch (error) {
+      console.error(`[${getId(nodeRef)}] Embedding error:`, error)
+    }
+  }
+
+  const unsubscribe1 = subscribeToTopic(nodeRef, `peer:${getId(nodeRef)}`, handleEmbeddingRequest)
+  registerCleanup(nodeRef, unsubscribe1)
+
+  if (libp2pPeerId) {
+    const unsubscribe2 = subscribeToTopic(nodeRef, `peer:${libp2pPeerId}`, handleEmbeddingRequest)
+    registerCleanup(nodeRef, unsubscribe2)
+  }
 }

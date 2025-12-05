@@ -10,7 +10,15 @@ import type {
 } from '../types'
 import type { NodeState, StateRef } from '../node/types'
 import type { WalletState } from '../services/wallet'
-import type { MultiAgentConfig, AgentResponse, AggregatedResult } from '../orchestrator/types'
+import type {
+  MultiAgentConfig,
+  AgentResponse,
+  AggregatedResult,
+  SelectionStrategy,
+  AggregationStrategy,
+  SemanticSimilarityConfig,
+  LoadBalancingConfig,
+} from '../orchestrator/types'
 
 export type NetworkOption = 'testnet' | 'mainnet' | string[]
 
@@ -20,14 +28,22 @@ export type GenerateFn = (options: {
   prompt: string
 }) => Promise<{ text: string }>
 
+export type StreamGenerateFn = (options: {
+  model: unknown
+  system: string
+  prompt: string
+}) => AsyncGenerator<{ text: string; tokens?: number }>
+
+export type EmbedFn = (texts: string[]) => Promise<number[][]>
+
 export interface AgentWalletConfig {
   privateKey?: string
   rpcUrls?: Record<number, string>
 }
 
 export interface AgentEmbeddingConfig {
-  model: unknown
   modelId: string
+  embedFn: EmbedFn
 }
 
 export interface PricingConfig {
@@ -120,8 +136,8 @@ export interface AgentConfig {
   personality?: string
   model?: unknown
   generateFn?: GenerateFn
+  streamGenerateFn?: StreamGenerateFn
   wallet?: AgentWalletConfig
-  embedding?: AgentEmbeddingConfig
   discovery?: DiscoveryMethod[]
   pricing?: PricingConfig
 }
@@ -161,22 +177,27 @@ export interface Agent {
   stop: () => Promise<void>
 }
 
-export interface LocalNetworkAgentConfig {
-  name: string
-  personality: string
-  capabilities: Capability[]
+export interface LocalNetworkConfig {
+  agents: Agent[]
+  embedding?: AgentEmbeddingConfig
+  wallet?: AgentWalletConfig
 }
 
-export interface LocalNetworkConfig {
-  agents: LocalNetworkAgentConfig[]
-  embedding?: AgentEmbeddingConfig
-  model?: unknown
-  generateFn?: GenerateFn
-  wallet?: AgentWalletConfig
+export interface NetworkQueryConfig {
+  selectionStrategy?: SelectionStrategy
+  aggregationStrategy?: AggregationStrategy
+  consensusThreshold?: number
+  timeout?: number
+  allowPartialResults?: boolean
+  semanticSimilarity?: SemanticSimilarityConfig
+  agentCount?: number
+  minAgents?: number
+  loadBalancing?: LoadBalancingConfig
 }
 
 export interface LocalNetwork {
   agents: Agent[]
   embedding: Agent | null
+  query: (prompt: string, config?: NetworkQueryConfig) => Promise<ConsensusResult>
   shutdown: () => Promise<void>
 }

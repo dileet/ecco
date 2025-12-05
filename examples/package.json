@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.62",
-    "@ecco/ai-sdk": "workspace:*",
     "@ecco/core": "workspace:*",
     "ai": "^5.0.87"
   },

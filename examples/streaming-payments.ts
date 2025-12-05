@@ -1,7 +1,15 @@
-import { createAgent, delay, type Message, type MessageContext } from '@ecco/core'
+import { createAgent, delay, type StreamGenerateFn } from '@ecco/core'
 
 const ETH_SEPOLIA_CHAIN_ID = 11155111
 const RATE_PER_TOKEN = '0.0001'
+
+const streamGenerate: StreamGenerateFn = async function* (_options) {
+  const words = ['Here', 'is', 'some', 'generated', 'content', 'for', 'you!']
+  for (const word of words) {
+    await delay(100)
+    yield { text: word + ' ', tokens: 1 }
+  }
+}
 
 async function main(): Promise<void> {
   console.log('=== Streaming Payments Example ===\n')
@@ -14,6 +22,9 @@ async function main(): Promise<void> {
   const service = await createAgent({
     name: 'streaming-service',
     capabilities: [{ type: 'agent', name: 'text-generator', version: '1.0.0' }],
+    personality: 'helpful assistant',
+    model: {},
+    streamGenerateFn: streamGenerate,
     wallet: process.env.SERVICE_PRIVATE_KEY
       ? { privateKey: process.env.SERVICE_PRIVATE_KEY, rpcUrls }
       : undefined,
@@ -21,9 +32,6 @@ async function main(): Promise<void> {
       type: 'streaming',
       chainId: ETH_SEPOLIA_CHAIN_ID,
       ratePerToken: RATE_PER_TOKEN,
-    },
-    handler: async (_message: Message, ctx: MessageContext) => {
-      await ctx.reply({ text: 'Here is some generated content for you!', tokens: 8 })
     },
   })
 

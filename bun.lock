@@ -18,29 +18,12 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/openai": "^2.0.62",
-        "@ecco/ai-sdk": "workspace:*",
         "@ecco/core": "workspace:*",
         "ai": "^5.0.87",
       },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.9.3",
-      },
-    },
-    "packages/ai-sdk": {
-      "name": "@ecco/ai-sdk",
-      "version": "0.1.0",
-      "dependencies": {
-        "@ai-sdk/provider": "^2.0.0",
-        "@ecco/core": "workspace:*",
-        "ai": "^5.0.87",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.9.3",
-      },
-      "peerDependencies": {
-        "ai": "^5.0.0",
       },
     },
     "packages/core": {
@@ -217,8 +200,6 @@
     "@chainsafe/netmask": ["@chainsafe/netmask@2.0.0", "", { "dependencies": { "@chainsafe/is-ip": "^2.0.1" } }, "sha512-I3Z+6SWUoaljh3TBzCnCxjlUyN8tA+NAk5L6m9IxvCf1BENQTePzPMis97CoN/iMW1St3WN+AWCCRp+TTBRiDg=="],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
-
-    "@ecco/ai-sdk": ["@ecco/ai-sdk@workspace:packages/ai-sdk"],
 
     "@ecco/core": ["@ecco/core@workspace:packages/core"],
 

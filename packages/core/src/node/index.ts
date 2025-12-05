@@ -17,12 +17,12 @@ import { setReputation, incrementReputation } from '../registry-client';
 import { signMessage, verifyMessage, isMessageFresh, type AuthState, type SignedMessage } from '../services/auth';
 import { getAddress, type WalletState } from '../services/wallet';
 
-export { 
+export {
   createInitialState,
-  createStateRef, 
-  getState, 
-  getVersion, 
-  setState, 
+  createStateRef,
+  getState,
+  getVersion,
+  setState,
   updateState,
   addPeer,
   removePeer,
@@ -33,6 +33,7 @@ export {
   getAllPeers,
   getPeerCount,
   evictStalePeers,
+  registerCleanup,
 } from './state';
 export type { StateRef } from './types';
 

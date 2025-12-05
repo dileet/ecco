@@ -110,11 +110,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   }
 
   const messageHandler = config.handler ??
-    (config.personality && config.model && config.generateFn
+    (config.personality && config.model && (config.generateFn || config.streamGenerateFn)
       ? createLLMHandler({
           personality: config.personality,
           model: config.model,
           generateFn: config.generateFn,
+          streamGenerateFn: config.streamGenerateFn,
         })
       : undefined)
 

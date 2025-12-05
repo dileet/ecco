@@ -1,24 +1,35 @@
-import { generateText } from 'ai'
+import { streamText, embed } from 'ai'
 import { openai } from '@ai-sdk/openai'
 import {
-  createLocalNetwork,
   createAgent,
+  createLocalNetwork,
   delay,
-  type MultiAgentConfig,
+  type Agent,
   type LocalNetwork,
-  type GenerateFn,
+  type StreamGenerateFn,
+  type EmbedFn,
+  type NetworkQueryConfig,
 } from '@ecco/core'
-import { setupEmbeddingProvider } from '@ecco/ai-sdk'
 
 const EMBEDDING_MODEL = openai.embedding('text-embedding-3-small')
+const MODEL = openai('gpt-4o-mini')
 
-const generate: GenerateFn = async (options) => {
-  const result = await generateText({
-    model: options.model as Parameters<typeof generateText>[0]['model'],
+const streamGenerate: StreamGenerateFn = async function* (options) {
+  const result = streamText({
+    model: options.model as Parameters<typeof streamText>[0]['model'],
     system: options.system,
     prompt: options.prompt,
   })
-  return { text: result.text }
+  for await (const chunk of result.textStream) {
+    yield { text: chunk, tokens: 1 }
+  }
+}
+
+const embedFn: EmbedFn = async (texts) => {
+  const results = await Promise.all(
+    texts.map((text) => embed({ model: EMBEDDING_MODEL, value: text }))
+  )
+  return results.map((r) => Array.from(r.embedding))
 }
 
 async function main(): Promise<void> {
@@ -29,65 +40,55 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  console.log('--- Starting Local Network ---\n')
+  console.log('--- Creating Agents ---\n')
+
+  const analyticalAgent = await createAgent({
+    name: 'agent-analytical',
+    personality: 'analytical and data-driven, focusing on facts and logic',
+    capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
+    model: MODEL,
+    streamGenerateFn: streamGenerate,
+  })
+  console.log(`[${analyticalAgent.id.slice(0, 20)}...] Analytical agent started`)
+
+  await delay(500)
+
+  const creativeAgent = await createAgent({
+    name: 'agent-creative',
+    network: analyticalAgent.addrs,
+    personality: 'creative and imaginative, offering unique perspectives',
+    capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
+    model: MODEL,
+    streamGenerateFn: streamGenerate,
+  })
+  console.log(`[${creativeAgent.id.slice(0, 20)}...] Creative agent started`)
+
+  await delay(500)
+
+  const practicalAgent = await createAgent({
+    name: 'agent-practical',
+    network: analyticalAgent.addrs,
+    personality: 'practical and straightforward, focusing on actionable advice',
+    capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
+    model: MODEL,
+    streamGenerateFn: streamGenerate,
+  })
+  console.log(`[${practicalAgent.id.slice(0, 20)}...] Practical agent started`)
+
+  console.log('\n--- Starting Local Network ---\n')
+
+  const agents: Agent[] = [analyticalAgent, creativeAgent, practicalAgent]
 
   const network: LocalNetwork = await createLocalNetwork({
-    agents: [
-      {
-        name: 'agent-analytical',
-        personality: 'analytical and data-driven, focusing on facts and logic',
-        capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-      },
-      {
-        name: 'agent-creative',
-        personality: 'creative and imaginative, offering unique perspectives',
-        capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-      },
-      {
-        name: 'agent-practical',
-        personality: 'practical and straightforward, focusing on actionable advice',
-        capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-      },
-    ],
+    agents,
     embedding: {
-      model: EMBEDDING_MODEL,
+      embedFn,
       modelId: 'text-embedding-3-small',
     },
-    model: openai('gpt-4o-mini'),
-    generateFn: generate,
   })
 
   if (network.embedding) {
-    setupEmbeddingProvider({
-      nodeRef: network.embedding.ref,
-      embeddingModel: EMBEDDING_MODEL,
-      modelId: 'text-embedding-3-small',
-      libp2pPeerId: network.embedding.id,
-    })
     console.log(`[embedding-provider] Started with peer ID: ${network.embedding.id}`)
-  }
-
-  for (const agent of network.agents) {
-    console.log(`[${agent.id.slice(0, 20)}...] Agent started`)
-  }
-
-  const coordinator = await createAgent({
-    name: 'coordinator',
-    network: network.embedding?.addrs ?? network.agents[0].addrs,
-    capabilities: [{ type: 'coordinator', name: 'orchestrator', version: '1.0.0' }],
-  })
-
-  console.log(`[coordinator] Started with ID: ${coordinator.id}`)
-
-  console.log('\n--- Waiting for Network Formation ---\n')
-  await delay(3000)
-
-  console.log('--- Network Status ---\n')
-  const peers = await coordinator.findPeers()
-  console.log(`Coordinator sees ${peers.length} peers:`)
-  for (const match of peers) {
-    const caps = match.peer.capabilities.map((c) => `${c.type}:${c.name}`).join(', ')
-    console.log(`  - ${match.peer.id.slice(0, 20)}... (${caps})`)
   }
 
   console.log('\n--- Running Multi-Agent Queries ---\n')
@@ -101,20 +102,12 @@ async function main(): Promise<void> {
     console.log(`\nQuery: "${query}"\n`)
 
     try {
-      const result = await coordinator.requestConsensus({
-        query,
-        config: {
-          selectionStrategy: 'all',
-          aggregationStrategy: 'consensus-threshold',
-          consensusThreshold: 0.6,
-          timeout: 60000,
-          allowPartialResults: true,
-          semanticSimilarity: {
-            enabled: true,
-            method: 'peer-embedding',
-            threshold: 0.75,
-            requireExchange: false,
-          },
+      const result = await network.query(query, {
+        semanticSimilarity: {
+          enabled: true,
+          method: 'peer-embedding',
+          threshold: 0.75,
+          requireExchange: false,
         },
       })
 
@@ -130,15 +123,13 @@ async function main(): Promise<void> {
 
   console.log('\n--- Alternative Aggregation Strategies ---\n')
 
-  const baseConfig: MultiAgentConfig = {
-    selectionStrategy: 'all',
-    aggregationStrategy: 'consensus-threshold',
+  const baseConfig: NetworkQueryConfig = {
     consensusThreshold: 0.6,
     timeout: 60000,
     allowPartialResults: true,
   }
 
-  const strategies: Array<{ name: string; config: MultiAgentConfig }> = [
+  const strategies: Array<{ name: string; config: NetworkQueryConfig }> = [
     { name: 'Majority Vote', config: { ...baseConfig, aggregationStrategy: 'majority-vote' } },
     { name: 'Best Score', config: { ...baseConfig, aggregationStrategy: 'best-score' } },
     { name: 'Ensemble', config: { ...baseConfig, aggregationStrategy: 'ensemble' } },
@@ -148,10 +139,7 @@ async function main(): Promise<void> {
     console.log(`Strategy: ${name}`)
 
     try {
-      const result = await coordinator.requestConsensus({
-        query: 'Give a one-sentence tip for writing clean code.',
-        config,
-      })
+      const result = await network.query('Give a one-sentence tip for writing clean code.', config)
 
       console.log(`  Answer: ${result.text}`)
       console.log(`  Confidence: ${(result.consensus.confidence * 100).toFixed(1)}%\n`)
@@ -161,9 +149,6 @@ async function main(): Promise<void> {
   }
 
   console.log('--- Shutting Down ---\n')
-
-  await coordinator.stop()
-  console.log('[coordinator] Stopped')
 
   await network.shutdown()
   console.log('[network] Stopped')
