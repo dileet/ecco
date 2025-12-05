@@ -10,10 +10,10 @@
     "streaming": "bun run streaming-payments.ts",
     "escrow": "bun run escrow-payments.ts",
     "coffee": "bun run coffee-shop-agents.ts",
-    "db:push": "ECCO_DB_PATH=.ecco/default.sqlite bun run ../packages/core/bin/db-push.ts",
-    "db:push:streaming": "ECCO_DB_PATH=.ecco/streaming-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/streaming-client.sqlite bun run ../packages/core/bin/db-push.ts",
-    "db:push:escrow": "ECCO_DB_PATH=.ecco/escrow-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/escrow-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/escrow-approver.sqlite bun run ../packages/core/bin/db-push.ts",
-    "db:push:swarm": "ECCO_DB_PATH=.ecco/swarm-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/swarm-worker1.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/swarm-worker2.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=.ecco/swarm-worker3.sqlite bun run ../packages/core/bin/db-push.ts",
+    "db:push": "ECCO_DB_PATH=default.sqlite bun run ../packages/core/bin/db-push.ts",
+    "db:push:streaming": "ECCO_DB_PATH=streaming-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=streaming-client.sqlite bun run ../packages/core/bin/db-push.ts",
+    "db:push:escrow": "ECCO_DB_PATH=escrow-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=escrow-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=escrow-approver.sqlite bun run ../packages/core/bin/db-push.ts",
+    "db:push:swarm": "ECCO_DB_PATH=swarm-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=swarm-worker1.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=swarm-worker2.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=swarm-worker3.sqlite bun run ../packages/core/bin/db-push.ts",
     "swarm": "bun run swarm-payments.ts"
   },
   "dependencies": {

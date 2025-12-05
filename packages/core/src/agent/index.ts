@@ -144,8 +144,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         }
 
         if (msg.type === 'invoice') {
-          const payload = msg.payload as { invoice?: unknown }
-          const invoiceData = payload?.invoice ?? msg.payload
+          const payload = msg.payload as { invoice?: unknown; response?: { invoice?: unknown } | unknown }
+          const invoiceData = payload?.invoice ?? (payload?.response as { invoice?: unknown })?.invoice ?? payload?.response ?? msg.payload
           const invoiceResult = InvoiceSchema.safeParse(invoiceData)
           if (invoiceResult.success) {
             payments.queueInvoice(invoiceResult.data)
@@ -199,7 +199,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
                 })
               }
             }
-            await baseCtx.reply(payload, type)
+            await baseCtx.reply({ requestId: msg.id, response: payload }, type ?? 'agent-response')
           }
 
           const streamResponse = async (
@@ -207,11 +207,13 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           ) => {
             const gen = typeof generator === 'function' ? generator() : generator
             let fullResponse = ''
+            let totalTokens = 0
 
             for await (const chunk of gen) {
               fullResponse += chunk.text
 
               if (config.pricing?.type === 'streaming' && chunk.tokens > 0) {
+                totalTokens += chunk.tokens
                 const tempCtx: MessageContext = {
                   agent: agentInstance!,
                   message: msg,
@@ -221,14 +223,25 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
                 await payments.recordTokens(tempCtx, chunk.tokens, {
                   channelId,
                   pricing: config.pricing,
-                  autoInvoice: true,
+                  autoInvoice: false,
                 })
               }
 
-              await baseCtx.reply({ chunk: chunk.text, partial: true }, 'stream-chunk')
+              await baseCtx.reply({ requestId: msg.id, chunk: chunk.text, partial: true }, 'stream-chunk')
             }
 
-            await baseCtx.reply({ text: fullResponse, complete: true }, 'stream-complete')
+            if (config.pricing?.type === 'streaming' && totalTokens > 0) {
+              const tempCtx: MessageContext = {
+                agent: agentInstance!,
+                message: msg,
+                reply: baseCtx.reply,
+                streamResponse: async () => {},
+              }
+              await payments.sendStreamingInvoice(tempCtx, channelId)
+            }
+
+            await baseCtx.reply({ requestId: msg.id, text: fullResponse, complete: true }, 'stream-complete')
+            await baseCtx.reply({ requestId: msg.id, response: { text: fullResponse, finishReason: 'stop' } }, 'agent-response')
           }
 
           const ctx: MessageContext = {

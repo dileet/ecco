@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { eq } from 'drizzle-orm';
@@ -24,7 +25,8 @@ let dbInstance: ReturnType<typeof drizzle> | null = null;
 let sqliteDb: Database | null = null;
 let currentNodeId: string | null = null;
 
-const getDbPath = (nodeId: string): string => `.ecco/${nodeId}.sqlite`;
+const getEccoDir = (): string => path.resolve(homedir(), '.ecco');
+const getDbPath = (nodeId: string): string => path.join(getEccoDir(), `${nodeId}.sqlite`);
 
 const getDb = (): ReturnType<typeof drizzle> | null => dbInstance;
 

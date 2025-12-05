@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,10 +20,11 @@ if (!existsSync(configPath)) {
   }
 }
 
-const dbPathEnv = process.env.ECCO_DB_PATH || '.ecco/default.sqlite';
-const dbPath = dbPathEnv.startsWith('/') 
-  ? dbPathEnv 
-  : resolve(process.cwd(), dbPathEnv);
+const eccoDir = resolve(homedir(), '.ecco');
+const dbPathEnv = process.env.ECCO_DB_PATH || 'default.sqlite';
+const dbPath = dbPathEnv.startsWith('/')
+  ? dbPathEnv
+  : resolve(eccoDir, dbPathEnv);
 const dbDir = dirname(dbPath);
 
 if (!existsSync(dbDir)) {

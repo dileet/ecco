@@ -67,12 +67,24 @@ async function main(): Promise<void> {
   const invoices = client.payments.getPendingInvoices()
   console.log(`\n[client] Received ${invoices.length} invoice(s)`)
 
-  if (invoices.length > 0 && client.wallet) {
-    const results = await client.payments.settleAll()
-    for (const result of results) {
-      if (result.success) {
-        console.log(`[client] Paid ${result.aggregatedInvoice.totalAmount} ETH`)
-        console.log(`[client] TX: ${result.txHash}`)
+  if (invoices.length > 0) {
+    for (const invoice of invoices) {
+      console.log(`[client] Invoice: ${invoice.amount} ${invoice.token} to ${invoice.recipient}`)
+    }
+
+    if (!process.env.RPC_URL) {
+      console.log(`[client] Skipping settlement - no RPC_URL configured`)
+      console.log(`[client] To execute transaction, run with: RPC_URL=<sepolia-rpc-url> bun run examples/streaming-payments.ts`)
+    } else if (client.wallet) {
+      console.log(`[client] Settling invoices...`)
+      const results = await client.payments.settleAll()
+      for (const result of results) {
+        if (result.success) {
+          console.log(`[client] Paid ${result.aggregatedInvoice.totalAmount} ETH`)
+          console.log(`[client] TX: ${result.txHash}`)
+        } else {
+          console.log(`[client] Settlement failed: ${result.error}`)
+        }
       }
     }
   }

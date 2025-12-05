@@ -1,4 +1,4 @@
-import { streamText, embed } from 'ai'
+import { generateText, embed } from 'ai'
 import { openai } from '@ai-sdk/openai'
 import {
   createAgent,
@@ -6,7 +6,7 @@ import {
   delay,
   type Agent,
   type LocalNetwork,
-  type StreamGenerateFn,
+  type GenerateFn,
   type EmbedFn,
   type NetworkQueryConfig,
 } from '@ecco/core'
@@ -14,15 +14,14 @@ import {
 const EMBEDDING_MODEL = openai.embedding('text-embedding-3-small')
 const MODEL = openai('gpt-4o-mini')
 
-const streamGenerate: StreamGenerateFn = async function* (options) {
-  const result = streamText({
-    model: options.model as Parameters<typeof streamText>[0]['model'],
+const generate: GenerateFn = async (options) => {
+  const result = await generateText({
+    model: options.model as Parameters<typeof generateText>[0]['model'],
     system: options.system,
     prompt: options.prompt,
   })
-  for await (const chunk of result.textStream) {
-    yield { text: chunk, tokens: 1 }
-  }
+
+  return { text: result.text }
 }
 
 const embedFn: EmbedFn = async (texts) => {
@@ -47,7 +46,7 @@ async function main(): Promise<void> {
     personality: 'analytical and data-driven, focusing on facts and logic',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
-    streamGenerateFn: streamGenerate,
+    generateFn: generate,
   })
   console.log(`[${analyticalAgent.id.slice(0, 20)}...] Analytical agent started`)
 
@@ -59,7 +58,7 @@ async function main(): Promise<void> {
     personality: 'creative and imaginative, offering unique perspectives',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
-    streamGenerateFn: streamGenerate,
+    generateFn: generate,
   })
   console.log(`[${creativeAgent.id.slice(0, 20)}...] Creative agent started`)
 
@@ -71,7 +70,7 @@ async function main(): Promise<void> {
     personality: 'practical and straightforward, focusing on actionable advice',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
-    streamGenerateFn: streamGenerate,
+    generateFn: generate,
   })
   console.log(`[${practicalAgent.id.slice(0, 20)}...] Practical agent started`)
 

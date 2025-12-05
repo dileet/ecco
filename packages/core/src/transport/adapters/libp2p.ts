@@ -355,32 +355,66 @@ export async function send(
 ): Promise<void> {
   const { node } = state.config;
   const targetPeerId = peerIdFromString(peerId);
-  
-  let connections = node.getConnections(targetPeerId);
-  if (connections.length === 0) {
-    const peer = state.discoveredPeers.get(peerId);
-    if (peer?.addresses.length) {
-      const addr = multiaddr(peer.addresses[0]);
-      await node.dial(addr);
-    } else {
-      await node.dial(targetPeerId);
+
+  const ensureConnection = async (): Promise<void> => {
+    let connections = node.getConnections(targetPeerId)
+    if (connections.length === 0) {
+      const peer = state.discoveredPeers.get(peerId);
+      if (peer?.addresses.length) {
+        const addr = multiaddr(peer.addresses[0]);
+        await node.dial(addr);
+      } else {
+        await node.dial(targetPeerId);
+      }
+      connections = node.getConnections(targetPeerId)
     }
-    connections = node.getConnections(targetPeerId);
+
+    if (connections.length === 0) {
+      throw new Error(`No connection to peer ${peerId}`);
+    }
   }
 
-  if (connections.length === 0) {
-    throw new Error(`No connection to peer ${peerId}`);
+  const tryOpenStream = async (forceReconnect = false): Promise<Stream> => {
+    if (forceReconnect) {
+      const existingConnections = node.getConnections(targetPeerId);
+      for (const conn of existingConnections) {
+        try {
+          await conn.close();
+        } catch {}
+      }
+      await ensureConnection();
+    } else {
+      await ensureConnection();
+    }
+
+    const stream = await node.dialProtocol(targetPeerId, ECCO_DIRECT_PROTOCOL);
+
+    if (!stream) {
+      throw new Error('dialProtocol returned null stream');
+    }
+
+    if (stream.writeStatus !== 'writable') {
+      stream.abort(new Error(`Stream not writable: ${stream.writeStatus}`));
+      throw new Error(`Stream opened in non-writable state: ${stream.writeStatus}`);
+    }
+
+    return stream;
   }
 
-  const stream = await node.dialProtocol(targetPeerId, ECCO_DIRECT_PROTOCOL);
-  
-  if (!stream) {
-    throw new Error('dialProtocol returned null stream');
+  let stream: Stream;
+  try {
+    stream = await tryOpenStream(false);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('non-writable')) {
+      stream = await tryOpenStream(true);
+    } else {
+      throw err;
+    }
   }
-  
+
   const data = encodeMessage(message);
   const framedData = lengthPrefixEncode(data);
-  
+
   try {
     stream.send(framedData);
     await stream.close();

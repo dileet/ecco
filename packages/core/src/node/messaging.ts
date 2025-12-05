@@ -97,7 +97,15 @@ function removeTopicSubscriber(stateRef: StateRef<NodeState>, topic: string, pee
 }
 
 export async function publish(state: NodeState, topic: string, event: EccoEvent): Promise<void> {
-  const validatedEvent = validateEvent(event);
+  let validatedEvent = validateEvent(event);
+
+  if (state.messageAuth && validatedEvent.type === 'message' && validatedEvent.payload) {
+    const payload = validatedEvent.payload as { id?: string; from?: string; type?: string };
+    if (payload.id && payload.from && payload.type) {
+      const signedPayload = await signMessage(state.messageAuth, payload as Message);
+      validatedEvent = { ...validatedEvent, payload: signedPayload };
+    }
+  }
 
   if (state.node?.services.pubsub) {
     const message = new TextEncoder().encode(JSON.stringify(validatedEvent));

@@ -9,7 +9,7 @@ import {
   writeStreamingChannel,
   updateStreamingChannel,
 } from '../storage'
-import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult } from './types'
+import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from './types'
 import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
 import { writeSwarmSplit, updateSwarmSplit } from '../storage'
 
@@ -123,10 +123,11 @@ export function createPaymentHelpers(
 
   const releaseMilestone = async (
     ctx: MessageContext,
-    milestoneId: string
+    milestoneId: string,
+    options?: ReleaseMilestoneOptions
   ): Promise<void> => {
     const jobId = ctx.message.id
-    let agreement = paymentState.escrowAgreements.get(jobId)
+    const agreement = paymentState.escrowAgreements.get(jobId)
 
     if (!agreement) {
       throw new Error(`No escrow agreement found for job ${jobId}`)
@@ -136,8 +137,9 @@ export function createPaymentHelpers(
     paymentState.escrowAgreements.set(jobId, updatedAgreement)
     await updateEscrowAgreement(updatedAgreement)
 
+    const shouldSendInvoice = options?.sendInvoice !== false
     const milestone = updatedAgreement.milestones.find((m) => m.id === milestoneId)
-    if (milestone && wallet) {
+    if (shouldSendInvoice && milestone && wallet) {
       const invoice: Invoice = {
         id: crypto.randomUUID(),
         jobId: updatedAgreement.jobId,
@@ -149,6 +151,33 @@ export function createPaymentHelpers(
       }
       await ctx.reply(invoice, 'invoice')
     }
+  }
+
+  const sendEscrowInvoice = async (ctx: MessageContext): Promise<void> => {
+    const jobId = ctx.message.id
+    const agreement = paymentState.escrowAgreements.get(jobId)
+
+    if (!agreement || !wallet) {
+      return
+    }
+
+    const releasedMilestones = agreement.milestones.filter((m) => m.released)
+    if (releasedMilestones.length === 0) {
+      return
+    }
+
+    const totalAmount = releasedMilestones.reduce((sum, m) => sum + toWei(m.amount), 0n)
+
+    const invoice: Invoice = {
+      id: crypto.randomUUID(),
+      jobId: agreement.jobId,
+      chainId: agreement.chainId,
+      amount: bigintToDecimalString(totalAmount),
+      token: agreement.token,
+      recipient: getAddress(wallet),
+      validUntil: Date.now() + 3600000,
+    }
+    await ctx.reply(invoice, 'invoice')
   }
 
   const recordTokens = async (
@@ -216,6 +245,32 @@ export function createPaymentHelpers(
     }
   }
 
+  const sendStreamingInvoice = async (
+    ctx: MessageContext,
+    channelId: string
+  ): Promise<void> => {
+    const agreement = paymentState.streamingAgreements.get(channelId)
+    if (!agreement) {
+      return
+    }
+
+    const amount = agreement.accumulatedAmount
+    if (parseFloat(amount) <= 0) {
+      return
+    }
+
+    const invoice: Invoice = {
+      id: crypto.randomUUID(),
+      jobId: channelId,
+      chainId: agreement.chainId,
+      amount,
+      token: agreement.token,
+      recipient: agreement.recipient,
+      validUntil: Date.now() + 3600000,
+    }
+    await ctx.reply({ invoice }, 'invoice')
+  }
+
   const distributeToSwarm = async (
     jobId: string,
     options: DistributeToSwarmOptions
@@ -275,7 +330,9 @@ export function createPaymentHelpers(
     createInvoice,
     verifyPayment,
     releaseMilestone,
+    sendEscrowInvoice,
     recordTokens,
+    sendStreamingInvoice,
     distributeToSwarm,
     queueInvoice,
     settleAll,

@@ -21,8 +21,12 @@ export function matchPeers(
   query: CapabilityQuery,
   weights: MatchWeights = DEFAULT_WEIGHTS
 ): CapabilityMatch[] {
+  const filteredPeers = query.preferredPeers?.length
+    ? peers.filter((p) => query.preferredPeers!.includes(p.id))
+    : peers;
+
   if (query.requiredCapabilities.length === 0) {
-    return peers.map((peer) => ({
+    return filteredPeers.map((peer) => ({
       peer,
       matchScore: 1.0,
       matchedCapabilities: peer.capabilities,
@@ -31,7 +35,7 @@ export function matchPeers(
 
   const matches: CapabilityMatch[] = [];
 
-  for (const peer of peers) {
+  for (const peer of filteredPeers) {
     const match = matchPeer(peer, query, weights);
     if (match && match.matchScore > 0) {
       matches.push(match);

@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   console.log('This example demonstrates:')
   console.log('1. Service agent with escrow-based pricing')
   console.log('2. Client requests work, service releases milestones')
-  console.log('3. Automatic invoice generation and batch settlement\n')
+  console.log('3. Batched invoice for all milestones in a single payment\n')
 
   const rpcUrls: Record<number, string> = {}
   if (process.env.RPC_URL) {
@@ -37,13 +37,16 @@ async function main(): Promise<void> {
 
       console.log(`[service] Completing milestone 1...`)
       await delay(1000)
-      await ctx.agent.payments.releaseMilestone(ctx, 'milestone-1')
+      await ctx.agent.payments.releaseMilestone(ctx, 'milestone-1', { sendInvoice: false })
       console.log(`[service] Milestone 1 released`)
 
       console.log(`[service] Completing milestone 2...`)
       await delay(1000)
-      await ctx.agent.payments.releaseMilestone(ctx, 'milestone-2')
+      await ctx.agent.payments.releaseMilestone(ctx, 'milestone-2', { sendInvoice: false })
       console.log(`[service] Milestone 2 released`)
+
+      await ctx.agent.payments.sendEscrowInvoice(ctx)
+      console.log(`[service] Sent combined invoice for all milestones`)
 
       await ctx.reply({ status: 'complete', message: 'All milestones delivered!' })
     },
@@ -83,7 +86,7 @@ async function main(): Promise<void> {
   const invoices = client.payments.getPendingInvoices()
   console.log(`\n[client] Received ${invoices.length} invoice(s)`)
   for (const inv of invoices) {
-    console.log(`  - ${inv.amount} ${inv.token} for milestone`)
+    console.log(`  - ${inv.amount} ${inv.token}`)
   }
 
   if (invoices.length > 0 && client.wallet) {

@@ -132,6 +132,10 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
     streamMuxers: [yamux()],
     peerDiscovery: peerDiscoveryList,
     services: servicesConfig,
+    connectionManager: {
+      maxConnections: 100,
+      inboundConnectionThreshold: 50,
+    },
   };
 
   const node = await createLibp2p<EccoServices>(libp2pOptions);

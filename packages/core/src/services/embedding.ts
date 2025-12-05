@@ -171,11 +171,19 @@ async function createEmbeddingResponsePromise(
       })
     );
 
+    const message = {
+      id: requestId,
+      from: getId(ref),
+      to: targetPeerId,
+      type: 'embedding-request' as const,
+      payload: request,
+      timestamp: Date.now(),
+    };
     const messageEvent: MessageEvent = {
       type: 'message',
       from: getId(ref),
       to: targetPeerId,
-      payload: request,
+      payload: message,
       timestamp: Date.now(),
     };
     publish(ref, `peer:${targetPeerId}`, messageEvent);
@@ -384,11 +392,17 @@ export function setupEmbeddingProvider(config: EmbeddingProviderConfig): void {
     const messageEvent = MessageEventSchema.safeParse(event)
     if (!messageEvent.success) return
 
-    const request = EmbeddingRequestSchema.safeParse(messageEvent.data.payload)
+    const eventPayload = messageEvent.data.payload as { type?: string; payload?: unknown; from?: string }
+    const requestPayload = eventPayload?.type === 'embedding-request' ? eventPayload.payload : eventPayload
+    const eventFrom = eventPayload?.from ?? messageEvent.data.from
+
+    const request = EmbeddingRequestSchema.safeParse(requestPayload)
     if (!request.success) return
 
+    const effectiveEvent = { ...messageEvent.data, from: eventFrom }
+
     try {
-      await processEmbeddingProviderRequest(config, messageEvent.data, request.data.texts, request.data.requestId)
+      await processEmbeddingProviderRequest(config, effectiveEvent, request.data.texts, request.data.requestId)
     } catch (error) {
       console.error(`[${getId(nodeRef)}] Embedding error:`, error)
     }

@@ -63,6 +63,10 @@ export interface RecordTokensOptions {
   autoInvoice?: boolean
 }
 
+export interface ReleaseMilestoneOptions {
+  sendInvoice?: boolean
+}
+
 export interface RecordTokensResult {
   channelId: string
   tokens: number
@@ -121,8 +125,10 @@ export interface PaymentHelpers {
   requirePayment: (ctx: MessageContext, pricing: PricingConfig) => Promise<PaymentProof>
   createInvoice: (ctx: MessageContext, pricing: PricingConfig) => Promise<Invoice>
   verifyPayment: (proof: PaymentProof) => Promise<boolean>
-  releaseMilestone: (ctx: MessageContext, milestoneId: string) => Promise<void>
+  releaseMilestone: (ctx: MessageContext, milestoneId: string, options?: ReleaseMilestoneOptions) => Promise<void>
+  sendEscrowInvoice: (ctx: MessageContext) => Promise<void>
   recordTokens: (ctx: MessageContext, count: number, options?: RecordTokensOptions) => Promise<RecordTokensResult>
+  sendStreamingInvoice: (ctx: MessageContext, channelId: string) => Promise<void>
   distributeToSwarm: (jobId: string, options: DistributeToSwarmOptions) => Promise<DistributeToSwarmResult>
   queueInvoice: (invoice: Invoice) => void
   settleAll: () => Promise<BatchSettlementResult[]>

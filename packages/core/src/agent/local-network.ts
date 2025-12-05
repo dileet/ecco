@@ -15,9 +15,12 @@ export async function createLocalNetwork(config: LocalNetworkConfig): Promise<Lo
   const agents = config.agents
   let embeddingAgent: Agent | null = null
 
+  const agentBootstrapAddrs = agents[0]?.addrs ?? []
+
   if (config.embedding) {
     embeddingAgent = await createAgent({
       name: 'embedding-provider',
+      network: agentBootstrapAddrs,
       capabilities: [
         { type: 'embedding', name: config.embedding.modelId, version: '1.0.0' },
       ],
@@ -34,17 +37,17 @@ export async function createLocalNetwork(config: LocalNetworkConfig): Promise<Lo
     await delay(2000)
   }
 
-  const bootstrapAddrs = embeddingAgent?.addrs ?? agents[0]?.addrs ?? []
-
   await delay(3000)
 
   const coordinatorAgent = await createAgent({
     name: '__ecco_internal_coordinator__',
-    network: bootstrapAddrs,
+    network: agentBootstrapAddrs,
     capabilities: [{ type: 'coordinator', name: 'internal-orchestrator', version: '1.0.0' }],
   })
 
   await delay(2000)
+
+  const agentPeerIds = agents.map((a) => a.id)
 
   const query = async (prompt: string, queryConfig?: NetworkQueryConfig): Promise<ConsensusResult> => {
     const defaultConfig: MultiAgentConfig = {
@@ -63,6 +66,10 @@ export async function createLocalNetwork(config: LocalNetworkConfig): Promise<Lo
     return coordinatorAgent.requestConsensus({
       query: prompt,
       config: mergedConfig,
+      capabilityQuery: {
+        requiredCapabilities: [],
+        preferredPeers: agentPeerIds,
+      },
     })
   }
 
