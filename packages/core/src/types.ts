@@ -37,11 +37,8 @@ export interface EccoConfig {
   floodProtection?: FloodProtectionConfig;
   authentication?: {
     enabled: boolean;
-    generateKeys?: boolean;
     keyPath?: string;
-    walletAutoInit?: boolean;
     walletRpcUrls?: Record<number, string>;
-    walletReceiptTimeoutMs?: number;
   };
   retry?: {
     maxAttempts?: number;
@@ -158,6 +155,8 @@ export type MessageType =
   | 'payment-verified'
   | 'payment-failed'
   | 'streaming-tick'
+  | 'stream-chunk'
+  | 'stream-complete'
   | 'escrow-approval'
   | 'stake-confirmation'
   | 'swarm-distribution';

@@ -165,11 +165,14 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
     }));
   }
 
-  if (state.config.authentication?.walletAutoInit && identity.ethereumPrivateKey) {
+  const walletRpcUrls = state.config.authentication?.walletRpcUrls;
+  const hasWalletRpcUrls = walletRpcUrls && Object.keys(walletRpcUrls).length > 0;
+  
+  if (hasWalletRpcUrls && identity.ethereumPrivateKey) {
     const walletState = createWalletState({
       privateKey: identity.ethereumPrivateKey,
       chains: [],
-      rpcUrls: state.config.authentication.walletRpcUrls,
+      rpcUrls: walletRpcUrls,
     });
     updateState(stateRef, (s) => setWallet(s, walletState));
   }

@@ -1,0 +1,361 @@
+import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement } from '../types'
+import type { WalletState } from '../services/wallet'
+import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from '../services/wallet'
+import type { BatchSettlementResult } from './types'
+import { releaseEscrowMilestone, recordStreamingTick } from '../services/payment'
+import {
+  writeEscrowAgreement,
+  updateEscrowAgreement,
+  writeStreamingChannel,
+  updateStreamingChannel,
+} from '../storage'
+import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult } from './types'
+import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
+import { writeSwarmSplit, updateSwarmSplit } from '../storage'
+
+interface PaymentState {
+  escrowAgreements: Map<string, EscrowAgreement>
+  streamingAgreements: Map<string, StreamingAgreement>
+  pendingPayments: Map<string, {
+    invoice: Invoice
+    resolve: (proof: PaymentProof) => void
+    reject: (error: Error) => void
+  }>
+  invoiceQueue: Invoice[]
+}
+
+function bigintToDecimalString(value: bigint): string {
+  const str = value.toString()
+  const padded = str.padStart(19, '0')
+  const intPart = padded.slice(0, -18) || '0'
+  const fracPart = padded.slice(-18).replace(/0+$/, '')
+  return fracPart ? `${intPart}.${fracPart}` : intPart
+}
+
+function toWei(value: string | bigint): bigint {
+  if (typeof value === 'bigint') return value
+  const [intPart, fracPart = ''] = value.split('.')
+  const paddedFrac = fracPart.padEnd(18, '0').slice(0, 18)
+  return BigInt(intPart + paddedFrac)
+}
+
+export function createPaymentHelpers(
+  wallet: WalletState | null,
+  paymentState: PaymentState
+): PaymentHelpers {
+  const createInvoice = async (
+    ctx: MessageContext,
+    pricing: PricingConfig
+  ): Promise<Invoice> => {
+    if (!wallet) {
+      throw new Error('Wallet not configured for payments')
+    }
+
+    const amount = pricing.amount ? toWei(pricing.amount) : 0n
+    const jobId = ctx.message.id
+
+    return {
+      id: crypto.randomUUID(),
+      jobId,
+      chainId: pricing.chainId,
+      amount: bigintToDecimalString(amount),
+      token: pricing.token ?? 'ETH',
+      recipient: getAddress(wallet),
+      validUntil: Date.now() + 3600000,
+    }
+  }
+
+  const requirePayment = async (
+    ctx: MessageContext,
+    pricing: PricingConfig
+  ): Promise<PaymentProof> => {
+    if (!wallet) {
+      throw new Error('Wallet not configured for payments')
+    }
+
+    const invoice = await createInvoice(ctx, pricing)
+
+    await ctx.reply({ invoice }, 'invoice')
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        paymentState.pendingPayments.delete(invoice.id)
+        reject(new Error('Payment timeout'))
+      }, 60000)
+
+      paymentState.pendingPayments.set(invoice.id, {
+        invoice,
+        resolve: (proof: PaymentProof) => {
+          clearTimeout(timeout)
+          paymentState.pendingPayments.delete(invoice.id)
+          resolve(proof)
+        },
+        reject: (error: Error) => {
+          clearTimeout(timeout)
+          paymentState.pendingPayments.delete(invoice.id)
+          reject(error)
+        },
+      })
+    })
+  }
+
+  const verifyPayment = async (proof: PaymentProof): Promise<boolean> => {
+    if (!wallet) {
+      throw new Error('Wallet not configured for payments')
+    }
+
+    const pending = paymentState.pendingPayments.get(proof.invoiceId)
+    if (!pending) {
+      return false
+    }
+
+    try {
+      const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
+      if (valid) {
+        pending.resolve(proof)
+      }
+      return valid
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)))
+      return false
+    }
+  }
+
+  const releaseMilestone = async (
+    ctx: MessageContext,
+    milestoneId: string
+  ): Promise<void> => {
+    const jobId = ctx.message.id
+    let agreement = paymentState.escrowAgreements.get(jobId)
+
+    if (!agreement) {
+      throw new Error(`No escrow agreement found for job ${jobId}`)
+    }
+
+    const updatedAgreement = releaseEscrowMilestone(agreement, milestoneId)
+    paymentState.escrowAgreements.set(jobId, updatedAgreement)
+    await updateEscrowAgreement(updatedAgreement)
+
+    const milestone = updatedAgreement.milestones.find((m) => m.id === milestoneId)
+    if (milestone && wallet) {
+      const invoice: Invoice = {
+        id: crypto.randomUUID(),
+        jobId: updatedAgreement.jobId,
+        chainId: updatedAgreement.chainId,
+        amount: milestone.amount,
+        token: updatedAgreement.token,
+        recipient: getAddress(wallet),
+        validUntil: Date.now() + 3600000,
+      }
+      await ctx.reply(invoice, 'invoice')
+    }
+  }
+
+  const recordTokens = async (
+    ctx: MessageContext,
+    count: number,
+    options?: RecordTokensOptions
+  ): Promise<RecordTokensResult> => {
+    const channelId = options?.channelId ?? ctx.message.id
+    let agreement = paymentState.streamingAgreements.get(channelId)
+
+    if (!agreement) {
+      if (!options?.pricing) {
+        throw new Error(`No streaming agreement found for channel ${channelId} and no pricing config provided`)
+      }
+
+      if (!wallet) {
+        throw new Error('Wallet not configured for payments')
+      }
+
+      agreement = {
+        id: crypto.randomUUID(),
+        jobId: channelId,
+        payer: ctx.message.from,
+        recipient: getAddress(wallet),
+        chainId: options.pricing.chainId,
+        token: options.pricing.token ?? 'ETH',
+        ratePerToken: bigintToDecimalString(options.pricing.ratePerToken ? toWei(options.pricing.ratePerToken) : 0n),
+        accumulatedAmount: '0',
+        lastTick: Date.now(),
+        status: 'active',
+        createdAt: Date.now(),
+      }
+      paymentState.streamingAgreements.set(channelId, agreement)
+      await writeStreamingChannel(agreement)
+    }
+
+    const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
+    paymentState.streamingAgreements.set(channelId, updatedAgreement)
+    await updateStreamingChannel(updatedAgreement)
+
+    let invoiceSent = false
+    if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
+      const invoice: Invoice = {
+        id: crypto.randomUUID(),
+        jobId: channelId,
+        chainId: updatedAgreement.chainId,
+        amount: amountOwed,
+        token: updatedAgreement.token,
+        recipient: updatedAgreement.recipient,
+        validUntil: Date.now() + 3600000,
+      }
+      await ctx.reply(invoice, 'invoice')
+      invoiceSent = true
+    }
+
+    const totalTokens = Math.round(parseFloat(updatedAgreement.accumulatedAmount) / parseFloat(updatedAgreement.ratePerToken))
+
+    return {
+      channelId,
+      tokens: count,
+      totalTokens,
+      amountOwed,
+      totalAmount: updatedAgreement.accumulatedAmount,
+      invoiceSent,
+    }
+  }
+
+  const distributeToSwarm = async (
+    jobId: string,
+    options: DistributeToSwarmOptions
+  ): Promise<DistributeToSwarmResult> => {
+    const agentId = wallet ? getAddress(wallet) : 'unknown'
+
+    const swarmSplit = createSwarmSplit(
+      jobId,
+      agentId,
+      options.totalAmount,
+      options.chainId,
+      options.token ?? 'ETH',
+      options.participants
+    )
+
+    await writeSwarmSplit(swarmSplit)
+
+    const distribution = distributeSwarmSplit(swarmSplit)
+    await updateSwarmSplit(distribution.split)
+
+    for (const invoice of distribution.invoices) {
+      paymentState.invoiceQueue.push(invoice)
+    }
+
+    return {
+      splitId: swarmSplit.id,
+      invoicesSent: distribution.invoices.length,
+      totalAmount: options.totalAmount,
+    }
+  }
+
+  const queueInvoice = (invoice: Invoice): void => {
+    paymentState.invoiceQueue.push(invoice)
+  }
+
+  const settleAll = async (): Promise<BatchSettlementResult[]> => {
+    if (!wallet) {
+      throw new Error('Wallet not configured for payments')
+    }
+
+    if (paymentState.invoiceQueue.length === 0) {
+      return []
+    }
+
+    const invoices = [...paymentState.invoiceQueue]
+    paymentState.invoiceQueue = []
+
+    return batchSettle(wallet, invoices)
+  }
+
+  const getPendingInvoices = (): Invoice[] => {
+    return [...paymentState.invoiceQueue]
+  }
+
+  return {
+    requirePayment,
+    createInvoice,
+    verifyPayment,
+    releaseMilestone,
+    recordTokens,
+    distributeToSwarm,
+    queueInvoice,
+    settleAll,
+    getPendingInvoices,
+  }
+}
+
+export function createPaymentState(): PaymentState {
+  return {
+    escrowAgreements: new Map(),
+    streamingAgreements: new Map(),
+    pendingPayments: new Map(),
+    invoiceQueue: [],
+  }
+}
+
+export function handlePaymentProof(
+  paymentState: PaymentState,
+  proof: PaymentProof
+): boolean {
+  const pending = paymentState.pendingPayments.get(proof.invoiceId)
+  if (pending) {
+    pending.resolve(proof)
+    return true
+  }
+  return false
+}
+
+export async function setupEscrowAgreement(
+  paymentState: PaymentState,
+  jobId: string,
+  payer: string,
+  recipient: string,
+  pricing: PricingConfig
+): Promise<EscrowAgreement> {
+  const agreement: EscrowAgreement = {
+    id: crypto.randomUUID(),
+    jobId,
+    payer,
+    recipient,
+    chainId: pricing.chainId,
+    token: pricing.token ?? 'ETH',
+    totalAmount: bigintToDecimalString(pricing.amount ? toWei(pricing.amount) : 0n),
+    milestones: (pricing.milestones ?? []).map((m) => ({
+      id: m.id,
+      amount: bigintToDecimalString(toWei(m.amount)),
+      released: false,
+    })),
+    status: 'locked',
+    createdAt: Date.now(),
+    requiresApproval: false,
+  }
+
+  paymentState.escrowAgreements.set(jobId, agreement)
+  await writeEscrowAgreement(agreement)
+  return agreement
+}
+
+export async function setupStreamingAgreement(
+  paymentState: PaymentState,
+  jobId: string,
+  payer: string,
+  recipient: string,
+  pricing: PricingConfig
+): Promise<StreamingAgreement> {
+  const agreement: StreamingAgreement = {
+    id: crypto.randomUUID(),
+    jobId,
+    payer,
+    recipient,
+    chainId: pricing.chainId,
+    token: pricing.token ?? 'ETH',
+    ratePerToken: bigintToDecimalString(pricing.ratePerToken ? toWei(pricing.ratePerToken) : 0n),
+    accumulatedAmount: '0',
+    lastTick: Date.now(),
+    status: 'active',
+    createdAt: Date.now(),
+  }
+
+  paymentState.streamingAgreements.set(jobId, agreement)
+  await writeStreamingChannel(agreement)
+  return agreement
+}

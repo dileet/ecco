@@ -3,6 +3,7 @@ import type {
   CapabilityQuery,
   CapabilityMatch,
   Message,
+  MessageType,
   EccoConfig,
 } from '../types';
 import { createInitialState as createInitialStateImpl, getState, setState } from './state';
@@ -13,6 +14,8 @@ import type { EccoEvent } from '../events';
 import { publish as publishFn, subscribeWithRef } from './messaging';
 import { announceCapabilities } from './capabilities';
 import { setReputation, incrementReputation } from '../registry-client';
+import { signMessage, verifyMessage, isMessageFresh, type AuthState, type SignedMessage } from '../services/auth';
+import { getAddress, type WalletState } from '../services/wallet';
 
 export { 
   createInitialState,
@@ -33,29 +36,119 @@ export {
 } from './state';
 export type { StateRef } from './types';
 
+export interface Agent {
+  ref: StateRef<NodeState>;
+  id: string;
+  addrs: string[];
+  auth: AuthState;
+  wallet: WalletState | null;
+  address: string | null;
+  signAndSend: (peerId: string, message: Message) => Promise<void>;
+}
+
+export interface MessageContext {
+  agent: Agent;
+  reply: (payload: unknown, type?: MessageType) => Promise<void>;
+}
+
+export interface AgentCallbacks {
+  onMessage?: (message: Message, ctx: MessageContext) => void | Promise<void>;
+  onUnverifiedMessage?: (message: Message) => void | Promise<void>;
+}
+
 export interface EccoNode {
   ref: StateRef<NodeState>;
   id: string;
   addrs: string[];
 }
 
-export interface EccoOptions {
-  onMessage?: (message: Message) => void;
-}
-
-export async function ecco(config: EccoConfig, options?: EccoOptions): Promise<EccoNode> {
+export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks): Promise<Agent> {
   const state = createInitialStateImpl(config);
   const ref = await lifecycle.start(state);
   const nodeState = getState(ref);
-  const id = nodeState.id;
-  const addrs = nodeState.node ? nodeState.node.getMultiaddrs().map(String) : [];
   const libp2pPeerId = nodeState.node?.peerId?.toString();
+  const id = libp2pPeerId ?? nodeState.id;
+  const addrs = nodeState.node ? nodeState.node.getMultiaddrs().map(String) : [];
 
-  if (options?.onMessage) {
-    const handler = options.onMessage;
-    const messageHandler = (event: EccoEvent) => {
+  const authState: AuthState = nodeState.messageAuth ?? {
+    config: { enabled: false },
+    keyCache: new Map(),
+  };
+
+  const walletState = nodeState.wallet ?? null;
+  const walletAddress = walletState ? getAddress(walletState) : null;
+
+  const signAndSend = async (peerId: string, message: Message): Promise<void> => {
+    let messageToSend = message;
+    if (authState.config.enabled) {
+      messageToSend = await signMessage(authState, message);
+    }
+    await lifecycle.sendMessage(ref, peerId, messageToSend);
+  };
+
+  const agent: Agent = {
+    ref,
+    id,
+    addrs,
+    auth: authState,
+    wallet: walletState,
+    address: walletAddress,
+    signAndSend,
+  };
+
+  if (callbacks?.onMessage || callbacks?.onUnverifiedMessage) {
+    const wrappedHandler = async (message: Message): Promise<void> => {
+      const authEnabled = authState.config.enabled;
+
+      if (message.signature && message.publicKey) {
+        const { valid } = await verifyMessage(authState, message as SignedMessage);
+        if (!valid) {
+          console.warn(`[${id}] Rejected message with invalid signature from ${message.from}`);
+          if (callbacks.onUnverifiedMessage) {
+            await callbacks.onUnverifiedMessage(message);
+          }
+          return;
+        }
+        if (!isMessageFresh(message)) {
+          console.warn(`[${id}] Rejected stale message from ${message.from}`);
+          if (callbacks.onUnverifiedMessage) {
+            await callbacks.onUnverifiedMessage(message);
+          }
+          return;
+        }
+      } else if (authEnabled) {
+        console.warn(`[${id}] Received unsigned message from ${message.from}`);
+        if (callbacks.onUnverifiedMessage) {
+          await callbacks.onUnverifiedMessage(message);
+        }
+        return;
+      }
+
+      if (callbacks.onMessage) {
+        const ctx: MessageContext = {
+          agent,
+          reply: async (payload: unknown, type: MessageType = 'agent-response') => {
+            const replyMessage: Message = {
+              id: crypto.randomUUID(),
+              from: id,
+              to: message.from,
+              type,
+              payload,
+              timestamp: Date.now(),
+            };
+            await agent.signAndSend(message.from, replyMessage);
+          },
+        };
+
+        await callbacks.onMessage(message, ctx);
+      }
+    };
+
+    const messageHandler = (event: EccoEvent): void => {
       if (event.type === 'message') {
-        handler(event.payload as Message);
+        wrappedHandler(event.payload as Message).catch((err) => {
+          console.error(`[${id}] Error handling message:`, err);
+        });
       }
     };
 
@@ -65,12 +158,12 @@ export async function ecco(config: EccoConfig, options?: EccoOptions): Promise<E
 
     if (nodeState.messageBridge) {
       const { subscribeToAllDirectMessages } = await import('../transport/message-bridge');
-      const updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, handler);
+      const updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, wrappedHandler);
       setState(ref, { ...getState(ref), messageBridge: updatedBridge });
     }
   }
 
-  return { ref, id, addrs };
+  return agent;
 }
 
 export async function start(state: NodeState): Promise<StateRef<NodeState>> {

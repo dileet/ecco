@@ -1,5 +1,5 @@
 export {
-  ecco,
+  createAgent as createBaseAgent,
   createInitialState,
   createStateRef,
   getState,
@@ -31,7 +31,9 @@ export {
   evictStalePeers,
   type StateRef,
   type EccoNode,
-  type EccoOptions,
+  type Agent as BaseAgent,
+  type AgentCallbacks,
+  type MessageContext as BaseMessageContext,
 } from './node';
 export {
   initialOrchestratorState,
@@ -269,3 +271,27 @@ export {
   type MessageBridgeState,
   type TopicMessage,
 } from './transport/message-bridge';
+
+export {
+  createAgent,
+  extractPromptText,
+  createLLMHandler,
+  isAgentRequest,
+  createPaymentHelpers,
+  createPaymentState,
+  type Agent,
+  type AgentConfig,
+  type MessageContext,
+  type PaymentHelpers,
+  type PricingConfig,
+  type ConsensusRequestOptions,
+  type ConsensusResult,
+  type GenerateFn,
+  type NetworkOption,
+  type LocalNetworkAgentConfig,
+  type LocalNetworkConfig,
+  type LocalNetwork,
+  type StreamChunk,
+} from './agent';
+
+export { createLocalNetwork } from './agent/local-network';

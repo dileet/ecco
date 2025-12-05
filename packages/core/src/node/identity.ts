@@ -93,16 +93,12 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
     };
   }
 
-  if (config.authentication?.generateKeys === false) {
-    throw new Error('Authentication generateKeys=false and no key file present');
-  }
-
   const { privateKey, publicKey } = await generateKeyPair();
   const privateKeyStr = await exportPrivateKey(privateKey);
   const publicKeyStr = await exportPublicKey(publicKey);
   const ethereumPrivateKey = generatePrivateKey();
-  const persist: PersistedKeyFile = {
-    algorithm: 'ECDSA-P-256',
+  const persist = {
+    algorithm: 'ECDSA-P-256' as const,
     privateKey: privateKeyStr,
     publicKey: publicKeyStr,
     ethereumPrivateKey,
