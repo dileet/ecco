@@ -10,6 +10,7 @@ import {
   subscribeToTopic as bridgeSubscribeToTopic,
   createMessage,
 } from '../transport/message-bridge';
+import { debug } from '../utils';
 
 const PubSubMessageSchema = z.object({
   topic: z.string(),
@@ -149,6 +150,7 @@ export async function publishDirect(
   peerId: string,
   message: Message
 ): Promise<void> {
+  debug('publishDirect', `Sending to ${peerId}, type=${message.type}`);
   let messageToSend = message;
   if (state.messageAuth) {
     messageToSend = await signMessage(state.messageAuth, message);
@@ -164,13 +166,18 @@ export async function publishDirect(
   );
 
   const errors: Error[] = [];
-  
+
+  debug('publishDirect', `Adapters: ${Array.from(state.transport.adapters.keys()).join(', ')}`);
   for (const adapter of state.transport.adapters.values()) {
+    debug('publishDirect', `Adapter ${adapter.type} state=${adapter.state}`);
     if (adapter.state === 'connected') {
       try {
+        debug('publishDirect', `Sending via ${adapter.type} adapter`);
         await adapter.send(peerId, transportMessage);
+        debug('publishDirect', 'Send successful');
         return;
       } catch (err) {
+        debug('publishDirect', `Send failed: ${err}`);
         errors.push(err instanceof Error ? err : new Error(String(err)));
       }
     }
@@ -186,6 +193,7 @@ export function subscribeWithRef(
 ): () => void {
   const state = getState(stateRef);
   const isFirstSubscription = !state.subscribedTopics.has(topic);
+  debug('subscribeWithRef', `Subscribing to topic=${topic}, isFirstSubscription=${isFirstSubscription}, hasPubsub=${!!state.node?.services.pubsub}, hasTransport=${hasTransportLayer(state)}`);
 
   updateState(stateRef, (s) => {
     const newState = addSubscription(s, topic, handler);
@@ -201,6 +209,7 @@ export function subscribeWithRef(
 
   if (isFirstSubscription) {
     if (state.node?.services.pubsub) {
+      debug('subscribeWithRef', `Setting up pubsub subscription for ${topic}`);
       const pubsub = state.node.services.pubsub;
       pubsub.subscribe(topic);
 
@@ -253,7 +262,10 @@ export function subscribeWithRef(
           console.error(`[${currentState.id}] Error processing pubsub message on topic ${topic}:`, error);
         }
       });
-    } else if (hasTransportLayer(state)) {
+    }
+
+    if (hasTransportLayer(state)) {
+      debug('subscribeWithRef', `Setting up message bridge subscription for ${topic}`);
       updateState(stateRef, (s) => {
         if (!s.messageBridge) return s;
 
@@ -263,11 +275,13 @@ export function subscribeWithRef(
             s.messageBridge,
             topic,
             (message: Message) => {
+              debug('subscribeWithRef bridge handler', `Received message on topic ${topic}, type=${message.type}`);
               try {
                 const latestState = getState(stateRef);
 
                 const messageId = message.id;
                 if (isMessageDuplicate(latestState, messageId)) {
+                  debug('subscribeWithRef bridge handler', `Duplicate message ${messageId}, skipping`);
                   return;
                 }
 
@@ -281,13 +295,24 @@ export function subscribeWithRef(
                 checkAndRotateDeduplicator(stateRef);
 
                 const payload = message.payload as { topic?: string; event?: EccoEvent };
+                debug('subscribeWithRef bridge handler', `Payload has event=${!!payload?.event}`);
 
-                if (payload?.event && isValidEvent(payload.event)) {
-                  const validatedEvent = validateEvent(payload.event);
-                  const handlers = latestState.subscriptions[topic];
+                const handlers = latestState.subscriptions[topic];
+                debug('subscribeWithRef bridge handler', `Found ${handlers?.length ?? 0} handlers for topic ${topic}`);
 
-                  if (handlers && handlers.length > 0) {
+                if (handlers && handlers.length > 0) {
+                  if (payload?.event && isValidEvent(payload.event)) {
+                    const validatedEvent = validateEvent(payload.event);
                     handlers.forEach((h) => h(validatedEvent));
+                  } else {
+                    const wrappedEvent: EccoEvent = {
+                      type: 'message',
+                      from: message.from,
+                      to: message.to,
+                      payload: message,
+                      timestamp: message.timestamp,
+                    };
+                    handlers.forEach((h) => h(wrappedEvent));
                   }
                 }
               } catch (error) {
@@ -298,7 +323,9 @@ export function subscribeWithRef(
           ),
         };
       });
-    } else {
+    }
+
+    if (!state.node?.services.pubsub && !hasTransportLayer(state)) {
       throw new Error('No messaging transport available');
     }
   }

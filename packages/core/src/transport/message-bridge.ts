@@ -3,6 +3,7 @@ import type { TransportMessage } from './types';
 import type { AuthState, SignedMessage } from '../services/auth';
 import { signMessage, verifyMessage } from '../services/auth';
 import { z } from 'zod';
+import { debug } from '../utils';
 
 const MessageSchema = z.object({
   id: z.string(),
@@ -183,32 +184,37 @@ export async function handleIncomingTransportMessage(
   peerId: string,
   transportMessage: TransportMessage
 ): Promise<MessageBridgeState> {
+  debug('handleIncomingTransportMessage', `Received from ${peerId}`);
   const { message, valid, updatedState } = await deserializeMessage(state, transportMessage);
 
   if (!valid || !message) {
+    debug('handleIncomingTransportMessage', `Invalid message, valid=${valid}`);
     return updatedState;
   }
 
-  let handlersCalled = false;
+  debug('handleIncomingTransportMessage', `Message type=${message.type}, from=${message.from}, to=${message.to}`);
 
   const peerHandlers = updatedState.directHandlers.get(peerId);
+  debug('handleIncomingTransportMessage', `peerHandlers for ${peerId}: ${peerHandlers?.size ?? 0}`);
   if (peerHandlers && peerHandlers.size > 0) {
     for (const handler of peerHandlers) {
       handler(message);
-      handlersCalled = true;
     }
   }
 
   const globalHandlers = updatedState.directHandlers.get('*');
+  debug('handleIncomingTransportMessage', `globalHandlers (*): ${globalHandlers?.size ?? 0}`);
   if (globalHandlers && globalHandlers.size > 0) {
     for (const handler of globalHandlers) {
       handler(message);
-      handlersCalled = true;
     }
   }
 
-  if (!handlersCalled && message.to) {
-    const topicHandlers = updatedState.topicHandlers.get(`peer:${message.to}`);
+  if (message.to && message.type === 'agent-response') {
+    const topic = `peer:${message.to}`;
+    const topicHandlers = updatedState.topicHandlers.get(topic);
+    debug('handleIncomingTransportMessage', `topicHandlers for ${topic}: ${topicHandlers?.size ?? 0}`);
+    debug('handleIncomingTransportMessage', `All topics: ${Array.from(updatedState.topicHandlers.keys()).join(', ')}`);
     if (topicHandlers && topicHandlers.size > 0) {
       for (const handler of topicHandlers) {
         handler(message);
@@ -257,6 +263,7 @@ export async function handleIncomingBroadcast(
   peerId: string,
   transportMessage: TransportMessage
 ): Promise<MessageBridgeState> {
+  debug('handleIncomingBroadcast', `Received from ${peerId}`);
   try {
     const json = new TextDecoder().decode(transportMessage.data);
     const result = TopicMessageSchema.safeParse(JSON.parse(json));
@@ -264,6 +271,7 @@ export async function handleIncomingBroadcast(
     if (result.success) {
       const topicMessage = result.data;
       const message = topicMessage.message;
+      debug('handleIncomingBroadcast', `Parsed as topic message, topic=${topicMessage.topic}`);
       let currentState = state;
 
       if (state.config.authEnabled && state.authState && message.signature) {
@@ -281,6 +289,7 @@ export async function handleIncomingBroadcast(
       }
 
       const handlers = currentState.topicHandlers.get(topicMessage.topic);
+      debug('handleIncomingBroadcast', `Found ${handlers?.size ?? 0} handlers for topic ${topicMessage.topic}`);
       if (handlers && handlers.size > 0) {
         for (const handler of handlers) {
           handler(message as Message);
@@ -290,8 +299,10 @@ export async function handleIncomingBroadcast(
       return currentState;
     }
 
+    debug('handleIncomingBroadcast', 'Not a topic message, falling back to handleIncomingTransportMessage');
     return await handleIncomingTransportMessage(state, peerId, transportMessage);
   } catch {
+    debug('handleIncomingBroadcast', 'Parse error, falling back to handleIncomingTransportMessage');
     return await handleIncomingTransportMessage(state, peerId, transportMessage);
   }
 }

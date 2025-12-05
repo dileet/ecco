@@ -1,5 +1,4 @@
 import type { Message, MessageType, CapabilityQuery, CapabilityMatch } from '../types'
-import type { NodeState, StateRef } from '../node/types'
 import {
   createAgent as createBaseAgent,
   stop as stopNode,
@@ -19,7 +18,7 @@ import {
   type OrchestratorState,
 } from '../orchestrator'
 import type { MultiAgentConfig, AgentResponse } from '../orchestrator/types'
-import { delay } from '../utils'
+import { delay, debug } from '../utils'
 import type {
   AgentConfig,
   Agent,
@@ -145,7 +144,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         }
 
         if (msg.type === 'invoice') {
-          const invoiceResult = InvoiceSchema.safeParse(msg.payload)
+          const payload = msg.payload as { invoice?: unknown }
+          const invoiceData = payload?.invoice ?? msg.payload
+          const invoiceResult = InvoiceSchema.safeParse(invoiceData)
           if (invoiceResult.success) {
             payments.queueInvoice(invoiceResult.data)
           }
@@ -261,22 +262,40 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       timestamp: Date.now(),
     }
 
+    debug('request', `Sending request ${requestMessage.id} from ${baseAgent.id} to ${peerId}`)
+
     return new Promise((resolve, reject) => {
+      let unsubscribe: (() => void) | undefined
+
+      const cleanup = () => {
+        if (unsubscribe) {
+          unsubscribe()
+        }
+      }
+
       const timeout = setTimeout(() => {
+        debug('request', `TIMEOUT waiting for response to ${requestMessage.id}`)
+        cleanup()
         reject(new Error('Request timeout'))
       }, 30000)
 
       const libp2pPeerId = getLibp2pPeerId(baseAgent.ref)
+      debug('request', `Subscribing to topic peer:${libp2pPeerId}`)
 
       const handleResponse = (event: EccoEvent) => {
+        debug('request', `Received event type=${event.type}`)
         if (event.type !== 'message') return
         const response = event.payload as Message
+        debug('request', `Message type=${response.type}, from=${response.from}`)
         if (response.type !== 'agent-response') return
 
         const responsePayload = response.payload as { requestId?: string; response?: unknown }
+        debug('request', `Response requestId=${responsePayload?.requestId}, expected=${requestMessage.id}`)
         if (responsePayload?.requestId !== requestMessage.id) return
 
+        debug('request', 'MATCHED! Resolving response')
         clearTimeout(timeout)
+        cleanup()
         resolve({
           peer: {
             id: peerId,
@@ -285,7 +304,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
             lastSeen: Date.now(),
           },
           matchScore: 1,
-          response: responsePayload?.response ?? response.payload,
+          response: responsePayload?.response || response.payload,
           timestamp: Date.now(),
           latency: Date.now() - requestMessage.timestamp,
           success: true,
@@ -293,11 +312,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
 
       if (libp2pPeerId) {
-        subscribeToTopic(baseAgent.ref, `peer:${libp2pPeerId}`, handleResponse)
+        unsubscribe = subscribeToTopic(baseAgent.ref, `peer:${libp2pPeerId}`, handleResponse)
       }
 
       sendMessage(baseAgent.ref, peerId, requestMessage).catch((error) => {
         clearTimeout(timeout)
+        cleanup()
         reject(error)
       })
     })
@@ -317,8 +337,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       ...options.config,
     }
 
-    const capabilityQuery: CapabilityQuery = {
-      requiredCapabilities: [{ type: 'agent' }],
+    const capabilityQuery: CapabilityQuery = options.capabilityQuery ?? {
+      requiredCapabilities: [],
     }
 
     const payload = { prompt: options.query }
@@ -365,7 +385,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     }
 
     const capabilityQuery: CapabilityQuery = queryConfig?.discovery?.capabilityQuery ?? {
-      requiredCapabilities: [{ type: 'agent' }],
+      requiredCapabilities: [],
     }
 
     const peers = await findPeersWithPriority(baseAgent.ref, capabilityQuery, {
@@ -381,6 +401,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     return requestConsensus({
       query: prompt,
+      capabilityQuery,
       config: {
         selectionStrategy: queryConfig?.selectionStrategy ?? 'all',
         aggregationStrategy: queryConfig?.aggregationStrategy ?? 'consensus-threshold',

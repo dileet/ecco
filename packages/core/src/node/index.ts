@@ -16,6 +16,8 @@ import { announceCapabilities } from './capabilities';
 import { setReputation, incrementReputation } from '../registry-client';
 import { signMessage, verifyMessage, isMessageFresh, type AuthState, type SignedMessage } from '../services/auth';
 import { getAddress, type WalletState } from '../services/wallet';
+import { subscribeToAllDirectMessages } from '../transport/message-bridge';
+import { debug } from '../utils';
 
 export {
   createInitialState,
@@ -137,7 +139,10 @@ export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks
               payload,
               timestamp: Date.now(),
             };
+            debug('reply', `Sending reply from=${id} to=${message.from} type=${type}`);
+            debug('reply', `Payload requestId=${(payload as { requestId?: string })?.requestId}`);
             await agent.signAndSend(message.from, replyMessage);
+            debug('reply', 'Reply sent successfully');
           },
         };
 
@@ -153,14 +158,14 @@ export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks
       }
     };
 
-    if (libp2pPeerId) {
-      subscribeWithRef(ref, `peer:${libp2pPeerId}`, messageHandler);
+    const currentState = getState(ref);
+    if (currentState.messageBridge) {
+      const updatedBridge = subscribeToAllDirectMessages(currentState.messageBridge, wrappedHandler);
+      setState(ref, { ...getState(ref), messageBridge: updatedBridge });
     }
 
-    if (nodeState.messageBridge) {
-      const { subscribeToAllDirectMessages } = await import('../transport/message-bridge');
-      const updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, wrappedHandler);
-      setState(ref, { ...getState(ref), messageBridge: updatedBridge });
+    if (libp2pPeerId && nodeState.node?.services.pubsub) {
+      subscribeWithRef(ref, `peer:${libp2pPeerId}`, messageHandler);
     }
   }
 

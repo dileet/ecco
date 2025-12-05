@@ -146,6 +146,7 @@ export interface AgentConfig {
 export interface ConsensusRequestOptions {
   query: string
   config?: Partial<MultiAgentConfig>
+  capabilityQuery?: CapabilityQuery
 }
 
 export interface ConsensusResult {

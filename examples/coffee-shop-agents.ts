@@ -10,19 +10,12 @@ import {
 
 const MODEL = openai('gpt-4o-mini')
 
-const MENU_PRICES: Record<string, Record<string, bigint>> = {
-  Latte: { small: 3000000000000000n, large: 5000000000000000n },
-  Espresso: { single: 2000000000000000n, double: 3000000000000000n },
-  Cappuccino: { small: 3500000000000000n, large: 5500000000000000n },
-  Americano: { small: 2500000000000000n, large: 4000000000000000n },
+const MENU: Record<string, Record<string, string>> = {
+  Latte: { small: '0.003', large: '0.005' },
+  Espresso: { single: '0.002', double: '0.003' },
+  Cappuccino: { small: '0.0035', large: '0.0055' },
+  Americano: { small: '0.0025', large: '0.004' },
 }
-
-const MENU_DISPLAY = [
-  { name: 'Latte', sizes: { small: '0.003 ETH', large: '0.005 ETH' } },
-  { name: 'Espresso', sizes: { single: '0.002 ETH', double: '0.003 ETH' } },
-  { name: 'Cappuccino', sizes: { small: '0.0035 ETH', large: '0.0055 ETH' } },
-  { name: 'Americano', sizes: { small: '0.0025 ETH', large: '0.004 ETH' } },
-]
 
 const streamGenerate: StreamGenerateFn = async function* (options) {
   const result = streamText({
@@ -59,7 +52,12 @@ async function createCoffeeShopAgent(): Promise<Agent> {
           console.log(`[${coffeeShopAgent.id.slice(0, 12)}...] Tool called: getMenu`)
           return {
             shopName: 'Starbucks Downtown',
-            items: MENU_DISPLAY,
+            items: Object.entries(MENU).map(([name, sizes]) => ({
+              name,
+              sizes: Object.fromEntries(
+                Object.entries(sizes).map(([size, price]) => [size, `${price} ETH`])
+              ),
+            })),
             currency: 'ETH',
             note: 'Prices shown in ETH on Sepolia testnet',
           }
@@ -75,9 +73,9 @@ async function createCoffeeShopAgent(): Promise<Agent> {
         execute: async ({ item, size }) => {
           console.log(`[${coffeeShopAgent.id.slice(0, 12)}...] Tool called: orderCoffee(${item}, ${size})`)
 
-          const itemPrices = MENU_PRICES[item]
+          const itemPrices = MENU[item]
           if (!itemPrices) {
-            return { error: `Unknown item: ${item}. Available items: ${Object.keys(MENU_PRICES).join(', ')}` }
+            return { error: `Unknown item: ${item}. Available items: ${Object.keys(MENU).join(', ')}` }
           }
 
           const price = itemPrices[size]
@@ -90,10 +88,12 @@ async function createCoffeeShopAgent(): Promise<Agent> {
               const invoice = await ctx.agent.payments.createInvoice(ctx, {
                 type: 'escrow',
                 chainId: 11155111,
-                amount: price.toString(),
+                amount: price,
                 token: 'ETH',
               })
               console.log(`[${coffeeShopAgent.id.slice(0, 12)}...] Invoice created: ${invoice.id}`)
+              await ctx.reply({ invoice }, 'invoice')
+              console.log(`[${coffeeShopAgent.id.slice(0, 12)}...] Invoice sent to customer`)
             } catch (err) {
               console.log(`[${coffeeShopAgent.id.slice(0, 12)}...] Payment setup skipped (no wallet configured)`)
             }
@@ -106,7 +106,7 @@ async function createCoffeeShopAgent(): Promise<Agent> {
             orderId,
             item,
             size,
-            price: `${Number(price) / 1e18} ETH`,
+            price: `${price} ETH`,
             status: 'confirmed',
             pickupTime,
             message: `Your ${size} ${item} will be ready at ${pickupTime}. Order #${orderId}`,
@@ -144,10 +144,10 @@ Be helpful and suggest popular items if asked.`,
           prompt,
         })
 
-        await ctx.reply({ response: result.text, toolResults: result.steps })
+        await ctx.reply({ requestId: msg.id, response: result.text, toolResults: result.steps })
       } catch (error) {
         console.error(`[${coffeeShopAgent.id.slice(0, 12)}...] Error:`, error)
-        await ctx.reply({ error: 'Sorry, I encountered an error processing your request.' })
+        await ctx.reply({ requestId: msg.id, error: 'Sorry, I encountered an error processing your request.' })
       }
     },
   })
@@ -218,8 +218,19 @@ async function main(): Promise<void> {
   console.log('\n--- Requesting Menu ---\n')
 
   const menuResult = await customer.request(targetShop.peer.id, "What's on the menu?")
-  const menuResponse = menuResult.response as { response?: string }
-  console.log(`[coffee-shop] Menu response: ${menuResponse.response?.slice(0, 200)}...`)
+  const menuResponse = menuResult.response as { response?: string; toolResults?: Array<{ content: Array<{ type: string; output?: unknown }> }> }
+  if (menuResponse.response) {
+    console.log(`[coffee-shop] Menu response: ${menuResponse.response.slice(0, 200)}...`)
+  } else if (menuResponse.toolResults) {
+    console.log(`[coffee-shop] Menu (from tool results):`)
+    for (const step of menuResponse.toolResults) {
+      for (const item of step.content) {
+        if (item.type === 'tool-result' && item.output) {
+          console.log(JSON.stringify(item.output, null, 2))
+        }
+      }
+    }
+  }
 
   console.log('\n--- Placing an Order ---\n')
 
@@ -227,15 +238,15 @@ async function main(): Promise<void> {
     targetShop.peer.id,
     "I'd like to order a large Latte please"
   )
-  const orderResponse = orderResult.response as { response?: string; toolResults?: unknown[] }
-  console.log(`[coffee-shop] Order response: ${orderResponse.response}`)
-
-  if (orderResponse.toolResults) {
-    console.log('\n[customer] Order details from tool results:')
-    for (const step of orderResponse.toolResults as Array<{ toolResults?: Array<{ result: unknown }> }>) {
-      if (step.toolResults) {
-        for (const toolResult of step.toolResults) {
-          console.log(`  ${JSON.stringify(toolResult.result, null, 2)}`)
+  const orderResponse = orderResult.response as { response?: string; toolResults?: Array<{ content: Array<{ type: string; output?: unknown }> }> }
+  if (orderResponse.response) {
+    console.log(`[coffee-shop] Order response: ${orderResponse.response}`)
+  } else if (orderResponse.toolResults) {
+    console.log(`[coffee-shop] Order (from tool results):`)
+    for (const step of orderResponse.toolResults) {
+      for (const item of step.content) {
+        if (item.type === 'tool-result' && item.output) {
+          console.log(JSON.stringify(item.output, null, 2))
         }
       }
     }

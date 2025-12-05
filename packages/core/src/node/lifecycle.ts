@@ -10,7 +10,7 @@ import { mdns } from '@libp2p/mdns';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
-import { withTimeout, retryWithBackoff } from '../utils';
+import { withTimeout, retryWithBackoff, debug } from '../utils';
 import {
   connect as connectRegistry,
   disconnect as disconnectRegistry,
@@ -412,6 +412,7 @@ export async function sendMessage(
   message: Message
 ): Promise<void> {
   const state = getState(stateRef);
+  debug('sendMessage', `Sending message to ${peerId}, hasMessageBridge=${!!state.messageBridge}, hasTransport=${!!state.transport}`);
 
   const maxAttempts = state.config.retry?.maxAttempts || 3;
   const initialDelay = state.config.retry?.initialDelay || 1000;
@@ -421,12 +422,15 @@ export async function sendMessage(
     await retryWithBackoff(
       async () => {
         const currentState = getState(stateRef);
-        
+
         if (currentState.messageBridge && currentState.transport) {
+          debug('sendMessage', 'Using publishDirect path');
           const { publishDirect } = await import('./messaging');
           await publishDirect(currentState, peerId, message);
+          debug('sendMessage', 'publishDirect completed');
           return;
         }
+        debug('sendMessage', 'Using pubsub path');
         let messageToSend = message;
         if (currentState.messageAuth) {
           messageToSend = await signMessage(currentState.messageAuth, message);
@@ -441,6 +445,7 @@ export async function sendMessage(
         };
 
         await publish(currentState, `peer:${peerId}`, messageEvent);
+        debug('sendMessage', 'pubsub publish completed');
       },
       {
         maxAttempts,

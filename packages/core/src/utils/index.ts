@@ -11,3 +11,4 @@ export {
   type RateLimitBucket,
   type MessageDeduplicator,
 } from './bloom-filter';
+export { debug } from './debug';
