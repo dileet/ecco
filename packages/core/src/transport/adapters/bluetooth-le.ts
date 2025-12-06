@@ -9,6 +9,7 @@ import type {
   BeaconConfig,
   LocalContext,
 } from '../types';
+import type { NetworkConfig } from '../../networks';
 import { z } from 'zod';
 
 const LocalContextSchema = z.object({
@@ -25,6 +26,7 @@ export interface BLEAdapterConfig {
   advertise?: boolean;
   scan?: boolean;
   scanInterval?: number;
+  networkConfig?: NetworkConfig;
 }
 
 export interface BLEAdapterState {

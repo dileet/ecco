@@ -10,6 +10,9 @@ import type {
   TransportDiscoveryEvent,
   TransportConnectionEvent,
 } from '../types';
+import type { ProtocolVersion } from '../../types';
+import type { NetworkConfig } from '../../networks';
+import { SDK_PROTOCOL_VERSION } from '../../networks';
 const { multiaddr } = await import('@multiformats/multiaddr');
 
 interface EccoLibp2pServices extends Record<string, unknown> {
@@ -21,6 +24,11 @@ type Libp2pNode = Libp2p<EccoLibp2pServices>;
 export interface Libp2pAdapterConfig {
   node: Libp2pNode;
   topic?: string;
+  networkConfig?: NetworkConfig;
+}
+
+export function buildDirectProtocol(version: ProtocolVersion = SDK_PROTOCOL_VERSION): string {
+  return `/ecco/direct/${version.major}.${version.minor}.${version.patch}`;
 }
 
 export interface Libp2pAdapterState {
@@ -35,7 +43,6 @@ export interface Libp2pAdapterState {
 }
 
 const ECCO_TRANSPORT_TOPIC = 'ecco/transport/v1';
-const ECCO_DIRECT_PROTOCOL = '/ecco/direct/1.0.0';
 
 export function createLibp2pAdapter(
   config: Libp2pAdapterConfig
@@ -137,9 +144,15 @@ function lengthPrefixDecode(data: Uint8Array): Uint8Array[] {
   return messages;
 }
 
+function getProtocolVersion(state: Libp2pAdapterState): string {
+  const version = state.config.networkConfig?.protocol.currentVersion ?? SDK_PROTOCOL_VERSION;
+  return buildDirectProtocol(version);
+}
+
 export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
   const { node, topic } = state.config;
   const cleanups: Array<() => void> = [];
+  const protocol = getProtocolVersion(state);
 
   function handlePeerDiscovery(evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>): void {
     const { id: peerId } = evt.detail;
@@ -208,7 +221,7 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
     node.removeEventListener('peer:disconnect', handlePeerDisconnect as EventListener);
   });
 
-  node.handle(ECCO_DIRECT_PROTOCOL, async (incomingData) => {
+  node.handle(protocol, async (incomingData) => {
     try {
       const stream = isIncomingStreamData(incomingData) 
         ? incomingData.stream 
@@ -262,7 +275,7 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
   });
 
   cleanups.push(() => {
-    node.unhandle(ECCO_DIRECT_PROTOCOL).catch(() => {});
+    node.unhandle(protocol).catch(() => {});
   });
 
   const pubsub = node.services.pubsub;
@@ -355,6 +368,7 @@ export async function send(
 ): Promise<void> {
   const { node } = state.config;
   const targetPeerId = peerIdFromString(peerId);
+  const protocol = getProtocolVersion(state);
 
   const ensureConnection = async (): Promise<void> => {
     let connections = node.getConnections(targetPeerId)
@@ -387,7 +401,7 @@ export async function send(
       await ensureConnection();
     }
 
-    const stream = await node.dialProtocol(targetPeerId, ECCO_DIRECT_PROTOCOL);
+    const stream = await node.dialProtocol(targetPeerId, protocol);
 
     if (!stream) {
       throw new Error('dialProtocol returned null stream');

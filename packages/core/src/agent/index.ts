@@ -579,6 +579,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     capabilities: allCapabilities,
     payments,
     hasEmbedding: hasEmbeddingConfig,
+    protocolVersion: networkConfig.protocol.currentVersion,
     embed,
     findPeers,
     request,

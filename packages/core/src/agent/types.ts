@@ -7,6 +7,7 @@ import type {
   MessageType,
   PaymentProof,
   PeerInfo,
+  ProtocolVersion,
 } from '../types'
 import type { NodeState, StateRef } from '../node/types'
 import type { WalletState } from '../services/wallet'
@@ -190,6 +191,7 @@ export interface Agent {
   capabilities: Capability[]
   payments: PaymentHelpers
   hasEmbedding: boolean
+  protocolVersion: ProtocolVersion
   embed: ((texts: string[]) => Promise<number[][]>) | null
   findPeers: (query?: CapabilityQuery) => Promise<CapabilityMatch[]>
   request: (peerId: string, prompt: string) => Promise<AgentResponse>

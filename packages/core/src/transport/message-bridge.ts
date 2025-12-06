@@ -1,9 +1,20 @@
-import type { Message } from '../types';
+import type { Message, VersionHandshakePayload } from '../types';
 import type { TransportMessage } from './types';
 import type { AuthState, SignedMessage } from '../services/auth';
+import type { NetworkConfig } from '../networks';
 import { signMessage, verifyMessage } from '../services/auth';
 import { z } from 'zod';
 import { debug } from '../utils';
+import {
+  createHandshakeMessage,
+  createHandshakeResponse,
+  createIncompatibleNotice,
+  parseHandshakePayload,
+  parseHandshakeResponse,
+  HANDSHAKE_TIMEOUT_MS,
+  DISCONNECT_DELAY_MS,
+} from '../protocol/handshake';
+import { formatVersion } from '../protocol/version';
 
 const MessageSchema = z.object({
   id: z.string(),
@@ -24,6 +35,12 @@ const TopicMessageSchema = z.object({
 export interface MessageBridgeConfig {
   nodeId: string;
   authEnabled: boolean;
+  networkConfig?: NetworkConfig;
+}
+
+export interface PendingHandshake {
+  initiated: number;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 export interface MessageBridgeState {
@@ -31,6 +48,14 @@ export interface MessageBridgeState {
   authState?: AuthState;
   topicHandlers: Map<string, Set<(message: Message) => void>>;
   directHandlers: Map<string, Set<(message: Message) => void>>;
+  validatedPeers: Set<string>;
+  pendingHandshakes: Map<string, PendingHandshake>;
+  queuedMessages: Map<string, Message[]>;
+  onPeerValidated?: (peerId: string) => void;
+  onPeerRejected?: (peerId: string, reason: string) => void;
+  onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
+  sendMessage?: (peerId: string, message: Message) => Promise<void>;
+  disconnectPeer?: (peerId: string) => Promise<void>;
 }
 
 export function createMessageBridge(
@@ -42,6 +67,9 @@ export function createMessageBridge(
     authState,
     topicHandlers: new Map(),
     directHandlers: new Map(),
+    validatedPeers: new Set(),
+    pendingHandshakes: new Map(),
+    queuedMessages: new Map(),
   };
 }
 
@@ -309,5 +337,249 @@ export async function handleIncomingBroadcast(
 
 export function getSubscribedTopics(state: MessageBridgeState): string[] {
   return Array.from(state.topicHandlers.keys());
+}
+
+export function setHandshakeCallbacks(
+  state: MessageBridgeState,
+  callbacks: {
+    onPeerValidated?: (peerId: string) => void;
+    onPeerRejected?: (peerId: string, reason: string) => void;
+    onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
+    sendMessage?: (peerId: string, message: Message) => Promise<void>;
+    disconnectPeer?: (peerId: string) => Promise<void>;
+  }
+): MessageBridgeState {
+  return {
+    ...state,
+    onPeerValidated: callbacks.onPeerValidated,
+    onPeerRejected: callbacks.onPeerRejected,
+    onUpgradeRequired: callbacks.onUpgradeRequired,
+    sendMessage: callbacks.sendMessage,
+    disconnectPeer: callbacks.disconnectPeer,
+  };
+}
+
+export function isPeerValidated(state: MessageBridgeState, peerId: string): boolean {
+  return state.validatedPeers.has(peerId);
+}
+
+export function isHandshakeRequired(state: MessageBridgeState): boolean {
+  return state.config.networkConfig?.protocol.enforcementLevel !== 'none';
+}
+
+export async function initiateHandshake(
+  state: MessageBridgeState,
+  peerId: string
+): Promise<MessageBridgeState> {
+  const networkConfig = state.config.networkConfig;
+  if (!networkConfig || !state.sendMessage) {
+    state.validatedPeers.add(peerId);
+    return state;
+  }
+
+  if (state.validatedPeers.has(peerId) || state.pendingHandshakes.has(peerId)) {
+    return state;
+  }
+
+  const handshakeMessage = createHandshakeMessage(
+    state.config.nodeId,
+    peerId,
+    networkConfig
+  );
+
+  const timeoutId = setTimeout(() => {
+    if (state.pendingHandshakes.has(peerId)) {
+      state.pendingHandshakes.delete(peerId);
+      debug('handshake', `Handshake timeout for peer ${peerId}`);
+      if (networkConfig.protocol.enforcementLevel === 'strict') {
+        state.onPeerRejected?.(peerId, 'Handshake timeout');
+        state.disconnectPeer?.(peerId);
+      } else {
+        state.validatedPeers.add(peerId);
+        state.onPeerValidated?.(peerId);
+      }
+    }
+  }, HANDSHAKE_TIMEOUT_MS);
+
+  const pendingHandshakes = new Map(state.pendingHandshakes);
+  pendingHandshakes.set(peerId, { initiated: Date.now(), timeoutId });
+
+  await state.sendMessage(peerId, handshakeMessage);
+  debug('handshake', `Sent handshake to peer ${peerId}`);
+
+  return { ...state, pendingHandshakes };
+}
+
+export async function handleVersionHandshake(
+  state: MessageBridgeState,
+  peerId: string,
+  message: Message
+): Promise<MessageBridgeState> {
+  const networkConfig = state.config.networkConfig;
+  if (!networkConfig || !state.sendMessage) {
+    return state;
+  }
+
+  const payload = parseHandshakePayload(message.payload);
+  if (!payload) {
+    debug('handshake', `Invalid handshake payload from ${peerId}`);
+    return state;
+  }
+
+  debug('handshake', `Received handshake from ${peerId}, version ${formatVersion(payload.protocolVersion)}`);
+
+  const response = createHandshakeResponse(
+    state.config.nodeId,
+    peerId,
+    networkConfig.protocol,
+    payload.protocolVersion,
+    message.id
+  );
+
+  await state.sendMessage(peerId, response);
+
+  const responsePayload = parseHandshakeResponse(response.payload);
+  if (!responsePayload?.accepted && networkConfig.protocol.enforcementLevel === 'strict') {
+    const notice = createIncompatibleNotice(
+      state.config.nodeId,
+      peerId,
+      networkConfig.protocol,
+      payload.protocolVersion
+    );
+    await state.sendMessage(peerId, notice);
+
+    setTimeout(() => {
+      state.disconnectPeer?.(peerId);
+    }, DISCONNECT_DELAY_MS);
+
+    state.onPeerRejected?.(peerId, responsePayload?.reason ?? 'Version incompatible');
+    return state;
+  }
+
+  const validatedPeers = new Set(state.validatedPeers);
+  validatedPeers.add(peerId);
+  state.onPeerValidated?.(peerId);
+
+  return { ...state, validatedPeers };
+}
+
+export async function handleVersionHandshakeResponse(
+  state: MessageBridgeState,
+  peerId: string,
+  message: Message
+): Promise<MessageBridgeState> {
+  const pending = state.pendingHandshakes.get(peerId);
+  if (!pending) {
+    debug('handshake', `Received unexpected handshake response from ${peerId}`);
+    return state;
+  }
+
+  if (pending.timeoutId) {
+    clearTimeout(pending.timeoutId);
+  }
+
+  const pendingHandshakes = new Map(state.pendingHandshakes);
+  pendingHandshakes.delete(peerId);
+
+  const response = parseHandshakeResponse(message.payload);
+  if (!response) {
+    debug('handshake', `Invalid handshake response from ${peerId}`);
+    return { ...state, pendingHandshakes };
+  }
+
+  debug('handshake', `Handshake response from ${peerId}: accepted=${response.accepted}`);
+
+  if (!response.accepted) {
+    state.onUpgradeRequired?.(
+      peerId,
+      formatVersion(response.minProtocolVersion),
+      response.upgradeUrl
+    );
+    state.onPeerRejected?.(peerId, response.reason ?? 'Version incompatible');
+    return { ...state, pendingHandshakes };
+  }
+
+  const validatedPeers = new Set(state.validatedPeers);
+  validatedPeers.add(peerId);
+  state.onPeerValidated?.(peerId);
+
+  const queuedMessages = new Map(state.queuedMessages);
+  const queued = queuedMessages.get(peerId) ?? [];
+  queuedMessages.delete(peerId);
+
+  for (const queuedMessage of queued) {
+    const peerHandlers = state.directHandlers.get(peerId);
+    if (peerHandlers) {
+      for (const handler of peerHandlers) {
+        handler(queuedMessage);
+      }
+    }
+    const globalHandlers = state.directHandlers.get('*');
+    if (globalHandlers) {
+      for (const handler of globalHandlers) {
+        handler(queuedMessage);
+      }
+    }
+  }
+
+  return { ...state, pendingHandshakes, validatedPeers, queuedMessages };
+}
+
+export function handleVersionIncompatibleNotice(
+  state: MessageBridgeState,
+  peerId: string,
+  message: Message
+): MessageBridgeState {
+  const payload = message.payload as VersionHandshakePayload | null;
+  if (payload) {
+    console.warn(`[ecco] Version incompatible with peer ${peerId}. ${(message.payload as { message?: string })?.message ?? ''}`);
+    const notice = message.payload as { requiredMinVersion?: { major: number; minor: number; patch: number }; upgradeUrl?: string };
+    if (notice.requiredMinVersion) {
+      state.onUpgradeRequired?.(
+        peerId,
+        formatVersion(notice.requiredMinVersion),
+        notice.upgradeUrl
+      );
+    }
+  }
+  return state;
+}
+
+export function queueMessageForPeer(
+  state: MessageBridgeState,
+  peerId: string,
+  message: Message
+): MessageBridgeState {
+  const queuedMessages = new Map(state.queuedMessages);
+  const queued = queuedMessages.get(peerId) ?? [];
+  queued.push(message);
+  queuedMessages.set(peerId, queued);
+  return { ...state, queuedMessages };
+}
+
+export function markPeerValidated(
+  state: MessageBridgeState,
+  peerId: string
+): MessageBridgeState {
+  const validatedPeers = new Set(state.validatedPeers);
+  validatedPeers.add(peerId);
+  return { ...state, validatedPeers };
+}
+
+export function removePeerValidation(
+  state: MessageBridgeState,
+  peerId: string
+): MessageBridgeState {
+  const validatedPeers = new Set(state.validatedPeers);
+  validatedPeers.delete(peerId);
+  const pendingHandshakes = new Map(state.pendingHandshakes);
+  const pending = pendingHandshakes.get(peerId);
+  if (pending?.timeoutId) {
+    clearTimeout(pending.timeoutId);
+  }
+  pendingHandshakes.delete(peerId);
+  const queuedMessages = new Map(state.queuedMessages);
+  queuedMessages.delete(peerId);
+  return { ...state, validatedPeers, pendingHandshakes, queuedMessages };
 }
 

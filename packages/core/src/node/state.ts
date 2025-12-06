@@ -18,6 +18,7 @@ import { configDefaults, mergeConfig } from '../config';
 import * as storage from '../storage';
 import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
 import { createMessageDeduplicator, createRateLimiter } from '../utils/bloom-filter';
+import { SDK_PROTOCOL_VERSION } from '../networks';
 
 export type { StateRef } from './types';
 
@@ -70,6 +71,8 @@ export const createInitialState = (config: EccoConfig): NodeState => {
     swarmSplits: {},
     pendingSettlements: [],
     floodProtection: createFloodProtection(fullConfig),
+    protocolVersion: SDK_PROTOCOL_VERSION,
+    versionValidatedPeers: new Set(),
     ...(fullConfig.connectionPool ? { connectionPool: {
       config: { ...DEFAULT_CONFIG, ...fullConfig.connectionPool },
       connections: new Map(),

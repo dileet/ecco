@@ -9,6 +9,7 @@ import type {
   StakePosition,
   SwarmSplit,
   SettlementIntent,
+  ProtocolVersion,
 } from '../types';
 import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
@@ -71,4 +72,6 @@ export interface NodeState {
   transport?: HybridDiscoveryState;
   messageBridge?: MessageBridgeState;
   floodProtection: MessageFloodProtection;
+  protocolVersion: ProtocolVersion;
+  versionValidatedPeers: Set<string>;
 }

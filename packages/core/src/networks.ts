@@ -1,4 +1,10 @@
-import type { EccoConfig, DiscoveryMethod } from './types';
+import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig } from './types';
+
+export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
+  major: 1,
+  minor: 0,
+  patch: 0,
+};
 
 export interface NetworkConfig {
   networkId: string;
@@ -9,6 +15,7 @@ export interface NetworkConfig {
     timeout: number;
     minPeers: number;
   };
+  protocol: ProtocolConfig;
 }
 
 export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
@@ -27,6 +34,12 @@ export const ECCO_MAINNET: NetworkConfig = {
     timeout: 30000,
     minPeers: 1,
   },
+  protocol: {
+    currentVersion: SDK_PROTOCOL_VERSION,
+    minVersion: { major: 1, minor: 0, patch: 0 },
+    enforcementLevel: 'strict',
+    upgradeUrl: 'https://github.com/dileet/ecco',
+  },
 };
 
 export const ECCO_TESTNET: NetworkConfig = {
@@ -37,6 +50,11 @@ export const ECCO_TESTNET: NetworkConfig = {
     peers: [],
     timeout: 30000,
     minPeers: 1,
+  },
+  protocol: {
+    currentVersion: SDK_PROTOCOL_VERSION,
+    minVersion: { major: 1, minor: 0, patch: 0 },
+    enforcementLevel: 'warn',
   },
 };
 

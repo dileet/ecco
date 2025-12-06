@@ -142,7 +142,10 @@ export type MessageType =
   | 'stream-complete'
   | 'escrow-approval'
   | 'stake-confirmation'
-  | 'swarm-distribution';
+  | 'swarm-distribution'
+  | 'version-handshake'
+  | 'version-handshake-response'
+  | 'version-incompatible-notice';
 
 export interface CapabilityQuery {
   requiredCapabilities: Partial<Capability>[];
@@ -295,4 +298,40 @@ export interface SettlementIntent {
   createdAt: number;
   retryCount: number;
   maxRetries: number;
+}
+
+export interface ProtocolVersion {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+export type VersionEnforcementLevel = 'strict' | 'warn' | 'none';
+
+export interface ProtocolConfig {
+  currentVersion: ProtocolVersion;
+  minVersion: ProtocolVersion;
+  enforcementLevel: VersionEnforcementLevel;
+  upgradeUrl?: string;
+}
+
+export interface VersionHandshakePayload {
+  protocolVersion: ProtocolVersion;
+  networkId: string;
+  timestamp: number;
+}
+
+export interface VersionHandshakeResponse {
+  accepted: boolean;
+  protocolVersion: ProtocolVersion;
+  minProtocolVersion: ProtocolVersion;
+  reason?: string;
+  upgradeUrl?: string;
+}
+
+export interface VersionIncompatibleNotice {
+  requiredMinVersion: ProtocolVersion;
+  yourVersion: ProtocolVersion;
+  upgradeUrl?: string;
+  message: string;
 }
