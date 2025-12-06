@@ -1,11 +1,6 @@
-export type TransportType = 
+export type TransportType =
   | 'libp2p'
   | 'bluetooth-le'
-  | 'wifi-direct'
-  | 'multipeer'
-  | 'nfc'
-  | 'webrtc'
-  | 'websocket-relay'
   | 'custom';
 
 export type TransportState = 'disconnected' | 'connecting' | 'connected' | 'error';

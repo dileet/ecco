@@ -56,11 +56,6 @@ import {
   setLocalContext as setBLELocalContext,
 } from '../transport/adapters/bluetooth-le';
 import {
-  createWebRTCAdapter,
-  toAdapter as toWebRTCAdapter,
-  initialize as initWebRTCAdapter,
-} from '../transport/adapters/webrtc';
-import {
   createMessageBridge,
   setAuthState as setMessageBridgeAuth,
   handleIncomingBroadcast,
@@ -283,14 +278,10 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
   }
 
   const hasGossipEnabled = state.config.discovery.includes('gossip');
-  const hasProximityConfig = state.config.proximity?.bluetooth?.enabled ||
-                             state.config.proximity?.wifiDirect?.enabled ||
-                             state.config.proximity?.nfc?.enabled;
-  const hasWebRTCConfig = state.config.transport?.webrtc?.enabled;
-  
+  const hasProximityConfig = state.config.proximity?.bluetooth?.enabled;
+
   const shouldSetupTransport = hasGossipEnabled ||
-                               hasProximityConfig || 
-                               hasWebRTCConfig ||
+                               hasProximityConfig ||
                                state.config.discovery.includes('bluetooth');
 
   if (!shouldSetupTransport) {
@@ -336,16 +327,6 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     
     bleAdapterState = setBLELocalContext(bleAdapterState, localContext);
     hybridDiscovery = registerHybridAdapter(hybridDiscovery, toBLEAdapter(bleAdapterState));
-  }
-
-  if (state.config.transport?.webrtc?.enabled) {
-    const webrtcAdapterState = createWebRTCAdapter(state.id, {
-      signalingServer: state.config.transport.webrtc.signalingServer,
-      iceServers: state.config.transport.webrtc.iceServers,
-    });
-    
-    const initializedWebRTC = await initWebRTCAdapter(webrtcAdapterState);
-    hybridDiscovery = registerHybridAdapter(hybridDiscovery, toWebRTCAdapter(initializedWebRTC));
   }
 
   hybridDiscovery = await startHybridDiscovery(hybridDiscovery);

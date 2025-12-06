@@ -53,11 +53,11 @@ const DEFAULT_CONFIG: HybridDiscoveryConfig = {
   retryDelay: 1000,
 };
 
-const DEFAULT_PHASE_MAPPING: Map<DiscoveryPhase, TransportType[]> = new Map([
-  ['proximity', ['bluetooth-le', 'nfc', 'wifi-direct']],
-  ['local', ['libp2p', 'multipeer']],
-  ['internet', ['webrtc', 'websocket-relay']],
-  ['fallback', ['libp2p', 'webrtc']],
+const DEFAULT_PHASE_MAPPING = new Map<DiscoveryPhase, TransportType[]>([
+  ['proximity', ['bluetooth-le']],
+  ['local', ['libp2p']],
+  ['internet', ['libp2p']],
+  ['fallback', ['libp2p']],
 ]);
 
 export function createHybridDiscovery(
@@ -302,7 +302,7 @@ function getTransportPriority(
 }
 
 function isProximityTransport(transport: TransportType): boolean {
-  return ['bluetooth-le', 'nfc', 'wifi-direct'].includes(transport);
+  return transport === 'bluetooth-le';
 }
 
 export async function sendWithFallback(

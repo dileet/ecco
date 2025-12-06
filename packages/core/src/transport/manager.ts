@@ -231,11 +231,7 @@ export function getBestTransportForPeer(
   if (proximity?.distance === 'immediate' && state.adapters.has('bluetooth-le')) {
     return 'bluetooth-le';
   }
-  
-  if (proximity?.distance === 'near' && state.adapters.has('wifi-direct')) {
-    return 'wifi-direct';
-  }
-  
+
   if (state.adapters.has('libp2p')) {
     return 'libp2p';
   }

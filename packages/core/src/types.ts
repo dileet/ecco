@@ -1,11 +1,9 @@
-export type DiscoveryMethod = 
-  | 'mdns' 
-  | 'dht' 
-  | 'gossip' 
+export type DiscoveryMethod =
+  | 'mdns'
+  | 'dht'
+  | 'gossip'
   | 'registry'
-  | 'bluetooth'
-  | 'wifi-direct'
-  | 'nfc';
+  | 'bluetooth';
 
 export interface MemoryLimitsConfig {
   maxPeers?: number;
@@ -65,12 +63,6 @@ export interface ProximityConfig {
     scan?: boolean;
     serviceUUID?: string;
   };
-  wifiDirect?: {
-    enabled: boolean;
-  };
-  nfc?: {
-    enabled: boolean;
-  };
   autoConnect?: boolean;
   signalThreshold?: number;
   localContext?: {
@@ -85,15 +77,6 @@ export interface TransportConfig {
   websocket?: {
     enabled: boolean;
     port?: number;
-  };
-  webrtc?: {
-    enabled: boolean;
-    signalingServer?: string;
-    iceServers?: Array<{
-      urls: string | string[];
-      username?: string;
-      credential?: string;
-    }>;
   };
 }
 

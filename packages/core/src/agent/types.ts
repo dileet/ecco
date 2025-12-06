@@ -46,6 +46,17 @@ export interface AgentEmbeddingConfig {
   embedFn: EmbedFn
 }
 
+export interface BluetoothTransportConfig {
+  enabled: boolean
+  role?: 'central' | 'peripheral' | 'both'
+  serviceUUID?: string
+  localName?: string
+}
+
+export interface TransportsConfig {
+  bluetooth?: BluetoothTransportConfig
+}
+
 export interface PricingConfig {
   type: 'streaming' | 'escrow' | 'swarm'
   chainId: number
@@ -147,6 +158,7 @@ export interface AgentConfig {
   discovery?: DiscoveryMethod[]
   pricing?: PricingConfig
   embedding?: AgentEmbeddingConfig
+  transports?: TransportsConfig
 }
 
 export interface ConsensusRequestOptions {

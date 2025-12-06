@@ -52,11 +52,9 @@ export {
 
 export * as bleAdapter from './adapters/bluetooth-le';
 export * as libp2pAdapter from './adapters/libp2p';
-export * as webrtcAdapter from './adapters/webrtc';
 
 export type { BLENativeBridge, BLEAdapterConfig } from './adapters/bluetooth-le';
 export type { Libp2pAdapterConfig } from './adapters/libp2p';
-export type { WebRTCAdapterConfig, RTCIceServer } from './adapters/webrtc';
 
 export {
   createMessageBridge,

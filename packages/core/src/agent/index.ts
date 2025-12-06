@@ -119,6 +119,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   let orchestratorState: OrchestratorState = initialOrchestratorState
   let agentInstance: Agent | null = null
 
+  const bluetoothConfig = config.transports?.bluetooth
+  const hasBluetoothEnabled = bluetoothConfig?.enabled === true
+
   const baseConfig = {
     discovery: config.discovery ?? ['dht', 'gossip'] as const,
     nodeId: config.name,
@@ -130,6 +133,20 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         peers: bootstrapAddrs,
         timeout: 10000,
         minPeers: 1,
+      },
+    }),
+    ...(hasBluetoothEnabled && {
+      proximity: {
+        bluetooth: {
+          enabled: true,
+          advertise: bluetoothConfig.role === 'peripheral' || bluetoothConfig.role === 'both' || bluetoothConfig.role === undefined,
+          scan: bluetoothConfig.role === 'central' || bluetoothConfig.role === 'both' || bluetoothConfig.role === undefined,
+          serviceUUID: bluetoothConfig.serviceUUID,
+        },
+        localContext: {
+          locationName: bluetoothConfig.localName ?? config.name,
+          capabilities: allCapabilities.map(c => c.name),
+        },
       },
     }),
     authentication: {

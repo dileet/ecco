@@ -253,7 +253,6 @@ export type {
 
 export * as bleAdapter from './transport/adapters/bluetooth-le';
 export * as libp2pTransport from './transport/adapters/libp2p';
-export * as webrtcTransport from './transport/adapters/webrtc';
 
 export {
   createMessageBridge,
