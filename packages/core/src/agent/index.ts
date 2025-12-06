@@ -11,7 +11,7 @@ import {
   loadOrCreateNodeIdentity,
 } from '../node'
 import { createWalletState, getAddress, type WalletState } from '../services/wallet'
-import { ECCO_TESTNET, ECCO_MAINNET } from '../networks'
+import { ECCO_TESTNET, ECCO_MAINNET, type NetworkConfig } from '../networks'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -67,6 +67,12 @@ function getExplicitTokens(payload: unknown): number | null {
   return null
 }
 
+function resolveNetworkConfig(network: AgentConfig['network']): NetworkConfig {
+  if (Array.isArray(network)) return ECCO_MAINNET
+  if (network === 'testnet') return ECCO_TESTNET
+  return ECCO_MAINNET
+}
+
 function resolveBootstrapAddrs(network: AgentConfig['network']): string[] {
   if (!network) return []
   if (network === 'testnet') return ECCO_TESTNET.bootstrap.peers
@@ -76,13 +82,14 @@ function resolveBootstrapAddrs(network: AgentConfig['network']): string[] {
 }
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
+  const networkConfig = resolveNetworkConfig(config.network)
   const bootstrapAddrs = resolveBootstrapAddrs(config.network)
   const hasBootstrap = bootstrapAddrs.length > 0
 
   const identity = await loadOrCreateNodeIdentity({
     nodeId: config.name,
     capabilities: config.capabilities,
-    discovery: config.discovery ?? ['dht', 'gossip'],
+    discovery: networkConfig.discovery,
   })
 
   const ethereumPrivateKey = config.wallet?.privateKey
@@ -123,7 +130,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const hasBluetoothEnabled = bluetoothConfig?.enabled === true
 
   const baseConfig = {
-    discovery: config.discovery ?? ['dht', 'gossip'] as const,
+    discovery: networkConfig.discovery,
     nodeId: config.name,
     capabilities: allCapabilities,
     transport: { websocket: { enabled: true } },

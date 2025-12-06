@@ -16,9 +16,11 @@ export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
   // '/dns4/bootstrap.yourdomain.com/tcp/4001/p2p/YOUR_PEER_ID',
 ];
 
+const DEFAULT_DISCOVERY: DiscoveryMethod[] = ['mdns', 'dht', 'gossip'];
+
 export const ECCO_MAINNET: NetworkConfig = {
   networkId: 'ecco-mainnet',
-  discovery: ['dht', 'gossip'],
+  discovery: DEFAULT_DISCOVERY,
   bootstrap: {
     enabled: OFFICIAL_BOOTSTRAP_PEERS.length > 0,
     peers: OFFICIAL_BOOTSTRAP_PEERS,
@@ -29,23 +31,12 @@ export const ECCO_MAINNET: NetworkConfig = {
 
 export const ECCO_TESTNET: NetworkConfig = {
   networkId: 'ecco-testnet',
-  discovery: ['dht', 'gossip'],
+  discovery: DEFAULT_DISCOVERY,
   bootstrap: {
     enabled: false,
     peers: [],
     timeout: 30000,
     minPeers: 1,
-  },
-};
-
-export const ECCO_LOCAL: NetworkConfig = {
-  networkId: 'ecco-local',
-  discovery: ['mdns', 'gossip'],
-  bootstrap: {
-    enabled: false,
-    peers: [],
-    timeout: 30000,
-    minPeers: 0,
   },
 };
 
@@ -74,7 +65,6 @@ export function withBootstrapPeers(
 export const NETWORKS = {
   mainnet: ECCO_MAINNET,
   testnet: ECCO_TESTNET,
-  local: ECCO_LOCAL,
 } as const;
 
 export type NetworkName = keyof typeof NETWORKS;

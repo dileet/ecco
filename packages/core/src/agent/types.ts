@@ -2,7 +2,6 @@ import type {
   Capability,
   CapabilityMatch,
   CapabilityQuery,
-  DiscoveryMethod,
   Invoice,
   Message,
   MessageType,
@@ -155,7 +154,6 @@ export interface AgentConfig {
   generateFn?: GenerateFn
   streamGenerateFn?: StreamGenerateFn
   wallet?: AgentWalletConfig
-  discovery?: DiscoveryMethod[]
   pricing?: PricingConfig
   embedding?: AgentEmbeddingConfig
   transports?: TransportsConfig
