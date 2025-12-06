@@ -32,6 +32,7 @@ export const majorityVote: AggregationStrategyFn = async (responses, config) => 
       embeddingModel: config.semanticSimilarity.embeddingModel,
       requireExchange: config.semanticSimilarity.requireExchange,
       nodeRef: config.nodeRef,
+      localEmbedFn: config.semanticSimilarity.localEmbedFn,
     });
 
     return {

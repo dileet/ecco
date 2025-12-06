@@ -16,7 +16,6 @@ import type {
   AgentResponse,
   AggregatedResult,
   SelectionStrategy,
-  AggregationStrategy,
   SemanticSimilarityConfig,
   LoadBalancingConfig,
 } from '../orchestrator/types'
@@ -141,18 +140,21 @@ export interface AgentConfig {
   capabilities: Capability[]
   handler?: (msg: Message, ctx: MessageContext) => Promise<void>
   personality?: string
+  systemPrompt?: string
   model?: unknown
   generateFn?: GenerateFn
   streamGenerateFn?: StreamGenerateFn
   wallet?: AgentWalletConfig
   discovery?: DiscoveryMethod[]
   pricing?: PricingConfig
+  embedding?: AgentEmbeddingConfig
 }
 
 export interface ConsensusRequestOptions {
   query: string
   config?: Partial<MultiAgentConfig>
   capabilityQuery?: CapabilityQuery
+  additionalResponses?: AgentResponse[]
 }
 
 export interface ConsensusResult {
@@ -178,6 +180,8 @@ export interface Agent {
   address: string | null
   capabilities: Capability[]
   payments: PaymentHelpers
+  hasEmbedding: boolean
+  embed: ((texts: string[]) => Promise<number[][]>) | null
   findPeers: (query?: CapabilityQuery) => Promise<CapabilityMatch[]>
   request: (peerId: string, prompt: string) => Promise<AgentResponse>
   requestConsensus: (options: ConsensusRequestOptions) => Promise<ConsensusResult>
@@ -186,30 +190,27 @@ export interface Agent {
   query: (prompt: string, config?: QueryConfig) => Promise<ConsensusResult>
 }
 
-export interface LocalNetworkConfig {
-  agents: Agent[]
-  embedding?: AgentEmbeddingConfig
-  wallet?: AgentWalletConfig
-}
-
-export interface NetworkQueryConfig {
+interface BaseNetworkQueryConfig {
   selectionStrategy?: SelectionStrategy
-  aggregationStrategy?: AggregationStrategy
   consensusThreshold?: number
   timeout?: number
   allowPartialResults?: boolean
-  semanticSimilarity?: SemanticSimilarityConfig
   agentCount?: number
   minAgents?: number
   loadBalancing?: LoadBalancingConfig
 }
 
-export interface LocalNetwork {
-  agents: Agent[]
-  embedding: Agent | null
-  query: (prompt: string, config?: NetworkQueryConfig) => Promise<ConsensusResult>
-  shutdown: () => Promise<void>
+interface SemanticAggregationConfig extends BaseNetworkQueryConfig {
+  aggregationStrategy?: 'consensus-threshold' | 'majority-vote'
+  semanticSimilarity?: SemanticSimilarityConfig
 }
+
+interface NonSemanticAggregationConfig extends BaseNetworkQueryConfig {
+  aggregationStrategy: 'best-score' | 'ensemble' | 'weighted-vote' | 'first-response' | 'longest' | 'custom'
+  semanticSimilarity?: never
+}
+
+export type NetworkQueryConfig = SemanticAggregationConfig | NonSemanticAggregationConfig
 
 export type DiscoveryPriority = 'proximity' | 'local' | 'internet' | 'fallback'
 
@@ -227,10 +228,14 @@ export interface PeerScoringConfig {
   proximityBonus?: number
 }
 
-export interface QueryConfig extends NetworkQueryConfig {
+interface QueryConfigExtras {
   discovery?: DiscoveryOptions
   peerScoring?: PeerScoringConfig
+  includeSelf?: boolean
+  systemPrompt?: string
 }
+
+export type QueryConfig = NetworkQueryConfig & QueryConfigExtras
 
 export interface PriorityDiscoveryConfig {
   phases: DiscoveryPriority[]

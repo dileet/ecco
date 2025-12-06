@@ -293,8 +293,6 @@ export {
   type EmbedFn,
   type AgentEmbeddingConfig,
   type NetworkOption,
-  type LocalNetworkConfig,
-  type LocalNetwork,
   type NetworkQueryConfig,
   type StreamChunk,
   type QueryConfig,
@@ -303,5 +301,3 @@ export {
   type PeerScoringConfig,
   type PriorityDiscoveryConfig,
 } from './agent';
-
-export { createLocalNetwork } from './agent/local-network';

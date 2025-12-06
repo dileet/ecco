@@ -172,7 +172,8 @@ export const executeOrchestration = async (
   state: OrchestratorState,
   query: CapabilityQuery,
   payload: unknown,
-  config: MultiAgentConfig
+  config: MultiAgentConfig,
+  additionalResponses: AgentResponse[] = []
 ): Promise<{ result: AggregatedResult; state: OrchestratorState }> => {
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
@@ -332,7 +333,8 @@ export const executeOrchestration = async (
     });
 
     const results = await Promise.all(agentPromises);
-    const responses = results.map((r) => r.response);
+    const peerResponses = results.map((r) => r.response);
+    const allResponses = [...additionalResponses, ...peerResponses];
 
     if (results.length > 0) {
       currentState = results[results.length - 1].state;
@@ -343,7 +345,7 @@ export const executeOrchestration = async (
       nodeRef,
     };
 
-    const result = await aggregateResponses(responses, configWithRef);
+    const result = await aggregateResponses(allResponses, configWithRef);
     result.metrics.totalTime = Date.now() - startTime;
 
     return { result, state: currentState };

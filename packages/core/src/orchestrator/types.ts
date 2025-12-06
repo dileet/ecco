@@ -1,5 +1,6 @@
 import type { PeerInfo } from '../types';
 import type { NodeState, StateRef } from '../node/types';
+import type { EmbedFn } from '../agent/types';
 
 export type SelectionStrategy =
   | 'all'
@@ -40,6 +41,7 @@ export interface SemanticSimilarityConfig {
   embeddingModel?: string;
   requireExchange?: boolean;
   customSimilarityFn?: (text1: string, text2: string) => Promise<number>;
+  localEmbedFn?: EmbedFn;
 }
 
 export interface LoadBalancingConfig {

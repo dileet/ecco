@@ -2,13 +2,10 @@ import { streamText, embed } from 'ai'
 import { openai } from '@ai-sdk/openai'
 import {
   createAgent,
-  createLocalNetwork,
   delay,
-  type Agent,
-  type LocalNetwork,
   type StreamGenerateFn,
   type EmbedFn,
-  type NetworkQueryConfig,
+  type QueryConfig,
 } from '@ecco/core'
 
 const EMBEDDING_MODEL = openai.embedding('text-embedding-3-small')
@@ -33,7 +30,7 @@ const embedFn: EmbedFn = async (texts) => {
 }
 
 async function main(): Promise<void> {
-  console.log('=== Multi-Agent Consensus with Peer Embedding ===\n')
+  console.log('=== Multi-Agent Consensus with Per-Agent Embedding ===\n')
 
   if (!process.env.OPENAI_API_KEY) {
     console.error('Error: OPENAI_API_KEY environment variable is required')
@@ -48,8 +45,12 @@ async function main(): Promise<void> {
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
     streamGenerateFn: streamGenerate,
+    embedding: {
+      embedFn,
+      modelId: 'text-embedding-3-small',
+    },
   })
-  console.log(`[${analyticalAgent.id.slice(0, 20)}...] Analytical agent started`)
+  console.log(`[${analyticalAgent.id.slice(0, 20)}...] Analytical agent started (with embedding)`)
 
   await delay(500)
 
@@ -75,21 +76,7 @@ async function main(): Promise<void> {
   })
   console.log(`[${practicalAgent.id.slice(0, 20)}...] Practical agent started`)
 
-  console.log('\n--- Starting Local Network ---\n')
-
-  const agents: Agent[] = [analyticalAgent, creativeAgent, practicalAgent]
-
-  const network: LocalNetwork = await createLocalNetwork({
-    agents,
-    embedding: {
-      embedFn,
-      modelId: 'text-embedding-3-small',
-    },
-  })
-
-  if (network.embedding) {
-    console.log(`[embedding-provider] Started with peer ID: ${network.embedding.id}`)
-  }
+  await delay(2000)
 
   console.log('\n--- Running Multi-Agent Queries ---\n')
 
@@ -98,16 +85,16 @@ async function main(): Promise<void> {
     'How can teams improve their collaboration and productivity?',
   ]
 
-  for (const query of queries) {
-    console.log(`\nQuery: "${query}"\n`)
+  for (const queryText of queries) {
+    console.log(`\nQuery: "${queryText}"\n`)
 
     try {
-      const result = await network.query(query, {
+      const result = await analyticalAgent.query(queryText, {
+        includeSelf: true,
         semanticSimilarity: {
           enabled: true,
           method: 'peer-embedding',
           threshold: 0.75,
-          requireExchange: false,
         },
       })
 
@@ -123,23 +110,47 @@ async function main(): Promise<void> {
 
   console.log('\n--- Alternative Aggregation Strategies ---\n')
 
-  const baseConfig: NetworkQueryConfig = {
-    consensusThreshold: 0.6,
-    timeout: 60000,
-    allowPartialResults: true,
-  }
-
-  const strategies: Array<{ name: string; config: NetworkQueryConfig }> = [
-    { name: 'Majority Vote', config: { ...baseConfig, aggregationStrategy: 'majority-vote' } },
-    { name: 'Best Score', config: { ...baseConfig, aggregationStrategy: 'best-score' } },
-    { name: 'Ensemble', config: { ...baseConfig, aggregationStrategy: 'ensemble' } },
+  const strategies: Array<{ name: string; config: QueryConfig }> = [
+    {
+      name: 'Majority Vote',
+      config: {
+        includeSelf: true,
+        timeout: 60000,
+        allowPartialResults: true,
+        aggregationStrategy: 'majority-vote',
+        consensusThreshold: 0.6,
+        semanticSimilarity: {
+          enabled: true,
+          method: 'peer-embedding',
+          threshold: 0.75,
+        },
+      },
+    },
+    {
+      name: 'Best Score',
+      config: {
+        includeSelf: true,
+        timeout: 60000,
+        allowPartialResults: true,
+        aggregationStrategy: 'best-score',
+      },
+    },
+    {
+      name: 'Ensemble',
+      config: {
+        includeSelf: true,
+        timeout: 60000,
+        allowPartialResults: true,
+        aggregationStrategy: 'ensemble',
+      },
+    },
   ]
 
   for (const { name, config } of strategies) {
     console.log(`Strategy: ${name}`)
 
     try {
-      const result = await network.query('Give a one-sentence tip for writing clean code.', config)
+      const result = await analyticalAgent.query('Give a one-sentence tip for writing clean code.', config)
 
       console.log(`  Answer: ${result.text}`)
       console.log(`  Confidence: ${(result.consensus.confidence * 100).toFixed(1)}%\n`)
@@ -150,8 +161,10 @@ async function main(): Promise<void> {
 
   console.log('--- Shutting Down ---\n')
 
-  await network.shutdown()
-  console.log('[network] Stopped')
+  await analyticalAgent.stop()
+  await creativeAgent.stop()
+  await practicalAgent.stop()
+  console.log('[agents] Stopped')
 
   console.log('\nExample complete!')
   process.exit(0)

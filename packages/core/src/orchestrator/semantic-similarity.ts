@@ -1,4 +1,5 @@
 import type { NodeState, StateRef } from '../node/types';
+import type { EmbedFn } from '../agent/types';
 import { requestEmbeddings } from '../services/embedding';
 
 export type SimilarityMethod = 'text-overlap' | 'openai-embedding' | 'peer-embedding' | 'custom';
@@ -11,6 +12,7 @@ export type SimilarityConfig = {
   requireExchange?: boolean;
   nodeRef?: StateRef<NodeState>;
   customSimilarityFn?: (text1: string, text2: string) => Promise<number>;
+  localEmbedFn?: EmbedFn;
 };
 
 export type SimilarityResult = {
@@ -167,15 +169,23 @@ const openaiEmbeddingSimilarity = async (
 const peerEmbeddingSimilarity = async (
   text1: string,
   text2: string,
-  nodeRef: StateRef<NodeState>,
-  config: { requireExchange?: boolean; model?: string }
+  nodeRef: StateRef<NodeState> | undefined,
+  config: { requireExchange?: boolean; model?: string; localEmbedFn?: EmbedFn }
 ): Promise<number> => {
   try {
-    const embeddings = await requestEmbeddings(
-      nodeRef,
-      [normalizeText(text1), normalizeText(text2)],
-      config
-    );
+    let embeddings: number[][];
+
+    if (config.localEmbedFn) {
+      embeddings = await config.localEmbedFn([normalizeText(text1), normalizeText(text2)]);
+    } else if (nodeRef) {
+      embeddings = await requestEmbeddings(
+        nodeRef,
+        [normalizeText(text1), normalizeText(text2)],
+        { requireExchange: config.requireExchange, model: config.model }
+      );
+    } else {
+      return textOverlapSimilarity(text1, text2);
+    }
 
     return cosineSimilarityFromEmbeddings(embeddings[0], embeddings[1]);
   } catch {
@@ -196,12 +206,13 @@ export const calculateSimilarity = async (
 
   switch (method) {
     case 'peer-embedding':
-      if (!config.nodeRef) {
+      if (!config.nodeRef && !config.localEmbedFn) {
         similarity = textOverlapSimilarity(text1, text2);
       } else {
         similarity = await peerEmbeddingSimilarity(text1, text2, config.nodeRef, {
           requireExchange: config.requireExchange,
           model: config.embeddingModel,
+          localEmbedFn: config.localEmbedFn,
         });
       }
       break;

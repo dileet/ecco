@@ -1,4 +1,4 @@
-import type { Message, MessageType, CapabilityQuery, CapabilityMatch } from '../types'
+import type { Message, MessageType, CapabilityQuery, CapabilityMatch, EmbeddingCapability } from '../types'
 import {
   createAgent as createBaseAgent,
   stop as stopNode,
@@ -32,6 +32,7 @@ import type {
 } from './types'
 import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement } from './payments'
+import { setupEmbeddingProvider } from '../services/embedding'
 import type { EccoEvent } from '../events'
 import { z } from 'zod'
 
@@ -99,13 +100,29 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState)
 
+  const hasEmbeddingConfig = config.embedding !== undefined
+
+  const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig
+    ? {
+        type: 'embedding',
+        name: config.embedding!.modelId,
+        version: '1.0.0',
+        provider: 'self',
+        model: config.embedding!.modelId,
+      }
+    : null
+
+  const allCapabilities = embeddingCapability
+    ? [...config.capabilities, embeddingCapability]
+    : config.capabilities
+
   let orchestratorState: OrchestratorState = initialOrchestratorState
   let agentInstance: Agent | null = null
 
   const baseConfig = {
     discovery: config.discovery ?? ['dht', 'gossip'] as const,
     nodeId: config.name,
-    capabilities: config.capabilities,
+    capabilities: allCapabilities,
     transport: { websocket: { enabled: true } },
     ...(hasBootstrap && {
       bootstrap: {
@@ -260,6 +277,19 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   await broadcastCapabilities(baseAgent.ref)
   await delay(500)
 
+  if (hasEmbeddingConfig && config.embedding) {
+    setupEmbeddingProvider({
+      nodeRef: baseAgent.ref,
+      embedFn: config.embedding.embedFn,
+      modelId: config.embedding.modelId,
+      libp2pPeerId: getLibp2pPeerId(baseAgent.ref),
+    })
+  }
+
+  const embed = hasEmbeddingConfig && config.embedding
+    ? async (texts: string[]): Promise<number[][]> => config.embedding!.embedFn(texts)
+    : null
+
   const findPeers = async (query?: CapabilityQuery): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
     return findPeersBase(baseAgent.ref, effectiveQuery)
@@ -350,6 +380,13 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       ...options.config,
     }
 
+    if (hasEmbeddingConfig && config.embedding && mergedConfig.semanticSimilarity?.enabled) {
+      mergedConfig.semanticSimilarity = {
+        ...mergedConfig.semanticSimilarity,
+        localEmbedFn: config.embedding.embedFn,
+      }
+    }
+
     const capabilityQuery: CapabilityQuery = options.capabilityQuery ?? {
       requiredCapabilities: [],
     }
@@ -361,7 +398,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       orchestratorState,
       capabilityQuery,
       payload,
-      mergedConfig
+      mergedConfig,
+      options.additionalResponses ?? []
     )
 
     orchestratorState = state
@@ -408,13 +446,74 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       preferProximity: discoveryConfig.preferProximity ?? true,
     })
 
-    if (peers.length === 0) {
+    if (peers.length === 0 && !queryConfig?.includeSelf) {
       throw new Error('No peers discovered for query')
+    }
+
+    const additionalResponses: AgentResponse[] = []
+
+    if (queryConfig?.includeSelf && config.model && (config.generateFn || config.streamGenerateFn)) {
+      const startTime = Date.now()
+      const systemPrompt = queryConfig.systemPrompt
+        ?? config.systemPrompt
+        ?? (config.personality ? `You are a helpful assistant with this personality: ${config.personality}.` : 'You are a helpful assistant.')
+
+      try {
+        let responseText = ''
+
+        if (config.streamGenerateFn) {
+          const generator = config.streamGenerateFn({
+            model: config.model,
+            system: systemPrompt,
+            prompt,
+          })
+          for await (const chunk of generator) {
+            responseText += chunk.text
+          }
+        } else if (config.generateFn) {
+          const result = await config.generateFn({
+            model: config.model,
+            system: systemPrompt,
+            prompt,
+          })
+          responseText = result.text
+        }
+
+        additionalResponses.push({
+          peer: {
+            id: baseAgent.id,
+            addresses: baseAgent.addrs,
+            capabilities: allCapabilities,
+            lastSeen: Date.now(),
+          },
+          matchScore: 1,
+          response: { text: responseText },
+          timestamp: Date.now(),
+          latency: Date.now() - startTime,
+          success: true,
+        })
+      } catch (error) {
+        additionalResponses.push({
+          peer: {
+            id: baseAgent.id,
+            addresses: baseAgent.addrs,
+            capabilities: allCapabilities,
+            lastSeen: Date.now(),
+          },
+          matchScore: 1,
+          response: null,
+          timestamp: Date.now(),
+          latency: Date.now() - startTime,
+          error: error as Error,
+          success: false,
+        })
+      }
     }
 
     return requestConsensus({
       query: prompt,
       capabilityQuery,
+      additionalResponses,
       config: {
         selectionStrategy: queryConfig?.selectionStrategy ?? 'all',
         aggregationStrategy: queryConfig?.aggregationStrategy ?? 'consensus-threshold',
@@ -451,8 +550,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     ref: baseAgent.ref,
     wallet: walletState,
     address: walletState ? getAddress(walletState) : null,
-    capabilities: config.capabilities,
+    capabilities: allCapabilities,
     payments,
+    hasEmbedding: hasEmbeddingConfig,
+    embed,
     findPeers,
     request,
     requestConsensus,
