@@ -139,7 +139,6 @@ export interface AgentConfig {
   network?: NetworkOption
   capabilities: Capability[]
   handler?: (msg: Message, ctx: MessageContext) => Promise<void>
-  personality?: string
   systemPrompt?: string
   model?: unknown
   generateFn?: GenerateFn

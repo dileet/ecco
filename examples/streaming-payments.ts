@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   const service = await createAgent({
     name: 'streaming-service',
     capabilities: [{ type: 'agent', name: 'text-generator', version: '1.0.0' }],
-    personality: 'helpful assistant',
+    systemPrompt: 'You are a helpful assistant.',
     model: {},
     streamGenerateFn: streamGenerate,
     wallet: { rpcUrls },

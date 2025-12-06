@@ -41,20 +41,16 @@ export function extractPromptText(prompt: unknown): string {
 }
 
 interface LLMHandlerConfig {
-  personality: string
+  systemPrompt: string
   model: unknown
   generateFn?: GenerateFn
   streamGenerateFn?: StreamGenerateFn
-  systemTemplate?: (personality: string) => string
 }
-
-const defaultSystemTemplate = (personality: string): string =>
-  `You are a helpful assistant with this personality: ${personality}. Keep responses concise (2-3 sentences).`
 
 export function createLLMHandler(
   config: LLMHandlerConfig
 ): (msg: Message, ctx: MessageContext) => Promise<void> {
-  const { personality, model, generateFn, streamGenerateFn, systemTemplate = defaultSystemTemplate } = config
+  const { systemPrompt, model, generateFn, streamGenerateFn } = config
 
   if (!generateFn && !streamGenerateFn) {
     throw new Error('Either generateFn or streamGenerateFn must be provided')
@@ -71,7 +67,7 @@ export function createLLMHandler(
 
     const genOptions = {
       model,
-      system: systemTemplate(personality),
+      system: systemPrompt,
       prompt: promptText,
     }
 

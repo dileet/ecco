@@ -138,10 +138,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     },
   }
 
+  const defaultSystemPrompt = 'You are a helpful assistant.'
+
   const messageHandler = config.handler ??
-    (config.personality && config.model && (config.generateFn || config.streamGenerateFn)
+    (config.model && (config.generateFn || config.streamGenerateFn)
       ? createLLMHandler({
-          personality: config.personality,
+          systemPrompt: config.systemPrompt ?? defaultSystemPrompt,
           model: config.model,
           generateFn: config.generateFn,
           streamGenerateFn: config.streamGenerateFn,
@@ -456,7 +458,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       const startTime = Date.now()
       const systemPrompt = queryConfig.systemPrompt
         ?? config.systemPrompt
-        ?? (config.personality ? `You are a helpful assistant with this personality: ${config.personality}.` : 'You are a helpful assistant.')
+        ?? defaultSystemPrompt
 
       try {
         let responseText = ''

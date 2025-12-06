@@ -165,7 +165,7 @@ async function createCustomerAgent(bootstrapAddrs?: string[]): Promise<Agent> {
     name: 'johns-assistant',
     network: bootstrapAddrs,
     capabilities: [{ type: 'personal', name: 'assistant', version: '1.0.0' }],
-    personality: 'helpful personal assistant who helps the user order food and drinks',
+    systemPrompt: 'You are a helpful personal assistant who helps the user order food and drinks.',
     model: MODEL,
     streamGenerateFn: streamGenerate,
     wallet: { rpcUrls },

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 
   const analyticalAgent = await createAgent({
     name: 'agent-analytical',
-    personality: 'analytical and data-driven, focusing on facts and logic',
+    systemPrompt: 'You are an analytical and data-driven assistant, focusing on facts and logic. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
     streamGenerateFn: streamGenerate,
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   const creativeAgent = await createAgent({
     name: 'agent-creative',
     network: analyticalAgent.addrs,
-    personality: 'creative and imaginative, offering unique perspectives',
+    systemPrompt: 'You are a creative and imaginative assistant, offering unique perspectives. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
     streamGenerateFn: streamGenerate,
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   const practicalAgent = await createAgent({
     name: 'agent-practical',
     network: analyticalAgent.addrs,
-    personality: 'practical and straightforward, focusing on actionable advice',
+    systemPrompt: 'You are a practical and straightforward assistant, focusing on actionable advice. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
     streamGenerateFn: streamGenerate,
