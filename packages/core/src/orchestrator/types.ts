@@ -35,7 +35,7 @@ export interface MultiAgentConfig {
 
 export interface SemanticSimilarityConfig {
   enabled: boolean;
-  method?: 'text-overlap' | 'openai-embedding' | 'peer-embedding' | 'custom';
+  method?: 'text-overlap' | 'local-embedding' | 'openai-embedding' | 'peer-embedding' | 'custom';
   threshold?: number;
   openaiApiKey?: string;
   embeddingModel?: string;

@@ -180,7 +180,8 @@ export const executeOrchestration = async (
 
   const allMatches = await findPeers(nodeRef, query);
 
-  const validation = validateAgentCount(allMatches.length, config.minAgents || 1);
+  const totalAgentCount = allMatches.length + additionalResponses.length;
+  const validation = validateAgentCount(totalAgentCount, config.minAgents || 1);
   if (!validation.valid) {
     throw new Error(validation.error);
   }

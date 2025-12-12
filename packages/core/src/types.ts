@@ -101,6 +101,14 @@ export interface EmbeddingCapability extends Capability {
   dimensions?: number;
 }
 
+export interface ModelCapability extends Capability {
+  type: 'model';
+  modelType: 'text-generation' | 'embedding' | 'both';
+  modelName: string;
+  contextLength?: number;
+  quantization?: string;
+}
+
 export interface PeerInfo {
   id: string;
   addresses: string[];
@@ -129,6 +137,10 @@ export type MessageType =
   | 'agent-response'
   | 'embedding-request'
   | 'embedding-response'
+  | 'generation-request'
+  | 'generation-response'
+  | 'generation-stream-chunk'
+  | 'generation-stream-complete'
   | 'gossip'
   | 'ping'
   | 'pong'

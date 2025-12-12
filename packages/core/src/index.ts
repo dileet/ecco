@@ -67,7 +67,6 @@ export { configDefaults, mergeConfig, createConfig } from './config';
 export {
   ECCO_MAINNET,
   ECCO_TESTNET,
-  ECCO_LOCAL,
   NETWORKS,
   OFFICIAL_BOOTSTRAP_PEERS,
   getNetworkConfig,
@@ -147,11 +146,42 @@ export {
   type EmbeddingProviderConfig,
 } from './services/embedding';
 
+export {
+  createLocalModel,
+  createLocalGenerateFn,
+  createLocalStreamGenerateFn,
+  createLocalEmbedFn,
+  generate as localGenerate,
+  streamGenerate as localStreamGenerate,
+  embed as localEmbed,
+  unloadModel,
+  type LocalModelConfig as LlamaModelConfig,
+  type LocalModelState,
+} from './services/llm';
+
+export {
+  GenerationRequestSchema,
+  GenerationResponseSchema,
+  GenerationStreamChunkSchema,
+  GenerationStreamCompleteSchema,
+  requestGeneration,
+  streamGeneration,
+  setupGenerationProvider,
+  selectGenerationPeer,
+  type GenerationRequest,
+  type GenerationResponse,
+  type GenerationStreamChunk,
+  type GenerationStreamComplete,
+  type GenerationConfig,
+  type GenerationProviderConfig,
+} from './services/generation';
+
 export type {
   EccoConfig,
   Capability,
   AgentCapability,
   EmbeddingCapability,
+  ModelCapability,
   PeerInfo,
   Message,
   MessageType,
@@ -299,4 +329,5 @@ export {
   type DiscoveryPriority,
   type PeerScoringConfig,
   type PriorityDiscoveryConfig,
+  type LocalModelConfig,
 } from './agent';

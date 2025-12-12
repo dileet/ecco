@@ -1,4 +1,4 @@
-import type { Message, MessageType, CapabilityQuery, CapabilityMatch, EmbeddingCapability } from '../types'
+import type { Message, MessageType, CapabilityQuery, CapabilityMatch, EmbeddingCapability, ModelCapability } from '../types'
 import {
   createAgent as createBaseAgent,
   stop as stopNode,
@@ -33,6 +33,8 @@ import type {
 import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement } from './payments'
 import { setupEmbeddingProvider } from '../services/embedding'
+import { setupGenerationProvider } from '../services/generation'
+import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, type LocalModelState } from '../services/llm'
 import type { EccoEvent } from '../events'
 import { z } from 'zod'
 
@@ -107,7 +109,26 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState)
 
+  let localModelState: LocalModelState | null = null
+  let effectiveGenerateFn = config.generateFn
+  let effectiveStreamGenerateFn = config.streamGenerateFn
+  let effectiveModel = config.model
+
+  if (config.localModel) {
+    localModelState = await createLocalModel({
+      modelPath: config.localModel.modelPath,
+      contextSize: config.localModel.contextSize,
+      gpuLayers: config.localModel.gpuLayers,
+      threads: config.localModel.threads,
+      embedding: config.localModel.supportsEmbedding,
+    })
+    effectiveGenerateFn = createLocalGenerateFn(localModelState)
+    effectiveStreamGenerateFn = createLocalStreamGenerateFn(localModelState)
+    effectiveModel = config.localModel.modelName ?? config.localModel.modelPath
+  }
+
   const hasEmbeddingConfig = config.embedding !== undefined
+  const hasLocalModel = config.localModel !== undefined
 
   const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig
     ? {
@@ -119,9 +140,24 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
     : null
 
-  const allCapabilities = embeddingCapability
-    ? [...config.capabilities, embeddingCapability]
-    : config.capabilities
+  const modelCapability: ModelCapability | null = hasLocalModel
+    ? {
+        type: 'model',
+        name: config.localModel!.modelName ?? 'local-model',
+        version: '1.0.0',
+        modelType: config.localModel!.supportsEmbedding ? 'both' : 'text-generation',
+        modelName: config.localModel!.modelName ?? config.localModel!.modelPath,
+        contextLength: config.localModel!.contextSize,
+      }
+    : null
+
+  let allCapabilities = [...config.capabilities]
+  if (embeddingCapability) {
+    allCapabilities.push(embeddingCapability)
+  }
+  if (modelCapability) {
+    allCapabilities.push(modelCapability)
+  }
 
   let orchestratorState: OrchestratorState = initialOrchestratorState
   let agentInstance: Agent | null = null
@@ -165,12 +201,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const defaultSystemPrompt = 'You are a helpful assistant.'
 
   const messageHandler = config.handler ??
-    (config.model && (config.generateFn || config.streamGenerateFn)
+    (effectiveModel && (effectiveGenerateFn || effectiveStreamGenerateFn)
       ? createLLMHandler({
           systemPrompt: config.systemPrompt ?? defaultSystemPrompt,
-          model: config.model,
-          generateFn: config.generateFn,
-          streamGenerateFn: config.streamGenerateFn,
+          model: effectiveModel,
+          generateFn: effectiveGenerateFn,
+          streamGenerateFn: effectiveStreamGenerateFn,
         })
       : undefined)
 
@@ -312,9 +348,31 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     })
   }
 
+  if (hasLocalModel && effectiveGenerateFn) {
+    setupGenerationProvider({
+      nodeRef: baseAgent.ref,
+      generateFn: effectiveGenerateFn,
+      streamGenerateFn: effectiveStreamGenerateFn,
+      modelId: config.localModel!.modelName ?? 'local-model',
+      libp2pPeerId: getLibp2pPeerId(baseAgent.ref),
+    })
+
+    if (config.localModel!.supportsEmbedding && localModelState) {
+      const localEmbedFn = createLocalEmbedFn(localModelState)
+      setupEmbeddingProvider({
+        nodeRef: baseAgent.ref,
+        embedFn: localEmbedFn,
+        modelId: config.localModel!.modelName ?? 'local-embed',
+        libp2pPeerId: getLibp2pPeerId(baseAgent.ref),
+      })
+    }
+  }
+
   const embed = hasEmbeddingConfig && config.embedding
     ? async (texts: string[]): Promise<number[][]> => config.embedding!.embedFn(texts)
-    : null
+    : (hasLocalModel && config.localModel?.supportsEmbedding && localModelState
+      ? async (texts: string[]): Promise<number[][]> => createLocalEmbedFn(localModelState!)(texts)
+      : null)
 
   const findPeers = async (query?: CapabilityQuery): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
@@ -478,7 +536,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     const additionalResponses: AgentResponse[] = []
 
-    if (queryConfig?.includeSelf && config.model && (config.generateFn || config.streamGenerateFn)) {
+    if (queryConfig?.includeSelf && effectiveModel && (effectiveGenerateFn || effectiveStreamGenerateFn)) {
       const startTime = Date.now()
       const systemPrompt = queryConfig.systemPrompt
         ?? config.systemPrompt
@@ -487,18 +545,18 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       try {
         let responseText = ''
 
-        if (config.streamGenerateFn) {
-          const generator = config.streamGenerateFn({
-            model: config.model,
+        if (effectiveStreamGenerateFn) {
+          const generator = effectiveStreamGenerateFn({
+            model: effectiveModel,
             system: systemPrompt,
             prompt,
           })
           for await (const chunk of generator) {
             responseText += chunk.text
           }
-        } else if (config.generateFn) {
-          const result = await config.generateFn({
-            model: config.model,
+        } else if (effectiveGenerateFn) {
+          const result = await effectiveGenerateFn({
+            model: effectiveModel,
             system: systemPrompt,
             prompt,
           })
@@ -578,7 +636,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     address: walletState ? getAddress(walletState) : null,
     capabilities: allCapabilities,
     payments,
-    hasEmbedding: hasEmbeddingConfig,
+    hasEmbedding: hasEmbeddingConfig || (hasLocalModel && config.localModel?.supportsEmbedding === true),
     protocolVersion: networkConfig.protocol.currentVersion,
     embed,
     findPeers,

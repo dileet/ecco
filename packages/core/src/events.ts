@@ -5,7 +5,7 @@ const CapabilitySchema = z.object({
   name: z.string(),
   version: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-});
+}).passthrough();
 
 const PeerInfoSchema = z.object({
   id: z.string(),

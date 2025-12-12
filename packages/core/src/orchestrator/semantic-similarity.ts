@@ -2,7 +2,7 @@ import type { NodeState, StateRef } from '../node/types';
 import type { EmbedFn } from '../agent/types';
 import { requestEmbeddings } from '../services/embedding';
 
-export type SimilarityMethod = 'text-overlap' | 'openai-embedding' | 'peer-embedding' | 'custom';
+export type SimilarityMethod = 'text-overlap' | 'local-embedding' | 'peer-embedding' | 'openai-embedding' | 'custom';
 
 export type SimilarityConfig = {
   method?: SimilarityMethod;
@@ -205,6 +205,19 @@ export const calculateSimilarity = async (
   let similarity: number;
 
   switch (method) {
+    case 'local-embedding':
+      if (!config.localEmbedFn) {
+        similarity = textOverlapSimilarity(text1, text2);
+      } else {
+        try {
+          const embeddings = await config.localEmbedFn([normalizeText(text1), normalizeText(text2)]);
+          similarity = cosineSimilarityFromEmbeddings(embeddings[0], embeddings[1]);
+        } catch {
+          similarity = textOverlapSimilarity(text1, text2);
+        }
+      }
+      break;
+
     case 'peer-embedding':
       if (!config.nodeRef && !config.localEmbedFn) {
         similarity = textOverlapSimilarity(text1, text2);

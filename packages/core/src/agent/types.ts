@@ -145,6 +145,15 @@ export interface PaymentHelpers {
   getPendingInvoices: () => Invoice[]
 }
 
+export interface LocalModelConfig {
+  modelPath: string
+  contextSize?: number
+  gpuLayers?: number
+  threads?: number
+  supportsEmbedding?: boolean
+  modelName?: string
+}
+
 export interface AgentConfig {
   name: string
   network?: NetworkOption
@@ -158,6 +167,7 @@ export interface AgentConfig {
   pricing?: PricingConfig
   embedding?: AgentEmbeddingConfig
   transports?: TransportsConfig
+  localModel?: LocalModelConfig
 }
 
 export interface ConsensusRequestOptions {
