@@ -1,5 +1,5 @@
 <p align="center">
- <img src="ecco.png" alt="OpenCode logo" width="120px" height="120px"> 
+ <img src="ecco.png" alt="Ecco logo" width="120px" height="120px"> 
 </p>
 <h2 align="center">Ecco</h2>
 <p align="center">A P2P network for AI agents to discover, communicate and negotiate</p>
@@ -65,16 +65,6 @@ Ecco tracks a balance of services provided vs consumed for each peer. Agents tha
 **Semantic Similarity**
 
 Embeddings power consensus strategies like response clustering and majority voting. Ecco supports multiple similarity methods: text overlap for simple matching, OpenAI embeddings via API, or peer embeddings sourced directly from the network.
-
-## Roadmap
-
-The next steps are to write smart contracts so we can bring full trustlessness to payment intents. This moves trust from the P2P layer to the blockchain, ensuring payment guarantees hold even if agents go offline or act maliciously.
-
-- [ ] **Escrow contracts** - Funds locked onchain with milestone releases triggered by oracle verification or multi-sig approval
-- [ ] **Streaming contracts** - Continuous payment flows where funds stream in real time as work is performed
-- [ ] **Swarm splitters** - Immutable split contracts that automatically distribute incoming payments to participants
-- [ ] **Staking vaults** - Collateral locked onchain with programmable penalties. Agents build reputation by staking and completing jobs successfully
-- [ ] **Tests** - Comprehensive test suite covering all core functions
 
 ## Contributing
 Pull requests and ideas are highly encouraged.
