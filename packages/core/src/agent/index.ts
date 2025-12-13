@@ -34,7 +34,7 @@ import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement } from './payments'
 import { setupEmbeddingProvider } from '../services/embedding'
 import { setupGenerationProvider } from '../services/generation'
-import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, type LocalModelState } from '../services/llm'
+import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, unloadModel, isLocalModelState, type LocalModelState } from '../services/llm'
 import type { EccoEvent } from '../events'
 import { z } from 'zod'
 
@@ -109,34 +109,42 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState)
 
-  let localModelState: LocalModelState | null = null
+  let modelState: LocalModelState | null = isLocalModelState(config.model) ? config.model : null
+  let embeddingModelState: LocalModelState | null = isLocalModelState(config.embedding) ? config.embedding : null
   let effectiveGenerateFn = config.generateFn
   let effectiveStreamGenerateFn = config.streamGenerateFn
   let effectiveModel = config.model
+  let effectiveEmbedFn = embeddingModelState
+    ? createLocalEmbedFn(embeddingModelState)
+    : (!isLocalModelState(config.embedding) ? config.embedding?.embedFn : undefined)
 
   if (config.localModel) {
-    localModelState = await createLocalModel({
+    modelState = await createLocalModel({
       modelPath: config.localModel.modelPath,
       contextSize: config.localModel.contextSize,
       gpuLayers: config.localModel.gpuLayers,
       threads: config.localModel.threads,
       embedding: config.localModel.supportsEmbedding,
     })
-    effectiveGenerateFn = createLocalGenerateFn(localModelState)
-    effectiveStreamGenerateFn = createLocalStreamGenerateFn(localModelState)
+    effectiveGenerateFn = createLocalGenerateFn(modelState)
+    effectiveStreamGenerateFn = createLocalStreamGenerateFn(modelState)
     effectiveModel = config.localModel.modelName ?? config.localModel.modelPath
   }
 
   const hasEmbeddingConfig = config.embedding !== undefined
   const hasLocalModel = config.localModel !== undefined
 
-  const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig
+  const embeddingModelId = embeddingModelState
+    ? embeddingModelState.config.modelPath
+    : isLocalModelState(config.embedding) ? undefined : config.embedding?.modelId
+
+  const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig && embeddingModelId
     ? {
         type: 'embedding',
-        name: config.embedding!.modelId,
+        name: embeddingModelId,
         version: '1.0.0',
         provider: 'self',
-        model: config.embedding!.modelId,
+        model: embeddingModelId,
       }
     : null
 
@@ -291,7 +299,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
             for await (const chunk of gen) {
               fullResponse += chunk.text
 
-              if (config.pricing?.type === 'streaming' && chunk.tokens > 0) {
+              if (config.pricing?.type === 'streaming' && chunk.tokens && chunk.tokens > 0) {
                 totalTokens += chunk.tokens
                 const tempCtx: MessageContext = {
                   agent: agentInstance!,
@@ -339,11 +347,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   await broadcastCapabilities(baseAgent.ref)
   await delay(500)
 
-  if (hasEmbeddingConfig && config.embedding) {
+  if (hasEmbeddingConfig && effectiveEmbedFn && embeddingModelId) {
     setupEmbeddingProvider({
       nodeRef: baseAgent.ref,
-      embedFn: config.embedding.embedFn,
-      modelId: config.embedding.modelId,
+      embedFn: effectiveEmbedFn,
+      modelId: embeddingModelId,
       libp2pPeerId: getLibp2pPeerId(baseAgent.ref),
     })
   }
@@ -357,8 +365,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       libp2pPeerId: getLibp2pPeerId(baseAgent.ref),
     })
 
-    if (config.localModel!.supportsEmbedding && localModelState) {
-      const localEmbedFn = createLocalEmbedFn(localModelState)
+    if (config.localModel!.supportsEmbedding && modelState) {
+      const localEmbedFn = createLocalEmbedFn(modelState)
       setupEmbeddingProvider({
         nodeRef: baseAgent.ref,
         embedFn: localEmbedFn,
@@ -368,10 +376,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     }
   }
 
-  const embed = hasEmbeddingConfig && config.embedding
-    ? async (texts: string[]): Promise<number[][]> => config.embedding!.embedFn(texts)
-    : (hasLocalModel && config.localModel?.supportsEmbedding && localModelState
-      ? async (texts: string[]): Promise<number[][]> => createLocalEmbedFn(localModelState!)(texts)
+  const embed = effectiveEmbedFn
+    ? async (texts: string[]): Promise<number[][]> => effectiveEmbedFn(texts)
+    : (hasLocalModel && config.localModel?.supportsEmbedding && modelState
+      ? async (texts: string[]): Promise<number[][]> => createLocalEmbedFn(modelState!)(texts)
       : null)
 
   const findPeers = async (query?: CapabilityQuery): Promise<CapabilityMatch[]> => {
@@ -464,10 +472,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       ...options.config,
     }
 
-    if (hasEmbeddingConfig && config.embedding && mergedConfig.semanticSimilarity?.enabled) {
+    if (effectiveEmbedFn && mergedConfig.semanticSimilarity?.enabled) {
       mergedConfig.semanticSimilarity = {
         ...mergedConfig.semanticSimilarity,
-        localEmbedFn: config.embedding.embedFn,
+        localEmbedFn: effectiveEmbedFn,
       }
     }
 
@@ -553,6 +561,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           })
           for await (const chunk of generator) {
             responseText += chunk.text
+            if (queryConfig?.onStream) {
+              queryConfig.onStream({ ...chunk, peerId: baseAgent.id })
+            }
           }
         } else if (effectiveGenerateFn) {
           const result = await effectiveGenerateFn({
@@ -594,6 +605,49 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
     }
 
+    const createSynthesizeFn = () => {
+      if (queryConfig?.aggregationStrategy !== 'synthesized-consensus') return undefined
+      if (!effectiveGenerateFn && !effectiveStreamGenerateFn) {
+        throw new Error('synthesized-consensus requires a model with generateFn or streamGenerateFn')
+      }
+
+      return async (query: string, responses: AgentResponse[]): Promise<string> => {
+        const responseTexts = responses.map((r) => {
+          const text = typeof r.response === 'object' && r.response !== null && 'text' in r.response
+            ? (r.response as { text: string }).text
+            : String(r.response)
+          return `[${r.peer.id}]: ${text}`
+        }).join('\n\n')
+
+        const synthesisPrompt = `Original question: "${query}"
+
+Agent responses:
+${responseTexts}
+
+Provide a unified consensus answer that incorporates the key insights from all perspectives. Be concise (2-3 sentences).`
+
+        if (effectiveGenerateFn) {
+          const result = await effectiveGenerateFn({
+            model: effectiveModel,
+            system: 'You synthesize multiple perspectives into a unified consensus answer.',
+            prompt: synthesisPrompt,
+          })
+          return result.text
+        }
+
+        let responseText = ''
+        const gen = effectiveStreamGenerateFn!({
+          model: effectiveModel,
+          system: 'You synthesize multiple perspectives into a unified consensus answer.',
+          prompt: synthesisPrompt,
+        })
+        for await (const chunk of gen) {
+          responseText += chunk.text
+        }
+        return responseText
+      }
+    }
+
     return requestConsensus({
       query: prompt,
       capabilityQuery,
@@ -608,6 +662,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         minAgents: queryConfig?.minAgents ?? 1,
         semanticSimilarity: queryConfig?.semanticSimilarity,
         loadBalancing: queryConfig?.loadBalancing,
+        onStream: queryConfig?.onStream
+          ? (chunk) => queryConfig.onStream!({ text: chunk.text, peerId: chunk.peerId })
+          : undefined,
+        originalQuery: prompt,
+        synthesizeFn: createSynthesizeFn(),
       },
     })
   }
@@ -626,6 +685,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
   const stop = async (): Promise<void> => {
     await stopNode(baseAgent.ref)
+    if (modelState) {
+      await unloadModel(modelState)
+    }
+    if (embeddingModelState) {
+      await unloadModel(embeddingModelState)
+    }
   }
 
   agentInstance = {

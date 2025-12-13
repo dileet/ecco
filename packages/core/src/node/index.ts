@@ -101,6 +101,14 @@ export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks
 
   if (callbacks?.onMessage || callbacks?.onUnverifiedMessage) {
     const wrappedHandler = async (message: Message): Promise<void> => {
+      const currentNodeState = getState(ref);
+      if (currentNodeState.shuttingDown) {
+        return;
+      }
+      if (message.from === currentNodeState.libp2pPeerId || message.from === currentNodeState.id) {
+        return;
+      }
+
       const authEnabled = authState.config.enabled;
 
       if (message.signature && message.publicKey) {
@@ -131,17 +139,29 @@ export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks
         const ctx: MessageContext = {
           agent,
           reply: async (payload: unknown, type: MessageType = 'agent-response') => {
+            const currentState = getState(ref);
+            if (currentState.shuttingDown) {
+              return;
+            }
+
+            const targetPeerId = message.from;
+            const selfPeerId = currentState.libp2pPeerId ?? currentState.node?.peerId?.toString();
+            if (targetPeerId === selfPeerId || targetPeerId === currentState.id) {
+              debug('reply', `Skipping reply to self (${targetPeerId})`);
+              return;
+            }
+
             const replyMessage: Message = {
               id: crypto.randomUUID(),
               from: id,
-              to: message.from,
+              to: targetPeerId,
               type,
               payload,
               timestamp: Date.now(),
             };
-            debug('reply', `Sending reply from=${id} to=${message.from} type=${type}`);
+            debug('reply', `Sending reply from=${id} to=${targetPeerId} type=${type}`);
             debug('reply', `Payload requestId=${(payload as { requestId?: string })?.requestId}`);
-            await agent.signAndSend(message.from, replyMessage);
+            await agent.signAndSend(targetPeerId, replyMessage);
             debug('reply', 'Reply sent successfully');
           },
         };

@@ -56,6 +56,7 @@ export const createInitialState = (config: EccoConfig): NodeState => {
 
   return {
     id: fullConfig.nodeId || crypto.randomUUID(),
+    shuttingDown: false,
     config: fullConfig,
     node: null,
     capabilities: fullConfig.capabilities || [],

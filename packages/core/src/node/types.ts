@@ -50,6 +50,8 @@ export interface MessageFloodProtection {
 
 export interface NodeState {
   id: string;
+  libp2pPeerId?: string;
+  shuttingDown: boolean;
   config: EccoConfig;
   node: EccoLibp2p | null;
   capabilities: Capability[];

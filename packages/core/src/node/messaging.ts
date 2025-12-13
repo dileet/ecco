@@ -158,6 +158,20 @@ export async function publishDirect(
   peerId: string,
   message: Message
 ): Promise<void> {
+  if (state.shuttingDown) {
+    return;
+  }
+
+  const nodePeerId = state.node?.peerId?.toString();
+  const isSelf = peerId === state.libp2pPeerId ||
+                 peerId === state.id ||
+                 (nodePeerId && peerId === nodePeerId);
+
+  if (isSelf) {
+    debug('publishDirect', `Skipping send to self (${peerId})`);
+    return;
+  }
+
   debug('publishDirect', `Sending to ${peerId}, type=${message.type}`);
   let messageToSend = message;
   if (state.messageAuth) {
@@ -189,6 +203,10 @@ export async function publishDirect(
         errors.push(err instanceof Error ? err : new Error(String(err)));
       }
     }
+  }
+
+  if (errors.length === 0) {
+    return;
   }
 
   throw new Error(`Failed to send direct message to ${peerId}: ${errors.map(e => e.message).join(', ')}`);

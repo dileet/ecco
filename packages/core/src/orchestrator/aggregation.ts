@@ -189,6 +189,27 @@ export const longest: AggregationStrategyFn = async (responses) => {
   return { result: longestResponse.response, confidence: 1.0, agreement: 1 };
 };
 
+export const synthesizedConsensus = async (
+  responses: AgentResponse[],
+  config: MultiAgentConfig
+): Promise<AggregationResult> => {
+  if (!config.synthesizeFn) {
+    throw new Error('synthesizeFn is required for synthesized-consensus strategy');
+  }
+
+  if (!config.originalQuery) {
+    throw new Error('originalQuery is required for synthesized-consensus strategy');
+  }
+
+  const synthesizedText = await config.synthesizeFn(config.originalQuery, responses);
+
+  return {
+    result: { text: synthesizedText, synthesized: true, sourceCount: responses.length },
+    confidence: 1.0,
+    agreement: responses.length,
+  };
+};
+
 export const aggregateResponses = async (
   responses: AgentResponse[],
   config: MultiAgentConfig
@@ -234,6 +255,10 @@ export const aggregateResponses = async (
 
     case 'longest':
       aggregationResult = await longest(successful, config);
+      break;
+
+    case 'synthesized-consensus':
+      aggregationResult = await synthesizedConsensus(successful, config);
       break;
 
     case 'custom':

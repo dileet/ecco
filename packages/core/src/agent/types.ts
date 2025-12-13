@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import type { NodeState, StateRef } from '../node/types'
 import type { WalletState } from '../services/wallet'
+import type { LocalModelState } from '../services/llm'
 import type {
   MultiAgentConfig,
   AgentResponse,
@@ -88,7 +89,8 @@ export interface RecordTokensResult {
 
 export interface StreamChunk {
   text: string
-  tokens: number
+  tokens?: number
+  peerId?: string
 }
 
 export interface MessageContext {
@@ -165,7 +167,7 @@ export interface AgentConfig {
   streamGenerateFn?: StreamGenerateFn
   wallet?: AgentWalletConfig
   pricing?: PricingConfig
-  embedding?: AgentEmbeddingConfig
+  embedding?: AgentEmbeddingConfig | LocalModelState
   transports?: TransportsConfig
   localModel?: LocalModelConfig
 }
@@ -231,7 +233,13 @@ interface NonSemanticAggregationConfig extends BaseNetworkQueryConfig {
   semanticSimilarity?: never
 }
 
-export type NetworkQueryConfig = SemanticAggregationConfig | NonSemanticAggregationConfig
+interface SynthesizedConsensusConfig extends BaseNetworkQueryConfig {
+  aggregationStrategy: 'synthesized-consensus'
+  synthesizeFn?: (query: string, responses: AgentResponse[]) => Promise<string>
+  semanticSimilarity?: SemanticSimilarityConfig
+}
+
+export type NetworkQueryConfig = SemanticAggregationConfig | NonSemanticAggregationConfig | SynthesizedConsensusConfig
 
 export type DiscoveryPriority = 'proximity' | 'local' | 'internet' | 'fallback'
 
@@ -254,6 +262,7 @@ interface QueryConfigExtras {
   peerScoring?: PeerScoringConfig
   includeSelf?: boolean
   systemPrompt?: string
+  onStream?: (chunk: StreamChunk) => void
 }
 
 export type QueryConfig = NetworkQueryConfig & QueryConfigExtras

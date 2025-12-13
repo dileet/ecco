@@ -135,7 +135,10 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
 
   const node = await createLibp2p<EccoServices>(libp2pOptions);
   await node.start();
-  updateState(stateRef, (s) => setNode(s, node));
+  updateState(stateRef, (s) => ({
+    ...setNode(s, node),
+    libp2pPeerId: node.peerId.toString(),
+  }));
 }
 
 async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void> {
@@ -333,6 +336,12 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
 
   onHybridMessage(hybridDiscovery, async (peerId, transportMessage) => {
     const currentState = getState(stateRef);
+    if (currentState.shuttingDown) {
+      return;
+    }
+    if (peerId === currentState.libp2pPeerId || peerId === currentState.id) {
+      return;
+    }
     if (currentState.messageBridge) {
       const updatedBridge = await handleIncomingBroadcast(
         currentState.messageBridge,
@@ -363,6 +372,8 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
 }
 
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
+  updateState(stateRef, (s) => ({ ...s, shuttingDown: true }));
+
   const state = getState(stateRef);
 
   await runCleanupHandlers(state);
@@ -397,6 +408,11 @@ export async function sendMessage(
   message: Message
 ): Promise<void> {
   const state = getState(stateRef);
+
+  if (state.shuttingDown) {
+    return;
+  }
+
   debug('sendMessage', `Sending message to ${peerId}, hasMessageBridge=${!!state.messageBridge}, hasTransport=${!!state.transport}`);
 
   const maxAttempts = state.config.retry?.maxAttempts || 3;
@@ -407,6 +423,10 @@ export async function sendMessage(
     await retryWithBackoff(
       async () => {
         const currentState = getState(stateRef);
+
+        if (currentState.shuttingDown) {
+          return;
+        }
 
         if (currentState.messageBridge && currentState.transport) {
           debug('sendMessage', 'Using publishDirect path');

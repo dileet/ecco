@@ -1,14 +1,10 @@
 import {
   createAgent,
   createLocalModel,
-  createLocalGenerateFn,
   createLocalStreamGenerateFn,
-  createLocalEmbedFn,
-  unloadModel,
   delay,
   type QueryConfig,
   type LocalModelState,
-  type EmbedFn,
 } from '@ecco/core'
 
 async function main(): Promise<void> {
@@ -45,24 +41,21 @@ async function main(): Promise<void> {
   })
 
   let embeddingModel: LocalModelState | null = null
-  let embedFn: EmbedFn | null = null
   if (useLocalEmbeddings) {
     embeddingModel = await createLocalModel({
       modelPath: embeddingModelPath,
       contextSize: 2048,
       embedding: true,
     })
-    embedFn = createLocalEmbedFn(embeddingModel)
   }
 
   const analyticalAgent = await createAgent({
     name: 'agent-analytical',
     systemPrompt: 'You are an analytical and data-driven assistant, focusing on facts and logic. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-    model: 'local-llm',
-    generateFn: createLocalGenerateFn(model1),
+    model: model1,
     streamGenerateFn: createLocalStreamGenerateFn(model1),
-    embedding: embedFn ? { embedFn, modelId: 'local-embedding' } : undefined,
+    embedding: embeddingModel ?? undefined,
   })
   console.log(`[analytical] Started: ${analyticalAgent.id.slice(0, 20)}...`)
 
@@ -78,8 +71,7 @@ async function main(): Promise<void> {
     network: analyticalAgent.addrs,
     systemPrompt: 'You are a creative and imaginative assistant, offering unique perspectives and thinking outside the box. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-    model: 'local-llm',
-    generateFn: createLocalGenerateFn(model2),
+    model: model2,
     streamGenerateFn: createLocalStreamGenerateFn(model2),
   })
   console.log(`[creative] Started: ${creativeAgent.id.slice(0, 20)}...`)
@@ -96,8 +88,7 @@ async function main(): Promise<void> {
     network: analyticalAgent.addrs,
     systemPrompt: 'You are a practical and straightforward assistant, focusing on actionable real-world advice. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
-    model: 'local-llm',
-    generateFn: createLocalGenerateFn(model3),
+    model: model3,
     streamGenerateFn: createLocalStreamGenerateFn(model3),
   })
   console.log(`[practical] Started: ${practicalAgent.id.slice(0, 20)}...`)
@@ -120,21 +111,42 @@ async function main(): Promise<void> {
     'How can teams improve their collaboration and productivity?',
   ]
 
+  const peerNames: Record<string, string> = {
+    [analyticalAgent.id]: 'analytical',
+    [creativeAgent.id]: 'creative',
+    [practicalAgent.id]: 'practical',
+  }
+
   for (const queryText of queries) {
     console.log(`Query: "${queryText}"\n`)
 
     try {
+      const peerBuffers: Record<string, string> = {}
+
       const result = await analyticalAgent.query(queryText, {
         includeSelf: true,
-        timeout: 120000,
+        aggregationStrategy: 'synthesized-consensus',
         semanticSimilarity: {
           enabled: true,
           method: useLocalEmbeddings ? 'local-embedding' : 'text-overlap',
           threshold: 0.6,
         },
+        onStream: (chunk) => {
+          if (!chunk.peerId) return
+          if (!peerBuffers[chunk.peerId]) {
+            peerBuffers[chunk.peerId] = ''
+          }
+          peerBuffers[chunk.peerId] += chunk.text
+        },
       })
 
-      console.log(`Answer: ${result.text}\n`)
+      for (const [peerId, text] of Object.entries(peerBuffers)) {
+        const name = peerNames[peerId] ?? peerId.slice(-8)
+        console.log(`[${name}] ${text}\n`)
+      }
+
+      console.log(`[consensus] ${result.text}\n`)
+
       console.log(
         `Confidence: ${(result.consensus.confidence * 100).toFixed(1)}% | Agents: ${result.metrics.successfulAgents}/${result.metrics.totalAgents} | Latency: ${result.metrics.averageLatency.toFixed(0)}ms`
       )
@@ -197,20 +209,6 @@ async function main(): Promise<void> {
 
   console.log('--- Shutting Down ---\n')
 
-  await analyticalAgent.stop()
-  await creativeAgent.stop()
-  await practicalAgent.stop()
-  console.log('[agents] Stopped')
-
-  await unloadModel(model1)
-  await unloadModel(model2)
-  await unloadModel(model3)
-
-  if (embeddingModel) {
-    await unloadModel(embeddingModel)
-  }
-
-  console.log('[models] Unloaded')
 
   console.log('\nExample complete!')
   process.exit(0)

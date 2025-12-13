@@ -45,12 +45,17 @@ function createAsyncMutex(): AsyncMutex {
 }
 
 export interface LocalModelState {
+  readonly _tag: 'LocalModelState'
   llama: Llama
   model: LlamaModel
   context: LlamaContext
   config: LocalModelConfig
   mutex: AsyncMutex
   disposed: boolean
+}
+
+export function isLocalModelState(value: unknown): value is LocalModelState {
+  return value !== null && typeof value === 'object' && '_tag' in value && value._tag === 'LocalModelState'
 }
 
 export async function createLocalModel(config: LocalModelConfig): Promise<LocalModelState> {
@@ -66,6 +71,7 @@ export async function createLocalModel(config: LocalModelConfig): Promise<LocalM
   })
 
   return {
+    _tag: 'LocalModelState' as const,
     llama,
     model,
     context,

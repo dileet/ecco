@@ -17,7 +17,13 @@ export type AggregationStrategy =
   | 'consensus-threshold'
   | 'first-response'
   | 'longest'
+  | 'synthesized-consensus'
   | 'custom';
+
+export type SynthesizeFn = (
+  query: string,
+  responses: AgentResponse[]
+) => Promise<string>;
 
 export interface MultiAgentConfig {
   selectionStrategy: SelectionStrategy;
@@ -31,6 +37,9 @@ export interface MultiAgentConfig {
   loadBalancing?: LoadBalancingConfig;
   semanticSimilarity?: SemanticSimilarityConfig;
   nodeRef?: StateRef<NodeState>;
+  onStream?: (chunk: { text: string; peerId: string }) => void;
+  synthesizeFn?: SynthesizeFn;
+  originalQuery?: string;
 }
 
 export interface SemanticSimilarityConfig {

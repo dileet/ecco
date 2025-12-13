@@ -367,6 +367,12 @@ export async function send(
   message: TransportMessage
 ): Promise<void> {
   const { node } = state.config;
+
+  const selfPeerId = node.peerId.toString();
+  if (peerId === selfPeerId) {
+    return;
+  }
+
   const targetPeerId = peerIdFromString(peerId);
   const protocol = getProtocolVersion(state);
 
@@ -374,11 +380,18 @@ export async function send(
     let connections = node.getConnections(targetPeerId)
     if (connections.length === 0) {
       const peer = state.discoveredPeers.get(peerId);
-      if (peer?.addresses.length) {
-        const addr = multiaddr(peer.addresses[0]);
-        await node.dial(addr);
-      } else {
-        await node.dial(targetPeerId);
+      try {
+        if (peer?.addresses.length) {
+          const addr = multiaddr(peer.addresses[0]);
+          await node.dial(addr);
+        } else {
+          await node.dial(targetPeerId);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.toLowerCase().includes('dial self')) {
+          return;
+        }
+        throw err;
       }
       connections = node.getConnections(targetPeerId)
     }

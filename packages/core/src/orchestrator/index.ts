@@ -8,11 +8,23 @@ import type {
 } from './types';
 import { aggregateResponses } from './aggregation';
 import { findPeers, getId, getLibp2pPeerId, sendMessage, getState, updateState } from '../node';
-import { withTimeout } from '../utils';
 import {
   subscribeToAllDirectMessages,
   type MessageBridgeState,
 } from '../transport/message-bridge';
+import { z } from 'zod';
+
+const StreamChunkPayloadSchema = z.object({
+  requestId: z.string(),
+  chunk: z.string(),
+  partial: z.boolean().optional(),
+});
+
+const StreamCompletePayloadSchema = z.object({
+  requestId: z.string(),
+  text: z.string(),
+  complete: z.boolean().optional(),
+});
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -180,16 +192,18 @@ export const executeOrchestration = async (
 
   const allMatches = await findPeers(nodeRef, query);
 
-  const totalAgentCount = allMatches.length + additionalResponses.length;
+  const libp2pPeerId = getLibp2pPeerId(nodeRef);
+  const senderId = libp2pPeerId ?? getId(nodeRef);
+
+  const matchesExcludingSelf = allMatches.filter((m) => m.peer.id !== senderId);
+
+  const totalAgentCount = matchesExcludingSelf.length + additionalResponses.length;
   const validation = validateAgentCount(totalAgentCount, config.minAgents || 1);
   if (!validation.valid) {
     throw new Error(validation.error);
   }
 
-  const selectedAgents = selectAgents(allMatches, config, state.loadStates);
-
-  const libp2pPeerId = getLibp2pPeerId(nodeRef);
-  const senderId = libp2pPeerId ?? getId(nodeRef);
+  const selectedAgents = selectAgents(matchesExcludingSelf, config, state.loadStates);
 
   const requests = prepareAgentRequests(
     selectedAgents,
@@ -210,14 +224,43 @@ export const executeOrchestration = async (
     { resolve: (data: unknown) => void; reject: (error: Error) => void }
   >();
 
+  const streamBuffers = new Map<string, string>();
+
   for (const req of requests) {
     const promise = new Promise<unknown>((resolve, reject) => {
       responseResolvers.set(req.message.id, { resolve, reject });
     });
     responsePromises.set(req.message.id, promise);
+    streamBuffers.set(req.message.id, '');
   }
 
   const directMessageHandler = (message: Message) => {
+    if (message.type === 'stream-chunk') {
+      const parsed = StreamChunkPayloadSchema.safeParse(message.payload);
+      if (parsed.success) {
+        const buffer = streamBuffers.get(parsed.data.requestId);
+        if (buffer !== undefined) {
+          streamBuffers.set(parsed.data.requestId, buffer + parsed.data.chunk);
+        }
+        if (config.onStream) {
+          config.onStream({ text: parsed.data.chunk, peerId: message.from });
+        }
+      }
+    }
+
+    if (message.type === 'stream-complete') {
+      const parsed = StreamCompletePayloadSchema.safeParse(message.payload);
+      if (parsed.success) {
+        const resolver = responseResolvers.get(parsed.data.requestId);
+        if (resolver) {
+          const bufferedText = streamBuffers.get(parsed.data.requestId) ?? parsed.data.text;
+          resolver.resolve({ text: bufferedText });
+          responseResolvers.delete(parsed.data.requestId);
+          streamBuffers.delete(parsed.data.requestId);
+        }
+      }
+    }
+
     if (message.type === 'agent-response') {
       const responsePayload = message.payload as { requestId?: string; response?: unknown };
       const msgRequestId = responsePayload?.requestId ?? message.id;
@@ -226,6 +269,7 @@ export const executeOrchestration = async (
       if (resolver) {
         resolver.resolve(responsePayload?.response ?? message.payload);
         responseResolvers.delete(msgRequestId);
+        streamBuffers.delete(msgRequestId);
       }
     }
   };
@@ -264,15 +308,10 @@ export const executeOrchestration = async (
       response: AgentResponse;
       state: OrchestratorState;
     }> => {
-      const timeout = config.timeout || 30000;
       const sendTime = Date.now();
 
       try {
-        const response = await withTimeout(
-          responsePromises.get(req.message.id)!,
-          timeout,
-          'Request timeout'
-        );
+        const response = await responsePromises.get(req.message.id)!;
 
         const latency = Date.now() - sendTime;
 
