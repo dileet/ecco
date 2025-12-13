@@ -26,6 +26,7 @@ import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
 import { loadOrCreateNodeIdentity } from './identity';
 import { createWalletState } from '../services/wallet';
+import { SDK_PROTOCOL_VERSION, formatProtocolVersion } from '../networks';
 import type { AuthState } from '../services/auth';
 import {
   createStateRef,
@@ -78,7 +79,8 @@ function buildListenAddresses(config: NodeState['config']): string[] {
 }
 
 function buildDHTProtocol(networkId?: string): string {
-  const baseProtocol = '/ecco/kad/1.0.0';
+  const version = formatProtocolVersion(SDK_PROTOCOL_VERSION);
+  const baseProtocol = `/ecco/kad/${version}`;
   if (networkId) {
     return `${baseProtocol}/${networkId}`;
   }

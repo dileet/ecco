@@ -4,6 +4,7 @@ import * as json from 'multiformats/codecs/json';
 import { sha256 } from 'multiformats/hashes/sha2';
 import type { EccoLibp2p } from './types';
 import type { Capability, PeerInfo, CapabilityQuery } from '../types';
+import { SDK_PROTOCOL_VERSION, formatProtocolVersion } from '../networks';
 
 type DHTCapableNode = {
   contentRouting: EccoLibp2p['contentRouting'];
@@ -65,7 +66,7 @@ const queryProviders = async (
     const capabilityEntry: Capability = {
       type: capability.type ?? 'service',
       name: capability.name ?? 'unknown',
-      version: capability.version ?? '1.0.0',
+      version: capability.version ?? formatProtocolVersion(SDK_PROTOCOL_VERSION),
       ...(capability.metadata && { metadata: capability.metadata }),
     };
 

@@ -11,7 +11,7 @@ import {
   loadOrCreateNodeIdentity,
 } from '../node'
 import { createWalletState, getAddress, type WalletState } from '../services/wallet'
-import { ECCO_TESTNET, ECCO_MAINNET, type NetworkConfig } from '../networks'
+import { ECCO_TESTNET, ECCO_MAINNET, formatProtocolVersion, type NetworkConfig } from '../networks'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -138,11 +138,13 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     ? embeddingModelState.config.modelPath
     : isLocalModelState(config.embedding) ? undefined : config.embedding?.modelId
 
+  const versionString = formatProtocolVersion(networkConfig.protocol.currentVersion)
+
   const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig && embeddingModelId
     ? {
         type: 'embedding',
         name: embeddingModelId,
-        version: '1.0.0',
+        version: versionString,
         provider: 'self',
         model: embeddingModelId,
       }
@@ -152,7 +154,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     ? {
         type: 'model',
         name: config.localModel!.modelName ?? 'local-model',
-        version: '1.0.0',
+        version: versionString,
         modelType: config.localModel!.supportsEmbedding ? 'both' : 'text-generation',
         modelName: config.localModel!.modelName ?? config.localModel!.modelPath,
         contextLength: config.localModel!.contextSize,

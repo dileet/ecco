@@ -6,6 +6,10 @@ export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   patch: 0,
 };
 
+export function formatProtocolVersion(version: ProtocolVersion): string {
+  return `${version.major}.${version.minor}.${version.patch}`;
+}
+
 export interface NetworkConfig {
   networkId: string;
   discovery: DiscoveryMethod[];
