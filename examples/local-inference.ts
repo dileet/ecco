@@ -45,10 +45,9 @@ async function main(): Promise<void> {
 
   console.log('Response:')
   console.log(result.text)
-  console.log()
 
-  await agent.stop()
-  console.log('Agent stopped. Example complete!')
+  console.log('Example complete!')
+  process.exit(0)
 }
 
 main().catch((err) => {

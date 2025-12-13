@@ -109,7 +109,6 @@ async function main(): Promise<void> {
   console.log(`Service wallet: ${service.address ?? 'N/A'}`)
   console.log(`Client wallet: ${client.address ?? 'N/A'}`)
 
-  await Promise.all([client.stop(), service.stop()])
   console.log('\nDone!')
   process.exit(0)
 }

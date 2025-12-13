@@ -91,6 +91,7 @@ async function main(): Promise<void> {
     try {
       const result = await analyticalAgent.query(queryText, {
         includeSelf: true,
+        aggregationStrategy: 'synthesized-consensus',
         semanticSimilarity: {
           enabled: true,
           method: 'peer-embedding',
@@ -158,13 +159,6 @@ async function main(): Promise<void> {
       console.error(`  ${name} failed:`, error)
     }
   }
-
-  console.log('--- Shutting Down ---\n')
-
-  await analyticalAgent.stop()
-  await creativeAgent.stop()
-  await practicalAgent.stop()
-  console.log('[agents] Stopped')
 
   console.log('\nExample complete!')
   process.exit(0)

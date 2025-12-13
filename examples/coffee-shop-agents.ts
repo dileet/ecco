@@ -307,12 +307,6 @@ async function main(): Promise<void> {
 
   console.log('\n--- Shutting Down ---\n')
 
-  await customer.stop()
-  console.log('[customer] Stopped')
-
-  await coffeeShop.stop()
-  console.log('[coffee-shop] Stopped')
-
   console.log('\nExample complete!')
   process.exit(0)
 }

@@ -116,7 +116,6 @@ async function main(): Promise<void> {
   console.log(`Total distributed: ${result.totalAmount} ETH`)
   console.log(`Workers paid: ${result.invoicesSent}`)
 
-  await Promise.all([client.stop(), ...workers.map((w) => w.agent.stop())])
   console.log('\nDone!')
   process.exit(0)
 }

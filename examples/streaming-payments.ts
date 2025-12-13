@@ -89,7 +89,6 @@ async function main(): Promise<void> {
     }
   }
 
-  await Promise.all([client.stop(), service.stop()])
   console.log('\nDone!')
   process.exit(0)
 }

@@ -38,6 +38,33 @@ import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, c
 import type { EccoEvent } from '../events'
 import { z } from 'zod'
 
+type StopFn = () => Promise<void>
+const activeAgents = new Map<string, StopFn>()
+let cleanupRegistered = false
+
+function registerProcessCleanup(): void {
+  if (cleanupRegistered) return
+  cleanupRegistered = true
+
+  const cleanup = async (): Promise<void> => {
+    const stops = Array.from(activeAgents.values())
+    activeAgents.clear()
+    await Promise.allSettled(stops.map(fn => fn()))
+  }
+
+  process.on('beforeExit', () => {
+    cleanup()
+  })
+
+  process.on('SIGINT', () => {
+    cleanup().then(() => process.exit(0))
+  })
+
+  process.on('SIGTERM', () => {
+    cleanup().then(() => process.exit(0))
+  })
+}
+
 const PaymentProofSchema = z.object({
   invoiceId: z.string(),
   txHash: z.string(),
@@ -685,7 +712,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
     await sendMessage(baseAgent.ref, peerId, message)
   }
 
-  const stop = async (): Promise<void> => {
+  const stopInternal = async (): Promise<void> => {
     await stopNode(baseAgent.ref)
     if (modelState) {
       await unloadModel(modelState)
@@ -693,6 +720,11 @@ Provide a unified consensus answer that incorporates the key insights from all p
     if (embeddingModelState) {
       await unloadModel(embeddingModelState)
     }
+  }
+
+  const stop = async (): Promise<void> => {
+    activeAgents.delete(baseAgent.id)
+    await stopInternal()
   }
 
   agentInstance = {
@@ -713,6 +745,9 @@ Provide a unified consensus answer that incorporates the key insights from all p
     stop,
     query,
   }
+
+  registerProcessCleanup()
+  activeAgents.set(baseAgent.id, stopInternal)
 
   return agentInstance
 }

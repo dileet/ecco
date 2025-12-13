@@ -461,8 +461,10 @@ export async function sendMessage(
       }
     );
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.warn(`Failed to send message to ${peerId}: ${errorMessage}`);
+    const currentState = getState(stateRef);
+    if (currentState.shuttingDown) {
+      return;
+    }
     throw error;
   }
 }

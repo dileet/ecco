@@ -511,12 +511,9 @@ async function main(): Promise<void> {
   console.log('\n--- Shutting Down ---\n')
 
   await bleAdapter.shutdown(customerAdapter)
-  console.log('[Customer] Stopped')
-
   await bleAdapter.shutdown(shopAdapter)
-  console.log('[Shop] Stopped')
-
-  console.log('\nBluetooth LE example complete!')
+  console.log('Example complete!')
+  process.exit(0)
 }
 
 main().catch((err) => {

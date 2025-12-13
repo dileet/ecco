@@ -427,10 +427,7 @@ async function main(): Promise<void> {
 
   console.log(`\n${COLORS.dim}--- Shutting Down ---${COLORS.reset}\n`)
 
-  await coordinatorAgent.stop()
-  await analyticalAgent.stop()
-  await creativeAgent.stop()
-  await practicalAgent.stop()
+
 
   console.log('Example complete!')
   process.exit(0)

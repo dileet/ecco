@@ -117,14 +117,8 @@ async function main(): Promise<void> {
   console.log('\n')
 
   console.log('--- Shutting Down ---\n')
-
-  await consumerAgent.stop()
-  console.log('Consumer agent stopped')
-
-  await providerAgent.stop()
-  console.log('Provider agent stopped')
-
   console.log('\nExample complete!')
+  process.exit(0)
 }
 
 main().catch((err) => {
