@@ -672,6 +672,9 @@ Provide a unified consensus answer that incorporates the key insights from all p
         })
         for await (const chunk of gen) {
           responseText += chunk.text
+          if (queryConfig?.onStream) {
+            queryConfig.onStream({ text: chunk.text, tokens: chunk.tokens, peerId: 'synthesis' })
+          }
         }
         return responseText
       }

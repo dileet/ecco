@@ -89,6 +89,9 @@ async function main(): Promise<void> {
     console.log(`\nQuery: "${queryText}"\n`)
 
     try {
+      const agentBuffers = new Map<string, string>()
+      let synthesisStarted = false
+
       const result = await analyticalAgent.query(queryText, {
         includeSelf: true,
         aggregationStrategy: 'synthesized-consensus',
@@ -97,9 +100,25 @@ async function main(): Promise<void> {
           method: 'peer-embedding',
           threshold: 0.75,
         },
+        onStream: (chunk) => {
+          if (chunk.peerId === 'synthesis') {
+            if (!synthesisStarted) {
+              synthesisStarted = true
+              for (const [peerId, text] of agentBuffers) {
+                console.log(`[${peerId.slice(0, 16)}...]: ${text}`)
+              }
+              console.log('')
+              process.stdout.write('[Synthesis]: ')
+            }
+            process.stdout.write(chunk.text)
+          } else if (chunk.peerId) {
+            const current = agentBuffers.get(chunk.peerId) ?? ''
+            agentBuffers.set(chunk.peerId, current + chunk.text)
+          }
+        },
       })
 
-      console.log(`Answer: ${result.text}\n`)
+      console.log('\n')
       console.log(
         `Confidence: ${(result.consensus.confidence * 100).toFixed(1)}% | Agents: ${result.metrics.successfulAgents}/${result.metrics.totalAgents} | Latency: ${result.metrics.averageLatency.toFixed(0)}ms`
       )

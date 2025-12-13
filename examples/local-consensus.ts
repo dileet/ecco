@@ -122,6 +122,7 @@ async function main(): Promise<void> {
 
     try {
       const peerBuffers: Record<string, string> = {}
+      let synthesisStarted = false
 
       const result = await analyticalAgent.query(queryText, {
         includeSelf: true,
@@ -132,20 +133,26 @@ async function main(): Promise<void> {
           threshold: 0.6,
         },
         onStream: (chunk) => {
-          if (!chunk.peerId) return
-          if (!peerBuffers[chunk.peerId]) {
-            peerBuffers[chunk.peerId] = ''
+          if (chunk.peerId === 'synthesis') {
+            if (!synthesisStarted) {
+              synthesisStarted = true
+              for (const [peerId, text] of Object.entries(peerBuffers)) {
+                const name = peerNames[peerId] ?? peerId.slice(-8)
+                console.log(`[${name}] ${text}\n`)
+              }
+              process.stdout.write('[synthesis]: ')
+            }
+            process.stdout.write(chunk.text)
+          } else if (chunk.peerId) {
+            if (!peerBuffers[chunk.peerId]) {
+              peerBuffers[chunk.peerId] = ''
+            }
+            peerBuffers[chunk.peerId] += chunk.text
           }
-          peerBuffers[chunk.peerId] += chunk.text
         },
       })
 
-      for (const [peerId, text] of Object.entries(peerBuffers)) {
-        const name = peerNames[peerId] ?? peerId.slice(-8)
-        console.log(`[${name}] ${text}\n`)
-      }
-
-      console.log(`[consensus] ${result.text}\n`)
+      console.log('\n')
 
       console.log(
         `Confidence: ${(result.consensus.confidence * 100).toFixed(1)}% | Agents: ${result.metrics.successfulAgents}/${result.metrics.totalAgents} | Latency: ${result.metrics.averageLatency.toFixed(0)}ms`
