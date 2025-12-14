@@ -289,3 +289,85 @@ export async function broadcastCapabilities(ref: StateRef<NodeState>): Promise<v
 
 export type { NodeState } from './types';
 export { loadOrCreateNodeIdentity } from './identity';
+
+export {
+  createReputationState,
+  getLocalReputation,
+  recordLocalSuccess,
+  recordLocalFailure,
+  queueRating,
+  commitPendingRatings,
+  shouldCommit,
+  syncPeerFromChain,
+  syncAllPeersFromChain,
+  getEffectiveScore,
+  getPeersByScore,
+  getEccoStakers,
+} from './reputation';
+export type { LocalPeerReputation, ReputationState, ReputationConfig, PendingRating } from './reputation';
+
+export {
+  createPeerTracker,
+  trackSuccess,
+  trackFailure,
+  getPeerScore,
+  getAllPeerScores,
+  getTopPeers,
+  getEccoStakerPeers,
+  syncPeerReputation,
+  commitRatings,
+  getPendingRatingsCount,
+} from './peer-tracker';
+export type { PeerTrackerState, PeerScore, TrackSuccessOptions, TrackFailureOptions } from './peer-tracker';
+
+export {
+  createPerformanceTracker,
+  setupPerformanceTracking,
+  recordSuccess as recordPerformanceSuccess,
+  recordFailure as recordPerformanceFailure,
+  getMetrics as getPerformanceMetrics,
+  calculatePerformanceScore,
+  calculateSuccessRate,
+  calculateAverageLatency,
+  getAllMetrics as getAllPerformanceMetrics,
+} from './peer-performance';
+export type { PeerMetrics, PeerPerformanceState } from './peer-performance';
+
+export {
+  createBloomFilterState,
+  createFilter,
+  addToFilter,
+  testFilter,
+  mergeFilters,
+  buildLocalFilters,
+  receiveFilter,
+  queryFilter,
+  findCandidates,
+  serializeFilter,
+  deserializeFilter,
+  gossipFilters,
+  subscribeToFilters,
+  shouldGossip,
+  estimateFalsePositiveRate,
+  getFilterStats,
+} from './bloom-filter';
+export type { FilterTier, ReputationBloomFilter, BloomFilterState, BloomFilterConfig } from './bloom-filter';
+
+export {
+  createLatencyZoneState,
+  classifyLatency,
+  updatePeerZone,
+  getPeerZone,
+  getPeersInZone,
+  getPeersUpToZone,
+  getZoneStats,
+  getAllZoneStats,
+  syncFromPerformance,
+  filterByZone,
+  sortByZone,
+  selectByZoneWithFallback,
+  estimateLatencyByZone,
+  getZoneWeight,
+  calculateZoneScore,
+} from './latency-zones';
+export type { LatencyZone, ZoneThresholds, LatencyZoneState, ZoneStat, LatencyZoneConfig, ZoneSelectionConfig } from './latency-zones';

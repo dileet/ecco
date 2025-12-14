@@ -13,6 +13,11 @@ import { queryCapabilities } from './dht';
 import type { LRUCache } from '../utils/lru-cache';
 import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
 import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from '../transport/hybrid-discovery';
+import { findCandidates, type FilterTier } from './bloom-filter';
+import { getLocalReputation, getEffectiveScore } from './reputation';
+import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
+
+const ECCO_STAKER_PRIORITY_BOOST = 0.1;
 
 function extractPeerIdFromAddr(addr: string): string | null {
   const match = addr.match(/\/p2p\/([^/]+)$/);
@@ -134,6 +139,104 @@ function mergePeers(
   return newPeers.filter(peer => !existingPeers.has(peer.id));
 }
 
+interface PeerScoringFactors {
+  bloomTier: FilterTier | null;
+  reputationScore: number;
+  isEccoStaker: boolean;
+  latencyZone: LatencyZone | null;
+  matchScore: number;
+}
+
+function calculateCombinedScore(factors: PeerScoringFactors): number {
+  const tierBonus: Record<FilterTier, number> = { elite: 0.3, good: 0.15, acceptable: 0.05 };
+  const bloomBonus = factors.bloomTier ? tierBonus[factors.bloomTier] : 0;
+
+  const reputationWeight = 0.3;
+  const normalizedReputation = Math.max(0, Math.min(1, factors.reputationScore / 100));
+
+  const eccoBonus = factors.isEccoStaker ? ECCO_STAKER_PRIORITY_BOOST : 0;
+
+  const zoneWeight = factors.latencyZone ? getZoneWeight(factors.latencyZone) : 0.5;
+  const latencyFactor = zoneWeight * 0.2;
+
+  return (
+    factors.matchScore * 0.3 +
+    bloomBonus +
+    normalizedReputation * reputationWeight +
+    eccoBonus +
+    latencyFactor
+  );
+}
+
+function getPeerScoringFactors(
+  state: NodeState,
+  peerId: string,
+  matchScore: number,
+  capability: string
+): PeerScoringFactors {
+  let bloomTier: FilterTier | null = null;
+  if (state.bloomFilters) {
+    const candidates = findCandidates(state.bloomFilters, capability, [peerId]);
+    if (candidates.length > 0) {
+      bloomTier = candidates[0].tier;
+    }
+  }
+
+  let reputationScore = 0;
+  let isEccoStaker = false;
+  if (state.reputationState) {
+    const rep = getLocalReputation(state.reputationState, peerId);
+    if (rep) {
+      reputationScore = getEffectiveScore(rep);
+      isEccoStaker = rep.isEccoStaker;
+    }
+  }
+
+  let latencyZone: LatencyZone | null = null;
+  if (state.latencyZones) {
+    latencyZone = getPeerZone(state.latencyZones, peerId) ?? null;
+  }
+
+  return {
+    bloomTier,
+    reputationScore,
+    isEccoStaker,
+    latencyZone,
+    matchScore,
+  };
+}
+
+function prioritizeWithAllFactors(
+  state: NodeState,
+  matches: CapabilityMatch[],
+  capability: string
+): CapabilityMatch[] {
+  if (matches.length === 0) {
+    return matches;
+  }
+
+  const scoredMatches = matches.map((match) => {
+    const factors = getPeerScoringFactors(state, match.peer.id, match.matchScore, capability);
+    const combinedScore = calculateCombinedScore(factors);
+    return { match, combinedScore, factors };
+  });
+
+  scoredMatches.sort((a, b) => b.combinedScore - a.combinedScore);
+
+  return scoredMatches.map((s) => ({
+    ...s.match,
+    score: s.combinedScore,
+  }));
+}
+
+function prioritizeWithBloomFilter(
+  state: NodeState,
+  matches: CapabilityMatch[],
+  capability: string
+): CapabilityMatch[] {
+  return prioritizeWithAllFactors(state, matches, capability);
+}
+
 async function queryRegistry(
   registryClient: RegistryClientState,
   query: CapabilityQuery
@@ -214,6 +317,8 @@ export async function findPeers(
   const peerList = getAllPeers(state);
   let matches = matchPeers(peerList, query);
 
+  const primaryCapability = query.requiredCapabilities[0]?.type ?? 'unknown';
+
   const isRegistryConnected = state.registryClient?.connected ?? false;
 
   const strategies = selectDiscoveryStrategy(
@@ -236,6 +341,7 @@ export async function findPeers(
           matches = [...matches, ...newMatches];
         }
       }
+      matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
       return matches;
     }
 
@@ -253,6 +359,7 @@ export async function findPeers(
         if (state.node && newPeers.length > 0) {
           dialRegistryPeers(state.node, newPeers);
         }
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
         return matches;
       }
     }
@@ -267,6 +374,7 @@ export async function findPeers(
       const updatedPeerList = getAllPeers(state);
       matches = matchPeers(updatedPeerList, query);
       if (matches.length > 0) {
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
         return matches;
       }
     }
@@ -274,12 +382,13 @@ export async function findPeers(
     if (strategy === 'gossip') {
       matches = await queryGossip(stateRef, query);
       if (matches.length > 0) {
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
         return matches;
       }
     }
   }
 
-  return matches;
+  return prioritizeWithBloomFilter(state, matches, primaryCapability);
 }
 
 function discoveryResultToPeerInfo(result: DiscoveryResult): PeerInfo {

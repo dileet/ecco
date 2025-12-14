@@ -23,6 +23,9 @@ import type { HybridDiscoveryState } from '../transport/hybrid-discovery';
 import type { MessageBridgeState } from '../transport/message-bridge';
 import type { LRUCache } from '../utils/lru-cache';
 import type { MessageDeduplicator, RateLimiter } from '../utils/bloom-filter';
+import type { BloomFilterState } from './bloom-filter';
+import type { ReputationState } from './reputation';
+import type { LatencyZoneState } from './latency-zones';
 
 export type StateRef<T> = { 
   current: T;
@@ -76,4 +79,7 @@ export interface NodeState {
   floodProtection: MessageFloodProtection;
   protocolVersion: ProtocolVersion;
   versionValidatedPeers: Set<string>;
+  bloomFilters?: BloomFilterState;
+  reputationState?: ReputationState;
+  latencyZones?: LatencyZoneState;
 }

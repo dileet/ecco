@@ -31,7 +31,7 @@ import type {
   DiscoveryPriority,
 } from './types'
 import { createLLMHandler } from './handlers'
-import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement } from './payments'
+import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement, createFeeHelpers } from './payments'
 import { setupEmbeddingProvider } from '../services/embedding'
 import { setupGenerationProvider } from '../services/generation'
 import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, unloadModel, isLocalModelState, type LocalModelState } from '../services/llm'
@@ -135,6 +135,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState)
+  const fees = createFeeHelpers(walletState)
 
   let modelState: LocalModelState | null = isLocalModelState(config.model) ? config.model : null
   let embeddingModelState: LocalModelState | null = isLocalModelState(config.embedding) ? config.embedding : null
@@ -739,6 +740,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
     address: walletState ? getAddress(walletState) : null,
     capabilities: allCapabilities,
     payments,
+    fees,
     hasEmbedding: hasEmbeddingConfig || (hasLocalModel && config.localModel?.supportsEmbedding === true),
     protocolVersion: networkConfig.protocol.currentVersion,
     embed,
@@ -772,4 +774,4 @@ function extractTextFromResult(result: unknown): string {
 
 export * from './types'
 export { extractPromptText, createLLMHandler, isAgentRequest } from './handlers'
-export { createPaymentHelpers, createPaymentState } from './payments'
+export { createPaymentHelpers, createPaymentState, createFeeHelpers } from './payments'

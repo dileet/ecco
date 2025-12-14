@@ -62,6 +62,12 @@ const MessageEventSchema = z.object({
   timestamp: z.number(),
 });
 
+const ReputationFilterEventSchema = z.object({
+  type: z.literal('reputation-filter'),
+  payload: z.string(),
+  timestamp: z.number(),
+});
+
 const EccoEventSchema = z.discriminatedUnion('type', [
   CapabilityAnnouncementEventSchema,
   CapabilityRequestEventSchema,
@@ -69,6 +75,7 @@ const EccoEventSchema = z.discriminatedUnion('type', [
   PeerDiscoveredEventSchema,
   PeerDisconnectedEventSchema,
   MessageEventSchema,
+  ReputationFilterEventSchema,
 ]);
 
 export type CapabilityAnnouncementEvent = z.infer<typeof CapabilityAnnouncementEventSchema>;
@@ -77,6 +84,7 @@ export type CapabilityResponseEvent = z.infer<typeof CapabilityResponseEventSche
 export type PeerDiscoveredEvent = z.infer<typeof PeerDiscoveredEventSchema>;
 export type PeerDisconnectedEvent = z.infer<typeof PeerDisconnectedEventSchema>;
 export type MessageEvent = z.infer<typeof MessageEventSchema>;
+export type ReputationFilterEvent = z.infer<typeof ReputationFilterEventSchema>;
 
 export type EccoEvent = z.infer<typeof EccoEventSchema>;
 

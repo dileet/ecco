@@ -36,6 +36,7 @@ export interface MultiAgentConfig {
   customAggregator?: (responses: AgentResponse[]) => AggregatedResult;
   loadBalancing?: LoadBalancingConfig;
   semanticSimilarity?: SemanticSimilarityConfig;
+  zoneSelection?: ZoneSelectionConfig;
   nodeRef?: StateRef<NodeState>;
   onStream?: (chunk: { text: string; peerId: string }) => void;
   synthesizeFn?: SynthesizeFn;
@@ -59,6 +60,13 @@ export interface LoadBalancingConfig {
   preferLessLoaded?: boolean;
   maxConcurrentPerAgent?: number;
   loadWeight?: number;
+}
+
+export interface ZoneSelectionConfig {
+  preferredZone?: 'local' | 'regional' | 'continental' | 'global';
+  maxZone?: 'local' | 'regional' | 'continental' | 'global';
+  zoneFallbackTimeout?: number;
+  ignoreLatency?: boolean;
 }
 
 export interface AgentResponse {
