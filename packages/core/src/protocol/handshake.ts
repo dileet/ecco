@@ -5,22 +5,27 @@ import type {
   VersionHandshakePayload,
   VersionHandshakeResponse,
   VersionIncompatibleNotice,
+  ConstitutionHash,
 } from '../types';
 import type { NetworkConfig } from '../networks';
 import { isCompatible, formatVersion } from './version';
+import { computeConstitutionHash, validateConstitution, parseConstitutionHash } from './constitution';
 
 export const HANDSHAKE_TIMEOUT_MS = 5000;
 export const DISCONNECT_DELAY_MS = 1000;
 
-export function createHandshakeMessage(
+export async function createHandshakeMessage(
   fromPeerId: string,
   toPeerId: string,
   networkConfig: NetworkConfig
-): Message {
+): Promise<Message> {
+  const constitutionHash = await computeConstitutionHash(networkConfig.constitution);
+
   const payload: VersionHandshakePayload = {
     protocolVersion: networkConfig.protocol.currentVersion,
     networkId: networkConfig.networkId,
     timestamp: Date.now(),
+    constitutionHash,
   };
 
   return {
@@ -33,21 +38,36 @@ export function createHandshakeMessage(
   };
 }
 
-export function createHandshakeResponse(
+export async function createHandshakeResponse(
   fromPeerId: string,
   toPeerId: string,
-  protocolConfig: ProtocolConfig,
+  networkConfig: NetworkConfig,
   peerVersion: ProtocolVersion,
+  peerConstitutionHash: ConstitutionHash,
   requestId: string
-): Message {
+): Promise<Message> {
+  const protocolConfig = networkConfig.protocol;
   const compatibility = isCompatible(peerVersion, protocolConfig.minVersion);
 
+  const localConstitutionHash = await computeConstitutionHash(networkConfig.constitution);
+  const constitutionValidation = validateConstitution(localConstitutionHash, peerConstitutionHash);
+
+  const versionAccepted = compatibility.compatible || protocolConfig.enforcementLevel === 'none';
+  const constitutionAccepted = constitutionValidation.valid;
+  const accepted = versionAccepted && constitutionAccepted;
+
+  let reason = compatibility.reason;
+  if (!constitutionAccepted) {
+    reason = constitutionValidation.reason;
+  }
+
   const payload: VersionHandshakeResponse = {
-    accepted: compatibility.compatible || protocolConfig.enforcementLevel === 'none',
+    accepted,
     protocolVersion: protocolConfig.currentVersion,
     minProtocolVersion: protocolConfig.minVersion,
-    reason: compatibility.reason,
+    reason,
     upgradeUrl: protocolConfig.upgradeUrl,
+    constitutionMismatch: !constitutionAccepted,
   };
 
   return {
@@ -107,7 +127,8 @@ export function isHandshakeMessage(message: Message): boolean {
   return (
     message.type === 'version-handshake' ||
     message.type === 'version-handshake-response' ||
-    message.type === 'version-incompatible-notice'
+    message.type === 'version-incompatible-notice' ||
+    message.type === 'constitution-mismatch-notice'
   );
 }
 
@@ -136,6 +157,11 @@ export function parseHandshakePayload(payload: unknown): VersionHandshakePayload
     return null;
   }
 
+  const constitutionHash = parseConstitutionHash(p.constitutionHash);
+  if (!constitutionHash) {
+    return null;
+  }
+
   return {
     protocolVersion: {
       major: version.major,
@@ -144,6 +170,7 @@ export function parseHandshakePayload(payload: unknown): VersionHandshakePayload
     },
     networkId: p.networkId,
     timestamp: p.timestamp,
+    constitutionHash,
   };
 }
 
@@ -192,5 +219,6 @@ export function parseHandshakeResponse(payload: unknown): VersionHandshakeRespon
     },
     reason: typeof p.reason === 'string' ? p.reason : undefined,
     upgradeUrl: typeof p.upgradeUrl === 'string' ? p.upgradeUrl : undefined,
+    constitutionMismatch: typeof p.constitutionMismatch === 'boolean' ? p.constitutionMismatch : undefined,
   };
 }

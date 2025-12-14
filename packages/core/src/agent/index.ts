@@ -244,6 +244,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           model: effectiveModel,
           generateFn: effectiveGenerateFn,
           streamGenerateFn: effectiveStreamGenerateFn,
+          constitution: networkConfig.constitution,
         })
       : undefined)
 

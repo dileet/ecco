@@ -1,4 +1,4 @@
-import type { Message, VersionHandshakePayload } from '../types';
+import type { Message, VersionHandshakePayload, ConstitutionMismatchNotice } from '../types';
 import type { TransportMessage } from './types';
 import type { AuthState, SignedMessage } from '../services/auth';
 import type { NetworkConfig } from '../networks';
@@ -15,6 +15,7 @@ import {
   DISCONNECT_DELAY_MS,
 } from '../protocol/handshake';
 import { formatVersion } from '../protocol/version';
+import { createConstitutionMismatchNotice, computeConstitutionHash } from '../protocol/constitution';
 
 const MessageSchema = z.object({
   id: z.string(),
@@ -54,6 +55,7 @@ export interface MessageBridgeState {
   onPeerValidated?: (peerId: string) => void;
   onPeerRejected?: (peerId: string, reason: string) => void;
   onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
+  onConstitutionMismatch?: (peerId: string, expectedHash: string, receivedHash: string) => void;
   sendMessage?: (peerId: string, message: Message) => Promise<void>;
   disconnectPeer?: (peerId: string) => Promise<void>;
 }
@@ -345,6 +347,7 @@ export function setHandshakeCallbacks(
     onPeerValidated?: (peerId: string) => void;
     onPeerRejected?: (peerId: string, reason: string) => void;
     onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
+    onConstitutionMismatch?: (peerId: string, expectedHash: string, receivedHash: string) => void;
     sendMessage?: (peerId: string, message: Message) => Promise<void>;
     disconnectPeer?: (peerId: string) => Promise<void>;
   }
@@ -354,6 +357,7 @@ export function setHandshakeCallbacks(
     onPeerValidated: callbacks.onPeerValidated,
     onPeerRejected: callbacks.onPeerRejected,
     onUpgradeRequired: callbacks.onUpgradeRequired,
+    onConstitutionMismatch: callbacks.onConstitutionMismatch,
     sendMessage: callbacks.sendMessage,
     disconnectPeer: callbacks.disconnectPeer,
   };
@@ -381,7 +385,7 @@ export async function initiateHandshake(
     return state;
   }
 
-  const handshakeMessage = createHandshakeMessage(
+  const handshakeMessage = await createHandshakeMessage(
     state.config.nodeId,
     peerId,
     networkConfig
@@ -422,37 +426,52 @@ export async function handleVersionHandshake(
 
   const payload = parseHandshakePayload(message.payload);
   if (!payload) {
-    debug('handshake', `Invalid handshake payload from ${peerId}`);
+    debug('handshake', `Invalid handshake payload from ${peerId} - missing required fields (including constitutionHash)`);
+    state.onPeerRejected?.(peerId, 'Invalid handshake payload - constitution required');
+    state.disconnectPeer?.(peerId);
     return state;
   }
 
   debug('handshake', `Received handshake from ${peerId}, version ${formatVersion(payload.protocolVersion)}`);
 
-  const response = createHandshakeResponse(
+  const response = await createHandshakeResponse(
     state.config.nodeId,
     peerId,
-    networkConfig.protocol,
+    networkConfig,
     payload.protocolVersion,
+    payload.constitutionHash,
     message.id
   );
 
   await state.sendMessage(peerId, response);
 
   const responsePayload = parseHandshakeResponse(response.payload);
-  if (!responsePayload?.accepted && networkConfig.protocol.enforcementLevel === 'strict') {
-    const notice = createIncompatibleNotice(
-      state.config.nodeId,
-      peerId,
-      networkConfig.protocol,
-      payload.protocolVersion
-    );
-    await state.sendMessage(peerId, notice);
+  if (!responsePayload?.accepted) {
+    if (responsePayload?.constitutionMismatch) {
+      const localHash = await computeConstitutionHash(networkConfig.constitution);
+      const notice = createConstitutionMismatchNotice(
+        state.config.nodeId,
+        peerId,
+        localHash.hash,
+        payload.constitutionHash.hash
+      );
+      await state.sendMessage(peerId, notice);
+      state.onConstitutionMismatch?.(peerId, localHash.hash, payload.constitutionHash.hash);
+    } else {
+      const notice = createIncompatibleNotice(
+        state.config.nodeId,
+        peerId,
+        networkConfig.protocol,
+        payload.protocolVersion
+      );
+      await state.sendMessage(peerId, notice);
+    }
 
     setTimeout(() => {
       state.disconnectPeer?.(peerId);
     }, DISCONNECT_DELAY_MS);
 
-    state.onPeerRejected?.(peerId, responsePayload?.reason ?? 'Version incompatible');
+    state.onPeerRejected?.(peerId, responsePayload?.reason ?? 'Handshake rejected');
     return state;
   }
 
@@ -490,12 +509,16 @@ export async function handleVersionHandshakeResponse(
   debug('handshake', `Handshake response from ${peerId}: accepted=${response.accepted}`);
 
   if (!response.accepted) {
-    state.onUpgradeRequired?.(
-      peerId,
-      formatVersion(response.minProtocolVersion),
-      response.upgradeUrl
-    );
-    state.onPeerRejected?.(peerId, response.reason ?? 'Version incompatible');
+    if (response.constitutionMismatch) {
+      state.onPeerRejected?.(peerId, response.reason ?? 'Constitution mismatch');
+    } else {
+      state.onUpgradeRequired?.(
+        peerId,
+        formatVersion(response.minProtocolVersion),
+        response.upgradeUrl
+      );
+      state.onPeerRejected?.(peerId, response.reason ?? 'Version incompatible');
+    }
     return { ...state, pendingHandshakes };
   }
 
@@ -541,6 +564,19 @@ export function handleVersionIncompatibleNotice(
         notice.upgradeUrl
       );
     }
+  }
+  return state;
+}
+
+export function handleConstitutionMismatchNotice(
+  state: MessageBridgeState,
+  peerId: string,
+  message: Message
+): MessageBridgeState {
+  const payload = message.payload as ConstitutionMismatchNotice | null;
+  if (payload) {
+    console.warn(`[ecco] Constitution mismatch with peer ${peerId}. ${payload.message}`);
+    state.onConstitutionMismatch?.(peerId, payload.expectedHash, payload.receivedHash);
   }
   return state;
 }

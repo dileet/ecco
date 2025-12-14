@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import type { Message } from '../types'
+import type { Message, Constitution } from '../types'
 import type { MessageContext, GenerateFn, StreamGenerateFn } from './types'
+import { formatConstitutionForSystemPrompt } from '../protocol/constitution'
 
 const TextPartSchema = z.object({
   type: z.literal('text'),
@@ -45,16 +46,20 @@ interface LLMHandlerConfig {
   model: unknown
   generateFn?: GenerateFn
   streamGenerateFn?: StreamGenerateFn
+  constitution?: Constitution
 }
 
 export function createLLMHandler(
   config: LLMHandlerConfig
 ): (msg: Message, ctx: MessageContext) => Promise<void> {
-  const { systemPrompt, model, generateFn, streamGenerateFn } = config
+  const { systemPrompt, model, generateFn, streamGenerateFn, constitution } = config
 
   if (!generateFn && !streamGenerateFn) {
     throw new Error('Either generateFn or streamGenerateFn must be provided')
   }
+
+  const constitutionPrefix = constitution ? formatConstitutionForSystemPrompt(constitution) : ''
+  const fullSystemPrompt = constitutionPrefix + systemPrompt
 
   return async (msg: Message, ctx: MessageContext): Promise<void> => {
     const payload = msg.payload as { prompt?: string } | undefined
@@ -67,7 +72,7 @@ export function createLLMHandler(
 
     const genOptions = {
       model,
-      system: systemPrompt,
+      system: fullSystemPrompt,
       prompt: promptText,
     }
 

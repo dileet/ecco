@@ -74,6 +74,7 @@ export {
   formatBootstrapPeer,
   withBootstrapPeers,
   DEFAULT_NETWORK,
+  DEFAULT_CONSTITUTION,
   type NetworkConfig,
   type NetworkName,
 } from './networks';
@@ -205,6 +206,9 @@ export type {
   SwarmSplit,
   SwarmParticipant,
   SettlementIntent,
+  Constitution,
+  ConstitutionHash,
+  ConstitutionMismatchNotice,
 } from './types';
 
 export type {
@@ -298,10 +302,19 @@ export {
   serializeTopicMessage,
   handleIncomingBroadcast,
   getSubscribedTopics,
+  handleConstitutionMismatchNotice,
   type MessageBridgeConfig,
   type MessageBridgeState,
   type TopicMessage,
 } from './transport/message-bridge';
+
+export {
+  computeConstitutionHash,
+  validateConstitution,
+  createConstitutionMismatchNotice,
+  parseConstitutionHash,
+  formatConstitutionForSystemPrompt,
+} from './protocol/constitution';
 
 export {
   createAgent,

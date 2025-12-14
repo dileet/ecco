@@ -1,4 +1,4 @@
-import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig } from './types';
+import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Constitution } from './types';
 
 export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   major: 1,
@@ -20,6 +20,7 @@ export interface NetworkConfig {
     minPeers: number;
   };
   protocol: ProtocolConfig;
+  constitution: Constitution;
 }
 
 export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
@@ -28,6 +29,14 @@ export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
 ];
 
 const DEFAULT_DISCOVERY: DiscoveryMethod[] = ['mdns', 'dht', 'gossip'];
+
+export const DEFAULT_CONSTITUTION: Constitution = {
+  rules: [
+    'Agents must provide honest and accurate responses to the best of their ability',
+    'Agents must not intentionally disrupt network operations or corrupt shared data',
+    'Agents must respect rate limits and not abuse network resources',
+  ],
+};
 
 export const ECCO_MAINNET: NetworkConfig = {
   networkId: 'ecco-mainnet',
@@ -44,6 +53,7 @@ export const ECCO_MAINNET: NetworkConfig = {
     enforcementLevel: 'strict',
     upgradeUrl: 'https://github.com/dileet/ecco',
   },
+  constitution: DEFAULT_CONSTITUTION,
 };
 
 export const ECCO_TESTNET: NetworkConfig = {
@@ -60,6 +70,7 @@ export const ECCO_TESTNET: NetworkConfig = {
     minVersion: { major: 1, minor: 0, patch: 0 },
     enforcementLevel: 'warn',
   },
+  constitution: DEFAULT_CONSTITUTION,
 };
 
 export function formatBootstrapPeer(host: string, port: number, peerId: string): string {

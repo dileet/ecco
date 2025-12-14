@@ -81,6 +81,7 @@ export interface TransportConfig {
 }
 
 export interface Capability {
+  [key: string]: unknown;
   type: string;
   name: string;
   version: string;
@@ -157,7 +158,8 @@ export type MessageType =
   | 'swarm-distribution'
   | 'version-handshake'
   | 'version-handshake-response'
-  | 'version-incompatible-notice';
+  | 'version-incompatible-notice'
+  | 'constitution-mismatch-notice';
 
 export interface CapabilityQuery {
   requiredCapabilities: Partial<Capability>[];
@@ -327,10 +329,20 @@ export interface ProtocolConfig {
   upgradeUrl?: string;
 }
 
+export interface Constitution {
+  rules: string[];
+}
+
+export interface ConstitutionHash {
+  hash: string;
+  rulesCount: number;
+}
+
 export interface VersionHandshakePayload {
   protocolVersion: ProtocolVersion;
   networkId: string;
   timestamp: number;
+  constitutionHash: ConstitutionHash;
 }
 
 export interface VersionHandshakeResponse {
@@ -339,11 +351,18 @@ export interface VersionHandshakeResponse {
   minProtocolVersion: ProtocolVersion;
   reason?: string;
   upgradeUrl?: string;
+  constitutionMismatch?: boolean;
 }
 
 export interface VersionIncompatibleNotice {
   requiredMinVersion: ProtocolVersion;
   yourVersion: ProtocolVersion;
   upgradeUrl?: string;
+  message: string;
+}
+
+export interface ConstitutionMismatchNotice {
+  expectedHash: string;
+  receivedHash: string;
   message: string;
 }
