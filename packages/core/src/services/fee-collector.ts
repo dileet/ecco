@@ -1,24 +1,17 @@
 import { getContract } from 'viem';
 import { type WalletState, getPublicClient, getWalletClient } from './wallet';
 import { FEE_COLLECTOR_ABI, getContractAddresses } from '@ecco/contracts';
+import { approveEcco, getEccoAllowance } from './token';
 
 export interface FeeInfo {
   feePercent: number;
   feeAmount: bigint;
-  isEccoDiscount: boolean;
-}
-
-export interface PendingRewards {
-  ethPending: bigint;
-  eccoPending: bigint;
 }
 
 export interface FeeStats {
-  totalEthCollected: bigint;
-  totalEccoCollected: bigint;
-  totalEccoBurned: bigint;
-  ethFeePercent: number;
-  eccoFeePercent: number;
+  totalCollected: bigint;
+  totalBurned: bigint;
+  feePercent: number;
   stakerShare: number;
   treasuryShare: number;
   burnShare: number;
@@ -36,61 +29,45 @@ function getFeeCollectorContract(wallet: WalletState, chainId: number) {
 export async function calculateFee(
   wallet: WalletState,
   chainId: number,
-  payer: `0x${string}`,
   amount: bigint
 ): Promise<FeeInfo> {
   const contract = getFeeCollectorContract(wallet, chainId);
-
-  const [feePercent, feeAmount, isEccoDiscount] = await contract.read.calculateFee([
-    payer,
-    amount,
-  ]) as [bigint, bigint, boolean];
+  const feeAmount = await contract.read.calculateFee([amount]);
+  const feePercent = await contract.read.feePercent();
 
   return {
     feePercent: Number(feePercent),
     feeAmount,
-    isEccoDiscount,
   };
 }
 
-export async function collectFeeWithEth(
-  wallet: WalletState,
-  chainId: number,
-  payee: `0x${string}`,
-  amount: bigint,
-  fee: bigint
-): Promise<string> {
-  const addresses = getContractAddresses(chainId);
-
-  const hash = await getWalletClient(wallet, chainId).writeContract({
-    chain: undefined,
-    account: wallet.account,
-    address: addresses.feeCollector,
-    abi: FEE_COLLECTOR_ABI,
-    functionName: 'collectFee',
-    args: [wallet.account.address, payee, amount],
-    value: fee,
-  });
-
-  await getPublicClient(wallet, chainId).waitForTransactionReceipt({ hash });
-  return hash;
-}
-
-export async function collectFeeWithEcco(
+export async function collectFee(
   wallet: WalletState,
   chainId: number,
   payee: `0x${string}`,
   amount: bigint
 ): Promise<string> {
   const addresses = getContractAddresses(chainId);
+  const walletClient = getWalletClient(wallet, chainId);
 
-  const hash = await getWalletClient(wallet, chainId).writeContract({
-    chain: undefined,
-    account: wallet.account,
+  if (!walletClient.account) {
+    throw new Error('Wallet client account not available');
+  }
+
+  const feeInfo = await calculateFee(wallet, chainId, amount);
+
+  const allowance = await getEccoAllowance(wallet, chainId, addresses.feeCollector, feeInfo.feeAmount);
+  if (!allowance.isApproved) {
+    await approveEcco(wallet, chainId, addresses.feeCollector, feeInfo.feeAmount);
+  }
+
+  const hash = await walletClient.writeContract({
     address: addresses.feeCollector,
     abi: FEE_COLLECTOR_ABI,
-    functionName: 'collectFeeInEcco',
-    args: [wallet.account.address, payee, amount],
+    functionName: 'collectFee',
+    args: [walletClient.account.address, payee, amount],
+    account: walletClient.account,
+    chain: walletClient.chain,
   });
 
   await getPublicClient(wallet, chainId).waitForTransactionReceipt({ hash });
@@ -101,15 +78,9 @@ export async function getPendingRewards(
   wallet: WalletState,
   chainId: number,
   staker: `0x${string}`
-): Promise<PendingRewards> {
+): Promise<bigint> {
   const contract = getFeeCollectorContract(wallet, chainId);
-
-  const [ethPending, eccoPending] = await contract.read.pendingRewards([staker]) as [bigint, bigint];
-
-  return {
-    ethPending,
-    eccoPending,
-  };
+  return await contract.read.pendingRewards([staker]);
 }
 
 export async function claimRewards(
@@ -117,14 +88,19 @@ export async function claimRewards(
   chainId: number
 ): Promise<string> {
   const addresses = getContractAddresses(chainId);
+  const walletClient = getWalletClient(wallet, chainId);
 
-  const hash = await getWalletClient(wallet, chainId).writeContract({
-    chain: undefined,
-    account: wallet.account,
+  if (!walletClient.account) {
+    throw new Error('Wallet client account not available');
+  }
+
+  const hash = await walletClient.writeContract({
     address: addresses.feeCollector,
     abi: FEE_COLLECTOR_ABI,
     functionName: 'claimRewards',
     args: [],
+    account: walletClient.account,
+    chain: walletClient.chain,
   });
 
   await getPublicClient(wallet, chainId).waitForTransactionReceipt({ hash });
@@ -136,14 +112,19 @@ export async function distributeFees(
   chainId: number
 ): Promise<string> {
   const addresses = getContractAddresses(chainId);
+  const walletClient = getWalletClient(wallet, chainId);
 
-  const hash = await getWalletClient(wallet, chainId).writeContract({
-    chain: undefined,
-    account: wallet.account,
+  if (!walletClient.account) {
+    throw new Error('Wallet client account not available');
+  }
+
+  const hash = await walletClient.writeContract({
     address: addresses.feeCollector,
     abi: FEE_COLLECTOR_ABI,
     functionName: 'distributeFees',
     args: [],
+    account: walletClient.account,
+    chain: walletClient.chain,
   });
 
   await getPublicClient(wallet, chainId).waitForTransactionReceipt({ hash });
@@ -157,62 +138,27 @@ export async function getFeeStats(
   const contract = getFeeCollectorContract(wallet, chainId);
 
   const [
-    totalEthCollected,
-    totalEccoCollected,
-    totalEccoBurned,
-    ethFeePercent,
-    eccoFeePercent,
+    totalCollected,
+    totalBurned,
+    feePercent,
     stakerShare,
     treasuryShare,
     burnShare,
   ] = await Promise.all([
-    contract.read.totalEthCollected() as Promise<bigint>,
-    contract.read.totalEccoCollected() as Promise<bigint>,
-    contract.read.totalEccoBurned() as Promise<bigint>,
-    contract.read.ethFeePercent() as Promise<bigint>,
-    contract.read.eccoFeePercent() as Promise<bigint>,
-    contract.read.stakerShare() as Promise<bigint>,
-    contract.read.treasuryShare() as Promise<bigint>,
-    contract.read.burnShare() as Promise<bigint>,
+    contract.read.totalCollected(),
+    contract.read.totalBurned(),
+    contract.read.feePercent(),
+    contract.read.stakerShare(),
+    contract.read.treasuryShare(),
+    contract.read.burnShare(),
   ]);
 
   return {
-    totalEthCollected,
-    totalEccoCollected,
-    totalEccoBurned,
-    ethFeePercent: Number(ethFeePercent),
-    eccoFeePercent: Number(eccoFeePercent),
+    totalCollected,
+    totalBurned,
+    feePercent: Number(feePercent),
     stakerShare: Number(stakerShare),
     treasuryShare: Number(treasuryShare),
     burnShare: Number(burnShare),
-  };
-}
-
-export async function payWithFee(
-  wallet: WalletState,
-  chainId: number,
-  recipient: `0x${string}`,
-  amount: bigint
-): Promise<{ paymentHash: string; feeHash: string; feeAmount: bigint; netAmount: bigint }> {
-  const feeInfo = await calculateFee(wallet, chainId, wallet.account.address, amount);
-
-  const feeHash = await collectFeeWithEth(wallet, chainId, recipient, amount, feeInfo.feeAmount);
-
-  const netAmount = amount - feeInfo.feeAmount;
-
-  const paymentHash = await getWalletClient(wallet, chainId).sendTransaction({
-    chain: undefined,
-    account: wallet.account,
-    to: recipient,
-    value: netAmount,
-  });
-
-  await getPublicClient(wallet, chainId).waitForTransactionReceipt({ hash: paymentHash });
-
-  return {
-    paymentHash,
-    feeHash,
-    feeAmount: feeInfo.feeAmount,
-    netAmount,
   };
 }

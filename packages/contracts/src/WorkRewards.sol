@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IReputationRegistry {
-    function isEccoStaker(address peer) external view returns (bool);
     function canWork(address peer) external view returns (bool);
 }
 
@@ -20,7 +19,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     uint256 public baseRewardPerJob = 1 ether;
     uint256 public consensusBonus = 50;
     uint256 public fastResponseBonus = 25;
-    uint256 public eccoStakerBonus = 10;
+    uint256 public stakerBonus = 10;
 
     uint256 public maxDifficultyMultiplier = 10;
     uint256 public difficultyDivisor = 1000;
@@ -50,7 +49,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         uint256 baseReward,
         uint256 consensusBonus,
         uint256 fastResponseBonus,
-        uint256 eccoStakerBonus
+        uint256 stakerBonus
     );
 
     modifier onlyAuthorized() {
@@ -182,9 +181,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         if (fastResponse) {
             qualityMultiplier += fastResponseBonus;
         }
-        if (reputationRegistry.isEccoStaker(peer)) {
-            qualityMultiplier += eccoStakerBonus;
-        }
+        qualityMultiplier += stakerBonus;
 
         return (baseRewardPerJob * difficultyMultiplier * qualityMultiplier) / 100;
     }
@@ -224,18 +221,18 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         uint256 _baseRewardPerJob,
         uint256 _consensusBonus,
         uint256 _fastResponseBonus,
-        uint256 _eccoStakerBonus
+        uint256 _stakerBonus
     ) external onlyOwner {
         baseRewardPerJob = _baseRewardPerJob;
         consensusBonus = _consensusBonus;
         fastResponseBonus = _fastResponseBonus;
-        eccoStakerBonus = _eccoStakerBonus;
+        stakerBonus = _stakerBonus;
 
         emit RewardParametersUpdated(
             _baseRewardPerJob,
             _consensusBonus,
             _fastResponseBonus,
-            _eccoStakerBonus
+            _stakerBonus
         );
     }
 

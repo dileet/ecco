@@ -158,22 +158,22 @@ export async function getRewardParameters(
   baseRewardPerJob: bigint;
   consensusBonus: bigint;
   fastResponseBonus: bigint;
-  eccoStakerBonus: bigint;
+  stakerBonus: bigint;
 }> {
   const contract = getWorkRewardsContract(state, chainId);
 
-  const [baseRewardPerJob, consensusBonus, fastResponseBonus, eccoStakerBonus] = await Promise.all([
+  const [baseRewardPerJob, consensusBonus, fastResponseBonus, stakerBonus] = await Promise.all([
     contract.read.baseRewardPerJob(),
     contract.read.consensusBonus(),
     contract.read.fastResponseBonus(),
-    contract.read.eccoStakerBonus(),
+    contract.read.stakerBonus(),
   ]);
 
   return {
     baseRewardPerJob,
     consensusBonus,
     fastResponseBonus,
-    eccoStakerBonus,
+    stakerBonus,
   };
 }
 

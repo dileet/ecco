@@ -18,12 +18,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         uint256 rawPositive;
         uint256 rawNegative;
         uint256 totalJobs;
-        uint256 ethStake;
-        uint256 eccoStake;
+        uint256 stake;
         uint256 lastActive;
         uint256 unstakeRequestTime;
-        uint256 unstakeEthAmount;
-        uint256 unstakeEccoAmount;
+        uint256 unstakeAmount;
     }
 
     struct PaymentRecord {
@@ -36,63 +34,44 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     mapping(address => PeerReputation) public reputations;
     mapping(bytes32 => PaymentRecord) public payments;
-    mapping(address => uint256) public totalStakedEccoAt;
 
-    uint256 public minEthStakeToWork = 0.01 ether;
-    uint256 public minEccoStakeToWork = 100 * 10 ** 18;
-    uint256 public minEthStakeToRate = 0.001 ether;
-    uint256 public minEccoStakeToRate = 10 * 10 ** 18;
-
-    uint256 public eccoRatingWeightBonus = 150;
-    uint256 public eccoReputationBonus = 110;
-    uint256 public eccoFeeDiscount = 75;
-    uint256 public eccoPriorityBoost = 10;
+    uint256 public minStakeToWork = 100 * 10 ** 18;
+    uint256 public minStakeToRate = 10 * 10 ** 18;
 
     uint256 public unstakeCooldown = 7 days;
     int8 public constant MAX_RATING_DELTA = 5;
 
-    uint256 public totalStakedEth;
-    uint256 public totalStakedEcco;
+    uint256 public totalStaked;
 
-    event Staked(address indexed peer, uint256 ethAmount, uint256 eccoAmount);
-    event UnstakeRequested(address indexed peer, uint256 ethAmount, uint256 eccoAmount);
-    event Unstaked(address indexed peer, uint256 ethAmount, uint256 eccoAmount);
+    event Staked(address indexed peer, uint256 amount);
+    event UnstakeRequested(address indexed peer, uint256 amount);
+    event Unstaked(address indexed peer, uint256 amount);
     event PaymentRecorded(bytes32 indexed paymentId, address indexed payer, address indexed payee, uint256 amount);
     event Rated(address indexed rater, address indexed ratee, int8 delta, uint256 weight);
-    event Slashed(address indexed peer, uint256 ethAmount, uint256 eccoAmount, string reason);
+    event Slashed(address indexed peer, uint256 amount, string reason);
     event JobCompleted(address indexed peer);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
     }
 
-    function stakeEth() external payable nonReentrant {
-        require(msg.value > 0, "Must stake positive amount");
-        reputations[msg.sender].ethStake += msg.value;
-        reputations[msg.sender].lastActive = block.timestamp;
-        totalStakedEth += msg.value;
-        emit Staked(msg.sender, msg.value, 0);
-    }
-
-    function stakeEcco(uint256 amount) external nonReentrant {
+    function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "Must stake positive amount");
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
-        reputations[msg.sender].eccoStake += amount;
+        reputations[msg.sender].stake += amount;
         reputations[msg.sender].lastActive = block.timestamp;
-        totalStakedEcco += amount;
-        emit Staked(msg.sender, 0, amount);
+        totalStaked += amount;
+        emit Staked(msg.sender, amount);
     }
 
-    function requestUnstake(uint256 ethAmount, uint256 eccoAmount) external nonReentrant {
+    function requestUnstake(uint256 amount) external nonReentrant {
         PeerReputation storage rep = reputations[msg.sender];
-        require(ethAmount <= rep.ethStake, "Insufficient ETH stake");
-        require(eccoAmount <= rep.eccoStake, "Insufficient ECCO stake");
+        require(amount <= rep.stake, "Insufficient stake");
 
         rep.unstakeRequestTime = block.timestamp;
-        rep.unstakeEthAmount = ethAmount;
-        rep.unstakeEccoAmount = eccoAmount;
+        rep.unstakeAmount = amount;
 
-        emit UnstakeRequested(msg.sender, ethAmount, eccoAmount);
+        emit UnstakeRequested(msg.sender, amount);
     }
 
     function completeUnstake() external nonReentrant {
@@ -100,27 +79,17 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         require(rep.unstakeRequestTime > 0, "No unstake request");
         require(block.timestamp >= rep.unstakeRequestTime + unstakeCooldown, "Cooldown not complete");
 
-        uint256 ethAmount = rep.unstakeEthAmount;
-        uint256 eccoAmount = rep.unstakeEccoAmount;
+        uint256 amount = rep.unstakeAmount;
 
-        rep.ethStake -= ethAmount;
-        rep.eccoStake -= eccoAmount;
+        rep.stake -= amount;
         rep.unstakeRequestTime = 0;
-        rep.unstakeEthAmount = 0;
-        rep.unstakeEccoAmount = 0;
+        rep.unstakeAmount = 0;
 
-        totalStakedEth -= ethAmount;
-        totalStakedEcco -= eccoAmount;
+        totalStaked -= amount;
 
-        if (ethAmount > 0) {
-            (bool success,) = msg.sender.call{value: ethAmount}("");
-            require(success, "ETH transfer failed");
-        }
-        if (eccoAmount > 0) {
-            eccoToken.safeTransfer(msg.sender, eccoAmount);
-        }
+        eccoToken.safeTransfer(msg.sender, amount);
 
-        emit Unstaked(msg.sender, ethAmount, eccoAmount);
+        emit Unstaked(msg.sender, amount);
     }
 
     function recordPayment(bytes32 paymentId, address payee, uint256 amount) external {
@@ -197,43 +166,32 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         }
     }
 
-    function slash(address peer, uint256 ethPercent, uint256 eccoPercent, string calldata reason) external onlyOwner {
-        require(ethPercent <= 100 && eccoPercent <= 100, "Invalid percentage");
+    function slash(address peer, uint256 percent, string calldata reason) external onlyOwner {
+        require(percent <= 100, "Invalid percentage");
 
         PeerReputation storage rep = reputations[peer];
-        uint256 ethSlash = (rep.ethStake * ethPercent) / 100;
-        uint256 eccoSlash = (rep.eccoStake * eccoPercent) / 100;
+        uint256 slashAmount = (rep.stake * percent) / 100;
 
-        rep.ethStake -= ethSlash;
-        rep.eccoStake -= eccoSlash;
-        totalStakedEth -= ethSlash;
-        totalStakedEcco -= eccoSlash;
+        rep.stake -= slashAmount;
+        totalStaked -= slashAmount;
 
-        emit Slashed(peer, ethSlash, eccoSlash, reason);
+        emit Slashed(peer, slashAmount, reason);
     }
 
     function canWork(address peer) public view returns (bool) {
-        PeerReputation storage rep = reputations[peer];
-        return rep.ethStake >= minEthStakeToWork || rep.eccoStake >= minEccoStakeToWork;
+        return reputations[peer].stake >= minStakeToWork;
     }
 
     function canRate(address rater) public view returns (bool) {
-        PeerReputation storage rep = reputations[rater];
-        return rep.ethStake >= minEthStakeToRate || rep.eccoStake >= minEccoStakeToRate;
-    }
-
-    function isEccoStaker(address peer) public view returns (bool) {
-        return reputations[peer].eccoStake >= minEccoStakeToWork;
+        return reputations[rater].stake >= minStakeToRate;
     }
 
     function getRatingWeight(address rater, uint256 paymentAmount) public view returns (uint256) {
         PeerReputation storage rep = reputations[rater];
         uint256 stakeWeight;
 
-        if (rep.eccoStake >= minEccoStakeToRate) {
-            stakeWeight = (sqrt(rep.eccoStake / minEccoStakeToRate) * eccoRatingWeightBonus) / 100;
-        } else if (rep.ethStake >= minEthStakeToRate) {
-            stakeWeight = sqrt(rep.ethStake / minEthStakeToRate);
+        if (rep.stake >= minStakeToRate) {
+            stakeWeight = sqrt(rep.stake / minStakeToRate);
         } else {
             stakeWeight = 1;
         }
@@ -245,59 +203,28 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         PeerReputation storage rep = reputations[peer];
         int256 baseScore = rep.score;
 
-        if (rep.eccoStake >= minEccoStakeToWork) {
-            baseScore = (baseScore * int256(eccoReputationBonus)) / 100;
-        }
-
         uint256 daysSinceActive = (block.timestamp - rep.lastActive) / 1 days;
         uint256 activityPenalty = daysSinceActive > 30 ? 50 : daysSinceActive * 2;
 
         return (baseScore * int256(100 - activityPenalty)) / 100;
     }
 
-    function getSelectionScore(address peer) public view returns (int256) {
-        int256 effectiveScore = getEffectiveScore(peer);
-
-        if (reputations[peer].eccoStake >= minEccoStakeToWork) {
-            effectiveScore += int256(eccoPriorityBoost);
-        }
-
-        return effectiveScore;
-    }
-
     function getStakeInfo(address peer)
         external
         view
-        returns (uint256 ethStake, uint256 eccoStake, bool _isEccoStaker, int256 effectiveScore)
+        returns (uint256 stakeAmount, bool canWorkStatus, int256 effectiveScore)
     {
         PeerReputation storage rep = reputations[peer];
-        return (rep.ethStake, rep.eccoStake, isEccoStaker(peer), getEffectiveScore(peer));
+        return (rep.stake, canWork(peer), getEffectiveScore(peer));
     }
 
     function getReputation(address peer) external view returns (PeerReputation memory) {
         return reputations[peer];
     }
 
-    function setMinStakes(
-        uint256 _minEthStakeToWork,
-        uint256 _minEccoStakeToWork,
-        uint256 _minEthStakeToRate,
-        uint256 _minEccoStakeToRate
-    ) external onlyOwner {
-        minEthStakeToWork = _minEthStakeToWork;
-        minEccoStakeToWork = _minEccoStakeToWork;
-        minEthStakeToRate = _minEthStakeToRate;
-        minEccoStakeToRate = _minEccoStakeToRate;
-    }
-
-    function setEccoBonuses(uint256 _ratingWeightBonus, uint256 _reputationBonus, uint256 _feeDiscount, uint256 _priorityBoost)
-        external
-        onlyOwner
-    {
-        eccoRatingWeightBonus = _ratingWeightBonus;
-        eccoReputationBonus = _reputationBonus;
-        eccoFeeDiscount = _feeDiscount;
-        eccoPriorityBoost = _priorityBoost;
+    function setMinStakes(uint256 _minStakeToWork, uint256 _minStakeToRate) external onlyOwner {
+        minStakeToWork = _minStakeToWork;
+        minStakeToRate = _minStakeToRate;
     }
 
     function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
@@ -313,11 +240,5 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
             z = (x / z + z) / 2;
         }
         return y;
-    }
-
-    receive() external payable {
-        reputations[msg.sender].ethStake += msg.value;
-        totalStakedEth += msg.value;
-        emit Staked(msg.sender, msg.value, 0);
     }
 }

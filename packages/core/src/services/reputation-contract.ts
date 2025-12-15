@@ -1,4 +1,4 @@
-import { getContract, formatEther, parseEther, keccak256, toHex } from 'viem';
+import { getContract, keccak256, toHex } from 'viem';
 import type { WalletState } from './wallet';
 import { getPublicClient, getWalletClient } from './wallet';
 import { REPUTATION_REGISTRY_ABI, FEE_COLLECTOR_ABI, getContractAddresses } from '@ecco/contracts';
@@ -9,30 +9,20 @@ export interface PeerReputation {
   rawPositive: bigint;
   rawNegative: bigint;
   totalJobs: bigint;
-  ethStake: bigint;
-  eccoStake: bigint;
+  stake: bigint;
   lastActive: bigint;
   unstakeRequestTime: bigint;
-  unstakeEthAmount: bigint;
-  unstakeEccoAmount: bigint;
+  unstakeAmount: bigint;
 }
 
 export interface StakeInfo {
-  ethStake: bigint;
-  eccoStake: bigint;
-  isEccoStaker: boolean;
+  stake: bigint;
+  canWork: boolean;
   effectiveScore: bigint;
 }
 
-export interface FeeInfo {
-  feePercent: bigint;
-  feeAmount: bigint;
-  isEccoDiscount: boolean;
-}
-
 export interface PendingRewards {
-  ethPending: bigint;
-  eccoPending: bigint;
+  pending: bigint;
 }
 
 function getReputationContract(state: WalletState, chainId: number) {
@@ -57,28 +47,7 @@ function getFeeCollectorContract(state: WalletState, chainId: number) {
   });
 }
 
-export async function stakeEth(state: WalletState, chainId: number, amount: bigint): Promise<`0x${string}`> {
-  const addresses = getContractAddresses(chainId);
-  const walletClient = getWalletClient(state, chainId);
-
-  if (!walletClient.account) {
-    throw new Error('Wallet client account not available');
-  }
-
-  const hash = await walletClient.writeContract({
-    address: addresses.reputationRegistry,
-    abi: REPUTATION_REGISTRY_ABI,
-    functionName: 'stakeEth',
-    args: [],
-    value: amount,
-    account: walletClient.account,
-    chain: walletClient.chain,
-  });
-
-  return hash;
-}
-
-export async function stakeEcco(state: WalletState, chainId: number, amount: bigint): Promise<`0x${string}`> {
+export async function stake(state: WalletState, chainId: number, amount: bigint): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
   const walletClient = getWalletClient(state, chainId);
 
@@ -94,7 +63,7 @@ export async function stakeEcco(state: WalletState, chainId: number, amount: big
   const hash = await walletClient.writeContract({
     address: addresses.reputationRegistry,
     abi: REPUTATION_REGISTRY_ABI,
-    functionName: 'stakeEcco',
+    functionName: 'stake',
     args: [amount],
     account: walletClient.account,
     chain: walletClient.chain,
@@ -106,8 +75,7 @@ export async function stakeEcco(state: WalletState, chainId: number, amount: big
 export async function requestUnstake(
   state: WalletState,
   chainId: number,
-  ethAmount: bigint,
-  eccoAmount: bigint
+  amount: bigint
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
   const walletClient = getWalletClient(state, chainId);
@@ -120,7 +88,7 @@ export async function requestUnstake(
     address: addresses.reputationRegistry,
     abi: REPUTATION_REGISTRY_ABI,
     functionName: 'requestUnstake',
-    args: [ethAmount, eccoAmount],
+    args: [amount],
     account: walletClient.account,
     chain: walletClient.chain,
   });
@@ -250,29 +218,18 @@ export async function canRate(state: WalletState, chainId: number, rater: `0x${s
   return await contract.read.canRate([rater]);
 }
 
-export async function isEccoStaker(state: WalletState, chainId: number, peer: `0x${string}`): Promise<boolean> {
-  const contract = getReputationContract(state, chainId);
-  return await contract.read.isEccoStaker([peer]);
-}
-
 export async function getEffectiveScore(state: WalletState, chainId: number, peer: `0x${string}`): Promise<bigint> {
   const contract = getReputationContract(state, chainId);
   return await contract.read.getEffectiveScore([peer]);
 }
 
-export async function getSelectionScore(state: WalletState, chainId: number, peer: `0x${string}`): Promise<bigint> {
-  const contract = getReputationContract(state, chainId);
-  return await contract.read.getSelectionScore([peer]);
-}
-
 export async function getStakeInfo(state: WalletState, chainId: number, peer: `0x${string}`): Promise<StakeInfo> {
   const contract = getReputationContract(state, chainId);
-  const [ethStake, eccoStake, _isEccoStaker, effectiveScore] = await contract.read.getStakeInfo([peer]);
+  const [stakeAmount, canWorkStatus, effectiveScore] = await contract.read.getStakeInfo([peer]);
 
   return {
-    ethStake,
-    eccoStake,
-    isEccoStaker: _isEccoStaker,
+    stake: stakeAmount,
+    canWork: canWorkStatus,
     effectiveScore,
   };
 }
@@ -286,12 +243,10 @@ export async function getReputation(state: WalletState, chainId: number, peer: `
     rawPositive: result.rawPositive,
     rawNegative: result.rawNegative,
     totalJobs: result.totalJobs,
-    ethStake: result.ethStake,
-    eccoStake: result.eccoStake,
+    stake: result.stake,
     lastActive: result.lastActive,
     unstakeRequestTime: result.unstakeRequestTime,
-    unstakeEthAmount: result.unstakeEthAmount,
-    unstakeEccoAmount: result.unstakeEccoAmount,
+    unstakeAmount: result.unstakeAmount,
   };
 }
 
@@ -305,53 +260,36 @@ export async function getRatingWeight(
   return await contract.read.getRatingWeight([rater, paymentAmount]);
 }
 
-export async function getTotalStaked(
-  state: WalletState,
-  chainId: number
-): Promise<{ eth: bigint; ecco: bigint }> {
+export async function getTotalStaked(state: WalletState, chainId: number): Promise<bigint> {
   const contract = getReputationContract(state, chainId);
-  const [eth, ecco] = await Promise.all([
-    contract.read.totalStakedEth(),
-    contract.read.totalStakedEcco(),
-  ]);
-
-  return { eth, ecco };
+  return await contract.read.totalStaked();
 }
 
 export async function getMinStakes(
   state: WalletState,
   chainId: number
-): Promise<{ ethToWork: bigint; eccoToWork: bigint }> {
+): Promise<{ toWork: bigint; toRate: bigint }> {
   const contract = getReputationContract(state, chainId);
-  const [ethToWork, eccoToWork] = await Promise.all([
-    contract.read.minEthStakeToWork(),
-    contract.read.minEccoStakeToWork(),
+  const [toWork, toRate] = await Promise.all([
+    contract.read.minStakeToWork(),
+    contract.read.minStakeToRate(),
   ]);
 
-  return { ethToWork, eccoToWork };
+  return { toWork, toRate };
 }
 
 export async function calculateFee(
   state: WalletState,
   chainId: number,
-  payer: `0x${string}`,
   amount: bigint
-): Promise<FeeInfo> {
+): Promise<bigint> {
   const contract = getFeeCollectorContract(state, chainId);
-  const [feePercent, feeAmount, isEccoDiscount] = await contract.read.calculateFee([payer, amount]);
-
-  return {
-    feePercent,
-    feeAmount,
-    isEccoDiscount,
-  };
+  return await contract.read.calculateFee([amount]);
 }
 
-export async function getPendingRewards(state: WalletState, chainId: number, staker: `0x${string}`): Promise<PendingRewards> {
+export async function getPendingRewards(state: WalletState, chainId: number, staker: `0x${string}`): Promise<bigint> {
   const contract = getFeeCollectorContract(state, chainId);
-  const [ethPending, eccoPending] = await contract.read.pendingRewards([staker]);
-
-  return { ethPending, eccoPending };
+  return await contract.read.pendingRewards([staker]);
 }
 
 export async function claimRewards(state: WalletState, chainId: number): Promise<`0x${string}`> {

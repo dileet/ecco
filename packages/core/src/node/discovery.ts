@@ -17,7 +17,6 @@ import { findCandidates, type FilterTier } from './bloom-filter';
 import { getLocalReputation, getEffectiveScore } from './reputation';
 import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
 
-const ECCO_STAKER_PRIORITY_BOOST = 0.1;
 
 function extractPeerIdFromAddr(addr: string): string | null {
   const match = addr.match(/\/p2p\/([^/]+)$/);
@@ -142,7 +141,6 @@ function mergePeers(
 interface PeerScoringFactors {
   bloomTier: FilterTier | null;
   reputationScore: number;
-  isEccoStaker: boolean;
   latencyZone: LatencyZone | null;
   matchScore: number;
 }
@@ -154,16 +152,13 @@ function calculateCombinedScore(factors: PeerScoringFactors): number {
   const reputationWeight = 0.3;
   const normalizedReputation = Math.max(0, Math.min(1, factors.reputationScore / 100));
 
-  const eccoBonus = factors.isEccoStaker ? ECCO_STAKER_PRIORITY_BOOST : 0;
-
   const zoneWeight = factors.latencyZone ? getZoneWeight(factors.latencyZone) : 0.5;
   const latencyFactor = zoneWeight * 0.2;
 
   return (
-    factors.matchScore * 0.3 +
+    factors.matchScore * 0.4 +
     bloomBonus +
     normalizedReputation * reputationWeight +
-    eccoBonus +
     latencyFactor
   );
 }
@@ -183,12 +178,10 @@ function getPeerScoringFactors(
   }
 
   let reputationScore = 0;
-  let isEccoStaker = false;
   if (state.reputationState) {
     const rep = getLocalReputation(state.reputationState, peerId);
     if (rep) {
       reputationScore = getEffectiveScore(rep);
-      isEccoStaker = rep.isEccoStaker;
     }
   }
 
@@ -200,7 +193,6 @@ function getPeerScoringFactors(
   return {
     bloomTier,
     reputationScore,
-    isEccoStaker,
     latencyZone,
     matchScore,
   };

@@ -3,20 +3,17 @@ import {
   getReputation,
   getStakeInfo,
   recordPayment,
-  rateAfterPayment,
   batchRate,
   generatePaymentId,
 } from '../services/reputation-contract';
-import type { PeerReputation, StakeInfo } from '../services/reputation-contract';
 
 export interface LocalPeerReputation {
   peerId: string;
   walletAddress: string | null;
   localScore: number;
   onChainScore: bigint | null;
-  isEccoStaker: boolean;
-  ethStake: bigint;
-  eccoStake: bigint;
+  stake: bigint;
+  canWork: boolean;
   totalJobs: number;
   successfulJobs: number;
   failedJobs: number;
@@ -96,9 +93,8 @@ export function recordLocalSuccess(state: ReputationState, peerId: string, walle
       walletAddress: walletAddress ?? null,
       localScore: 0,
       onChainScore: null,
-      isEccoStaker: false,
-      ethStake: 0n,
-      eccoStake: 0n,
+      stake: 0n,
+      canWork: false,
       totalJobs: 0,
       successfulJobs: 0,
       failedJobs: 0,
@@ -129,9 +125,8 @@ export function recordLocalFailure(state: ReputationState, peerId: string, walle
       walletAddress: walletAddress ?? null,
       localScore: 0,
       onChainScore: null,
-      isEccoStaker: false,
-      ethStake: 0n,
-      eccoStake: 0n,
+      stake: 0n,
+      canWork: false,
       totalJobs: 0,
       successfulJobs: 0,
       failedJobs: 0,
@@ -264,9 +259,8 @@ export async function syncPeerFromChain(
       walletAddress,
       localScore: 0,
       onChainScore: null,
-      isEccoStaker: false,
-      ethStake: 0n,
-      eccoStake: 0n,
+      stake: 0n,
+      canWork: false,
       totalJobs: 0,
       successfulJobs: 0,
       failedJobs: 0,
@@ -278,9 +272,8 @@ export async function syncPeerFromChain(
   }
 
   peer.onChainScore = reputation.score;
-  peer.isEccoStaker = stakeInfo.isEccoStaker;
-  peer.ethStake = stakeInfo.ethStake;
-  peer.eccoStake = stakeInfo.eccoStake;
+  peer.stake = stakeInfo.stake;
+  peer.canWork = stakeInfo.canWork;
   peer.lastSyncedAt = now;
   peer.walletAddress = walletAddress;
 
@@ -316,10 +309,6 @@ export function getEffectiveScore(peer: LocalPeerReputation): number {
     score += Number(peer.onChainScore) / 1e18;
   }
 
-  if (peer.isEccoStaker) {
-    score *= 1.1;
-  }
-
   return score;
 }
 
@@ -333,8 +322,8 @@ export function getPeersByScore(state: ReputationState, limit?: number): LocalPe
   return peers;
 }
 
-export function getEccoStakers(state: ReputationState): LocalPeerReputation[] {
-  return Array.from(state.peers.values()).filter((p) => p.isEccoStaker);
+export function getStakedPeers(state: ReputationState): LocalPeerReputation[] {
+  return Array.from(state.peers.values()).filter((p) => p.canWork);
 }
 
 export function calculateLocalSuccessRate(peer: LocalPeerReputation): number {

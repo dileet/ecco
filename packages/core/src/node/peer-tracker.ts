@@ -45,7 +45,7 @@ export interface PeerScore {
   performanceScore: number;
   reputationScore: number;
   combinedScore: number;
-  isEccoStaker: boolean;
+  canWork: boolean;
 }
 
 export function createPeerTracker(
@@ -109,13 +109,13 @@ export function getPeerScore(state: PeerTrackerState, peerId: string): PeerScore
   const perfScore = perfMetrics ? calculatePerformanceScore(perfMetrics) : 0;
 
   let repScore = 0;
-  let isEccoStaker = false;
+  let canWork = false;
 
   if (state.reputation) {
     const rep = getLocalReputation(state.reputation, peerId);
     if (rep) {
       repScore = getEffectiveScore(rep);
-      isEccoStaker = rep.isEccoStaker;
+      canWork = rep.canWork;
     }
   }
 
@@ -125,16 +125,15 @@ export function getPeerScore(state: PeerTrackerState, peerId: string): PeerScore
 
   const performanceWeight = 0.4;
   const reputationWeight = 0.6;
-  const eccoBonus = isEccoStaker ? 0.1 : 0;
 
-  const combinedScore = perfScore * performanceWeight + repScore * reputationWeight + eccoBonus;
+  const combinedScore = perfScore * performanceWeight + repScore * reputationWeight;
 
   return {
     peerId,
     performanceScore: perfScore,
     reputationScore: repScore,
     combinedScore,
-    isEccoStaker,
+    canWork,
   };
 }
 
@@ -166,8 +165,8 @@ export function getTopPeers(state: PeerTrackerState, limit: number): PeerScore[]
   return getAllPeerScores(state).slice(0, limit);
 }
 
-export function getEccoStakerPeers(state: PeerTrackerState): PeerScore[] {
-  return getAllPeerScores(state).filter((p) => p.isEccoStaker);
+export function getStakedPeers(state: PeerTrackerState): PeerScore[] {
+  return getAllPeerScores(state).filter((p) => p.canWork);
 }
 
 export async function syncPeerReputation(
