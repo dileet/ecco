@@ -24,6 +24,10 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     uint256 public maxDifficultyMultiplier = 10;
     uint256 public difficultyDivisor = 1000;
 
+    uint256[4] public halvingThresholds = [5_000_000, 15_000_000, 35_000_000, 75_000_000];
+    uint256[5] public rewardPerEpoch = [1 ether, 0.5 ether, 0.25 ether, 0.125 ether, 0.0625 ether];
+    bool public halvingEnabled = true;
+
     uint256 public totalRewardsDistributed;
     uint256 public totalJobsRewarded;
 
@@ -97,7 +101,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         emit RewardDistributed(
             jobId,
             peer,
-            baseRewardPerJob,
+            getCurrentBaseReward(),
             reward,
             consensusAchieved,
             fastResponse,
@@ -151,13 +155,29 @@ contract WorkRewards is Ownable, ReentrancyGuard {
             emit RewardDistributed(
                 input.jobId,
                 input.peer,
-                baseRewardPerJob,
+                getCurrentBaseReward(),
                 reward,
                 input.consensusAchieved,
                 input.fastResponse,
                 input.difficulty
             );
         }
+    }
+
+    function getCurrentEpoch() public view returns (uint256) {
+        for (uint256 i = 0; i < halvingThresholds.length; i++) {
+            if (totalJobsRewarded < halvingThresholds[i]) {
+                return i;
+            }
+        }
+        return halvingThresholds.length;
+    }
+
+    function getCurrentBaseReward() public view returns (uint256) {
+        if (!halvingEnabled) {
+            return baseRewardPerJob;
+        }
+        return rewardPerEpoch[getCurrentEpoch()];
     }
 
     function calculateReward(
@@ -183,7 +203,8 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         }
         qualityMultiplier += stakerBonus;
 
-        return (baseRewardPerJob * difficultyMultiplier * qualityMultiplier) / 100;
+        uint256 currentBaseReward = getCurrentBaseReward();
+        return (currentBaseReward * difficultyMultiplier * qualityMultiplier) / 100;
     }
 
     function estimateReward(
@@ -243,6 +264,18 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         require(_difficultyDivisor > 0, "Divisor cannot be zero");
         maxDifficultyMultiplier = _maxDifficultyMultiplier;
         difficultyDivisor = _difficultyDivisor;
+    }
+
+    function setHalvingEnabled(bool _enabled) external onlyOwner {
+        halvingEnabled = _enabled;
+    }
+
+    function setHalvingParameters(
+        uint256[4] calldata _thresholds,
+        uint256[5] calldata _rewards
+    ) external onlyOwner {
+        halvingThresholds = _thresholds;
+        rewardPerEpoch = _rewards;
     }
 
     function withdrawExcess(address to, uint256 amount) external onlyOwner {

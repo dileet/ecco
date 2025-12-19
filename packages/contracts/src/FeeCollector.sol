@@ -32,9 +32,9 @@ contract FeeCollector is ReentrancyGuard, Ownable {
 
     uint256 public feePercent = 10;
 
-    uint256 public treasuryShare = 60;
-    uint256 public burnShare = 25;
-    uint256 public stakerShare = 15;
+    uint256 public treasuryShare = 50;
+    uint256 public burnShare = 15;
+    uint256 public stakerShare = 35;
 
     uint256 public totalCollected;
     uint256 public totalBurned;

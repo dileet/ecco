@@ -7,15 +7,13 @@
   "exports": {
     ".": "./dist/index.ts",
     "./abis": "./dist/abis.ts",
-    "./addresses": "./dist/addresses.ts"
+    "./addresses": "./addresses.ts"
   },
   "scripts": {
     "compile": "hardhat compile",
     "generate-abis": "bun run scripts/generate-abis.ts",
     "build": "hardhat compile && bun run generate-abis",
-    "test": "hardhat test",
-    "deploy:sepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
-    "deploy:mainnet": "hardhat run scripts/deploy.ts --network baseMainnet"
+    "test": "hardhat test"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.1",

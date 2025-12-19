@@ -56,7 +56,8 @@ async function main(): Promise<void> {
 
   const creativeAgent = await createAgent({
     name: 'agent-creative',
-    network: analyticalAgent.addrs,
+    bootstrap: analyticalAgent.addrs,
+    network: 'testnet',
     systemPrompt: 'You are a creative and imaginative assistant, offering unique perspectives. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,
@@ -68,7 +69,8 @@ async function main(): Promise<void> {
 
   const practicalAgent = await createAgent({
     name: 'agent-practical',
-    network: analyticalAgent.addrs,
+    bootstrap: analyticalAgent.addrs,
+    network: 'testnet',
     systemPrompt: 'You are a practical and straightforward assistant, focusing on actionable advice. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: MODEL,

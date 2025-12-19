@@ -163,7 +163,8 @@ async function createCustomerAgent(bootstrapAddrs?: string[]): Promise<Agent> {
 
   const customerAgent = await createAgent({
     name: 'johns-assistant',
-    network: bootstrapAddrs,
+    bootstrap: bootstrapAddrs,
+    network: 'testnet',
     capabilities: [{ type: 'personal', name: 'assistant', version: '1.0.0' }],
     systemPrompt: 'You are a helpful personal assistant who helps the user order food and drinks.',
     model: MODEL,

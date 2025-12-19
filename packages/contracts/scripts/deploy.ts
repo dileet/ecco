@@ -1,5 +1,15 @@
 import { network } from "hardhat";
-import { formatEther, parseEther } from "viem";
+import { formatEther, parseEther, type Address } from "viem";
+
+const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS as Address | undefined;
+const ECOSYSTEM_ADDRESS = process.env.ECOSYSTEM_ADDRESS as Address | undefined;
+const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS as Address | undefined;
+
+const FOUNDER_AMOUNT = parseEther("15000000");
+const ECOSYSTEM_AMOUNT = parseEther("35000000");
+const WORK_REWARDS_AMOUNT = parseEther("25000000");
+const LIQUIDITY_AMOUNT = parseEther("10000000");
+const TREASURY_AMOUNT = parseEther("15000000");
 
 async function main() {
   const connection = await network.connect();
@@ -98,10 +108,39 @@ async function main() {
 `);
 
   if (connection.networkName === "monadTestnet" || connection.networkName === "monadMainnet") {
-    console.log("\n--- Minting initial ECCO tokens for testing ---");
-    const mintAmount = parseEther("1000000");
-    await eccoToken.write.mint([deployer.account.address, mintAmount]);
-    console.log("Minted", formatEther(mintAmount), "ECCO to", deployer.account.address);
+    console.log("\n--- Minting and Distributing 100M ECCO tokens ---");
+
+    const founderAddr = FOUNDER_ADDRESS ?? deployer.account.address;
+    const ecosystemAddr = ECOSYSTEM_ADDRESS ?? deployer.account.address;
+    const treasuryAddr = TREASURY_ADDRESS ?? deployer.account.address;
+
+    console.log("Founder address:", founderAddr);
+    console.log("Ecosystem address:", ecosystemAddr);
+    console.log("Treasury address:", treasuryAddr);
+
+    console.log("\nMinting 15M ECCO to Founder...");
+    await eccoToken.write.mint([founderAddr, FOUNDER_AMOUNT]);
+    console.log("Minted", formatEther(FOUNDER_AMOUNT), "ECCO to founder");
+
+    console.log("\nMinting 35M ECCO to Ecosystem...");
+    await eccoToken.write.mint([ecosystemAddr, ECOSYSTEM_AMOUNT]);
+    console.log("Minted", formatEther(ECOSYSTEM_AMOUNT), "ECCO to ecosystem");
+
+    console.log("\nMinting 25M ECCO to WorkRewards...");
+    await eccoToken.write.mint([workRewards.address, WORK_REWARDS_AMOUNT]);
+    console.log("Minted", formatEther(WORK_REWARDS_AMOUNT), "ECCO to WorkRewards");
+
+    console.log("\nMinting 10M ECCO to Deployer for Liquidity...");
+    await eccoToken.write.mint([deployer.account.address, LIQUIDITY_AMOUNT]);
+    console.log("Minted", formatEther(LIQUIDITY_AMOUNT), "ECCO to deployer for liquidity");
+
+    console.log("\nMinting 15M ECCO to Treasury...");
+    await eccoToken.write.mint([treasuryAddr, TREASURY_AMOUNT]);
+    console.log("Minted", formatEther(TREASURY_AMOUNT), "ECCO to treasury");
+
+    const totalMinted = FOUNDER_AMOUNT + ECOSYSTEM_AMOUNT + WORK_REWARDS_AMOUNT + LIQUIDITY_AMOUNT + TREASURY_AMOUNT;
+    console.log("\n--- Distribution Complete ---");
+    console.log("Total minted:", formatEther(totalMinted), "ECCO");
   }
 }
 

@@ -48,7 +48,8 @@ async function main(): Promise<void> {
 
   const consumerAgent = await createAgent({
     name: 'inference-consumer',
-    network: providerAgent.addrs,
+    bootstrap: providerAgent.addrs,
+    network: 'testnet',
     capabilities: [{ type: 'agent', name: 'consumer', version: '1.0.0' }],
   })
 

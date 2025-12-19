@@ -57,7 +57,8 @@ async function main(): Promise<void> {
 
   const client = await createAgent({
     name: 'escrow-client',
-    network: service.addrs,
+    bootstrap: service.addrs,
+    network: 'testnet',
     capabilities: [],
     wallet: { rpcUrls },
   })

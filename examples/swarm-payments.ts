@@ -37,9 +37,9 @@ async function main(): Promise<void> {
     workerConfigs.map(async (cfg) => {
       const worker = await createAgent({
         name: cfg.name,
-        network: client.addrs,
+        bootstrap: client.addrs,
+        network: 'testnet',
         capabilities: [{ type: 'agent', name: 'distributed-worker', version: '1.0.0', metadata: { task: cfg.task } }],
-        wallet: { rpcUrls },
         handler: async (_message, ctx: MessageContext) => {
           console.log(`[${cfg.name}] Received job, completing task: ${cfg.task}`)
           await delay(1000)

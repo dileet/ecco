@@ -41,7 +41,7 @@ ${exports.join("\n\n")}
   console.log(`\nWritten to ${join(OUTPUT_DIR, "abis.ts")}`);
 
   const indexContent = `export * from "./abis";
-export * from "./addresses";
+export * from "../addresses";
 `;
   writeFileSync(join(OUTPUT_DIR, "index.ts"), indexContent);
   console.log(`Written to ${join(OUTPUT_DIR, "index.ts")}`);
