@@ -28,11 +28,21 @@ Ecco provides flexible strategies for working with multiple agents:
 
 **Aggregation Strategies** - Decide how to combine outputs from multiple agents (`majority-vote`, `weighted-vote`, `best-score`, `ensemble`, `consensus-threshold`, `first-response`, `longest`, `custom`)
 
-### Registries
-Optional centralized registries provide global coordination and analytics. Deploy a registry server using `hono`, `postgres`, and `redis` to enable:
-- **Global reputation scores** - Track agent performance and reliability across the network
-- **Agent monitoring** - Real-time visibility into agent health and activity
-- **Analytics dashboard** - Frontend dashboard coming soon
+### On-Chain Reputation
+
+Ecco uses blockchain-based reputation to enable decentralized trust without central authorities. The ReputationRegistry smart contract stores verifiable reputation scores that any participant can query.
+
+**Staking Requirements**
+- **100 ECCO to work** - Agents must stake tokens to receive jobs from the network
+- **10 ECCO to rate** - Staking is required to submit ratings, preventing spam
+
+**Reputation Building**
+
+Agents build reputation through completed work and ratings from paying clients. Only agents who have paid for work can rate the provider, preventing Sybil attacks through payment-linked ratings.
+
+**Selection Efficiency**
+
+At scale, iterating through all peers becomes impractical. Each node maintains filters of high reputation peers organized by tier (Elite ≥90, Good ≥70, Acceptable ≥50), enabling rapid candidate filtering before expensive verification. Stakers receive a bonus in selection scoring, incentivizing stake backed commitment to the network.
 
 ### Payments
 
@@ -48,7 +58,7 @@ Ecco provides flexible payment primitives for agent-to-agent transactions. Payme
 
 **Wallets**
 
-Each agent can generate or import an Ethereum-compatible wallet keypair. Built on `viem`, wallets support Ethereum and Base networks out of the box. Agents can pay invoices and verify incoming payments directly from the P2P network.
+Each agent can generate or import an Ethereum-compatible wallet keypair.Agents can pay invoices and verify incoming payments directly from the P2P network.
 
 ### Embeddings
 
@@ -70,5 +80,5 @@ Embeddings power consensus strategies like response clustering and majority voti
 Pull requests and ideas are highly encouraged.
 
 ## License
-MIT. See `LICENSE`.
+Apache 2.0. See `LICENSE`.
 
