@@ -16,6 +16,14 @@ contract EccoToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes, Ownable {
         Ownable(initialOwner)
     {}
 
+    function clock() public view override returns (uint48) {
+        return uint48(block.timestamp);
+    }
+
+    function CLOCK_MODE() public pure override returns (string memory) {
+        return "mode=timestamp";
+    }
+
     function mint(address to, uint256 amount) external onlyOwner {
         require(totalSupply() + amount <= MAX_SUPPLY, "EccoToken: max supply exceeded");
         _mint(to, amount);

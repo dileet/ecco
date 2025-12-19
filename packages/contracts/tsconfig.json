@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "types": ["bun", "node"],
     "lib": ["ESNext"],
     "target": "ESNext",
     "module": "Preserve",
@@ -13,5 +14,5 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["scripts/**/*.ts", "hardhat.config.ts"]
+  "include": ["scripts/**/*.ts", "hardhat.config.ts", "test/**/*.ts", "artifacts/**/*.d.ts"]
 }

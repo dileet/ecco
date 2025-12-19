@@ -61,8 +61,8 @@ async function main() {
   console.log("EccoTimelock deployed to:", eccoTimelock.address);
 
   console.log("\n--- Deploying EccoGovernor ---");
-  const votingDelay = 7200n;
-  const votingPeriod = 50400n;
+  const votingDelay = 7200;
+  const votingPeriod = 50400;
   const proposalThreshold = parseEther("100000");
   const quorumPercent = 4n;
   const eccoGovernor = await viem.deployContract("EccoGovernor", [
