@@ -123,17 +123,17 @@ export function applyNetworkConfig(
 
 export const DEFAULT_NETWORK: NetworkName = 'mainnet';
 
-export const BASE_MAINNET_CHAIN_ID = 8453;
-export const BASE_SEPOLIA_CHAIN_ID = 84532;
+export const MONAD_MAINNET_CHAIN_ID = 143;
+export const MONAD_TESTNET_CHAIN_ID = 10143;
 
 export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
-  mainnet: BASE_MAINNET_CHAIN_ID,
-  testnet: BASE_SEPOLIA_CHAIN_ID,
+  mainnet: MONAD_MAINNET_CHAIN_ID,
+  testnet: MONAD_TESTNET_CHAIN_ID,
 };
 
 export const DEFAULT_RPC_URLS: Record<number, string> = {
-  [BASE_MAINNET_CHAIN_ID]: 'https://mainnet.base.org',
-  [BASE_SEPOLIA_CHAIN_ID]: 'https://sepolia.base.org',
+  [MONAD_MAINNET_CHAIN_ID]: 'https://rpc.monad.xyz',
+  [MONAD_TESTNET_CHAIN_ID]: 'https://testnet-rpc.monad.xyz',
 };
 
 export function getDefaultChainId(network: NetworkName): number {

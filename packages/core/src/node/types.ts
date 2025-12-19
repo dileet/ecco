@@ -1,4 +1,5 @@
 import type { Libp2p } from 'libp2p';
+import type { PrivateKey } from '@libp2p/interface';
 import type {
   Capability,
   EccoConfig,
@@ -53,6 +54,7 @@ export interface MessageFloodProtection {
 export interface NodeState {
   id: string;
   libp2pPeerId?: string;
+  libp2pPrivateKey?: PrivateKey;
   shuttingDown: boolean;
   config: EccoConfig;
   node: EccoLibp2p | null;

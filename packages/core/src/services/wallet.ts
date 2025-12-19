@@ -1,11 +1,35 @@
-import { createPublicClient, createWalletClient, http, type PublicClient, type WalletClient, type Chain } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, type PublicClient, type WalletClient, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { parseEther } from 'viem';
-import { sepolia, baseSepolia } from 'viem/chains';
 import type { Invoice, PaymentProof } from '../types';
 import { aggregateInvoices, type AggregatedInvoice } from './payment';
 
-const DEFAULT_CHAINS = [sepolia, baseSepolia];
+const monadMainnet = defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.monad.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'Monadscan', url: 'https://monadscan.com' },
+  },
+})
+
+const monadTestnet = defineChain({
+  id: 10143,
+  name: 'Monad Testnet',
+  nativeCurrency: { name: 'Testnet MON', symbol: 'MON', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://testnet-rpc.monad.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'Monad Testnet Explorer', url: 'https://testnet.monadexplorer.com' },
+  },
+  testnet: true,
+})
+
+const DEFAULT_CHAINS = [monadMainnet, monadTestnet];
 
 export interface WalletConfig {
   privateKey: `0x${string}`;
@@ -23,8 +47,8 @@ export interface WalletState {
 function getChainById(chainId: number, chains: Chain[]): Chain {
   const chain = chains.find((c) => c.id === chainId);
   if (chain) return chain;
-  if (chainId === sepolia.id) return sepolia;
-  if (chainId === baseSepolia.id) return baseSepolia;
+  if (chainId === monadMainnet.id) return monadMainnet;
+  if (chainId === monadTestnet.id) return monadTestnet;
   throw new Error(`Chain ${chainId} not found`);
 }
 

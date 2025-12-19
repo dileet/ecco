@@ -21,10 +21,11 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "@ecco/contracts": "workspace:*",
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
+    "@ecco/contracts": "workspace:*",
     "@libp2p/bootstrap": "^12.0.8",
+    "@libp2p/crypto": "^5.1.13",
     "@libp2p/gossipsub": "^15.0.9",
     "@libp2p/identify": "^4.0.7",
     "@libp2p/interface": "^3.1.0",

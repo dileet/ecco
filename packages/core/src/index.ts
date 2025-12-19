@@ -39,11 +39,6 @@ export {
   resetLoadStatistics,
 } from './orchestrator';
 export {
-  generateKeyPair,
-  exportPublicKey,
-  importPublicKey,
-  exportPrivateKey,
-  importPrivateKey,
   signMessage,
   verifyMessage,
   isMessageFresh,
@@ -63,8 +58,8 @@ export {
   withBootstrapPeers,
   DEFAULT_NETWORK,
   DEFAULT_CONSTITUTION,
-  BASE_MAINNET_CHAIN_ID,
-  BASE_SEPOLIA_CHAIN_ID,
+  MONAD_MAINNET_CHAIN_ID,
+  MONAD_TESTNET_CHAIN_ID,
   DEFAULT_CHAIN_IDS,
   DEFAULT_RPC_URLS,
   getDefaultChainId,

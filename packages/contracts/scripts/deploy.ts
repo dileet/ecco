@@ -97,7 +97,7 @@ async function main() {
   },
 `);
 
-  if (connection.networkName === "baseSepolia" || connection.networkName === "baseMainnet") {
+  if (connection.networkName === "monadTestnet" || connection.networkName === "monadMainnet") {
     console.log("\n--- Minting initial ECCO tokens for testing ---");
     const mintAmount = parseEther("1000000");
     await eccoToken.write.mint([deployer.account.address, mintAmount]);

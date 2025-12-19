@@ -161,7 +161,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     }
 
     function calculateReward(
-        address peer,
+        address,
         uint256 difficulty,
         bool consensusAchieved,
         bool fastResponse

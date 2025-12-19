@@ -20,17 +20,17 @@ export default defineConfig({
     artifacts: "./artifacts",
   },
   networks: {
-    baseSepolia: {
+    monadTestnet: {
       type: "http",
-      url: configVariable("BASE_SEPOLIA_RPC_URL"),
+      url: configVariable("MONAD_TESTNET_RPC_URL"),
       accounts: [configVariable("PRIVATE_KEY")],
-      chainId: 84532,
+      chainId: 10143,
     },
-    baseMainnet: {
+    monadMainnet: {
       type: "http",
-      url: configVariable("BASE_MAINNET_RPC_URL"),
+      url: configVariable("MONAD_MAINNET_RPC_URL"),
       accounts: [configVariable("PRIVATE_KEY")],
-      chainId: 8453,
+      chainId: 143,
     },
   },
 });

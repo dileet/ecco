@@ -55,6 +55,7 @@ export async function stake(
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
   const walletClient = getWalletClient(state, chainId);
+  const publicClient = getPublicClient(state, chainId);
 
   if (!walletClient.account) {
     throw new Error('Wallet client account not available');
@@ -62,7 +63,8 @@ export async function stake(
 
   const allowance = await getEccoAllowance(state, chainId, addresses.reputationRegistry, amount);
   if (!allowance.isApproved) {
-    await approveEcco(state, chainId, addresses.reputationRegistry, amount);
+    const approveHash = await approveEcco(state, chainId, addresses.reputationRegistry, amount);
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
   }
 
   const hash = await walletClient.writeContract({

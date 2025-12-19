@@ -1,9 +1,10 @@
+import type { PrivateKey, PublicKey } from '@libp2p/interface';
+import { publicKeyFromRaw } from '@libp2p/crypto/keys';
 import type { Message } from '../types';
 
 export interface AuthConfig {
   enabled: boolean;
-  privateKey?: CryptoKey;
-  publicKey?: CryptoKey;
+  privateKey?: PrivateKey;
 }
 
 export interface SignedMessage extends Message {
@@ -13,71 +14,11 @@ export interface SignedMessage extends Message {
 
 export interface AuthState {
   config: AuthConfig;
-  keyCache: Map<string, CryptoKey>;
+  keyCache: Map<string, PublicKey>;
 }
 
-export async function generateKeyPair(): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey }> {
-  if (typeof crypto === 'undefined' || !crypto.subtle) {
-    throw new Error('Web Crypto API not available');
-  }
-
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: 'ECDSA',
-      namedCurve: 'P-256',
-    },
-    true,
-    ['sign', 'verify']
-  );
-
-  return {
-    privateKey: keyPair.privateKey,
-    publicKey: keyPair.publicKey,
-  };
-}
-
-export async function exportPublicKey(publicKey: CryptoKey): Promise<string> {
-  const exported = await crypto.subtle.exportKey('spki', publicKey);
-  const base64 = Buffer.from(exported).toString('base64');
-  return base64;
-}
-
-export async function importPublicKey(publicKeyStr: string): Promise<CryptoKey> {
-  const buffer = Buffer.from(publicKeyStr, 'base64');
-  return crypto.subtle.importKey(
-    'spki',
-    buffer,
-    {
-      name: 'ECDSA',
-      namedCurve: 'P-256',
-    },
-    true,
-    ['verify']
-  );
-}
-
-export async function exportPrivateKey(privateKey: CryptoKey): Promise<string> {
-  const exported = await crypto.subtle.exportKey('pkcs8', privateKey);
-  const base64 = Buffer.from(exported).toString('base64');
-  return base64;
-}
-
-export async function importPrivateKey(privateKeyStr: string): Promise<CryptoKey> {
-  const buffer = Buffer.from(privateKeyStr, 'base64');
-  return crypto.subtle.importKey(
-    'pkcs8',
-    buffer,
-    {
-      name: 'ECDSA',
-      namedCurve: 'P-256',
-    },
-    true,
-    ['sign']
-  );
-}
-
-function createSignaturePayload(message: Message | SignedMessage): string {
-  return JSON.stringify({
+function createSignaturePayload(message: Message | SignedMessage): Uint8Array {
+  const payload = JSON.stringify({
     id: message.id,
     from: message.from,
     to: message.to,
@@ -85,32 +26,22 @@ function createSignaturePayload(message: Message | SignedMessage): string {
     payload: message.payload,
     timestamp: message.timestamp,
   });
+  return new TextEncoder().encode(payload);
 }
 
 export async function signMessage(state: AuthState, message: Message): Promise<SignedMessage> {
-  if (!state.config.enabled || !state.config.privateKey || !state.config.publicKey) {
+  if (!state.config.enabled || !state.config.privateKey) {
     throw new Error('Authentication not enabled or keys not configured');
   }
 
-  const payload = createSignaturePayload(message);
-  const encoder = new TextEncoder();
-  const data = encoder.encode(payload);
-
-  const signature = await crypto.subtle.sign(
-    {
-      name: 'ECDSA',
-      hash: { name: 'SHA-256' },
-    },
-    state.config.privateKey,
-    data
-  );
-
-  const publicKeyStr = await exportPublicKey(state.config.publicKey);
+  const data = createSignaturePayload(message);
+  const signature = await state.config.privateKey.sign(data);
+  const publicKeyBytes = state.config.privateKey.publicKey.raw;
 
   return {
     ...message,
     signature: Buffer.from(signature).toString('base64'),
-    publicKey: publicKeyStr,
+    publicKey: Buffer.from(publicKeyBytes).toString('base64'),
   };
 }
 
@@ -127,27 +58,17 @@ export async function verifyMessage(
     let newState = state;
 
     if (!publicKey) {
-      publicKey = await importPublicKey(signedMessage.publicKey);
+      const publicKeyBytes = Buffer.from(signedMessage.publicKey, 'base64');
+      publicKey = publicKeyFromRaw(publicKeyBytes);
       newState = {
         ...state,
         keyCache: new Map(state.keyCache).set(signedMessage.publicKey, publicKey),
       };
     }
 
-    const payload = createSignaturePayload(signedMessage);
-    const encoder = new TextEncoder();
-    const data = encoder.encode(payload);
-
+    const data = createSignaturePayload(signedMessage);
     const signature = Buffer.from(signedMessage.signature, 'base64');
-    const isValid = await crypto.subtle.verify(
-      {
-        name: 'ECDSA',
-        hash: { name: 'SHA-256' },
-      },
-      publicKey,
-      signature,
-      data
-    );
+    const isValid = await publicKey.verify(data, signature);
 
     return { valid: isValid, state: newState };
   } catch (error) {
@@ -161,4 +82,3 @@ export function isMessageFresh(message: Message, maxAgeMs: number = 60000): bool
   const age = now - message.timestamp;
   return age >= 0 && age <= maxAgeMs;
 }
-

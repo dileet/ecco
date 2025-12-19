@@ -1,4 +1,4 @@
-import { formatEther } from 'viem'
+import { formatEther, parseEther } from 'viem'
 import { createAgent, delay } from '@ecco/core'
 
 async function demonstrateSimplifiedFlow(): Promise<void> {
@@ -36,17 +36,23 @@ async function demonstrateSimplifiedFlow(): Promise<void> {
 
   console.log('\n--- Step 3: Stake ECCO Tokens ---\n')
 
-  console.log('To stake ECCO tokens, simply call:')
-  console.log('')
-  console.log('```typescript')
-  console.log('const txHash = await agent.stake(parseEther("100"))')
-  console.log('console.log("Staked! TX:", txHash)')
-  console.log('```')
-  console.log('')
-  console.log('This automatically:')
-  console.log('  1. Computes your peerId hash')
-  console.log('  2. Binds your peerId to your wallet on-chain')
-  console.log('  3. Stakes the specified amount')
+  try {
+    console.log('Staking 100 ECCO tokens...')
+    const txHash = await agent.stake(parseEther('100'))
+    console.log('Staked! TX:', txHash)
+
+    console.log('\nWaiting for confirmation...')
+    await delay(3000)
+
+    console.log('Checking updated stake info...')
+    const updatedStakeInfo = await agent.getStakeInfo()
+    console.log(`New Stake: ${formatEther(updatedStakeInfo.stake)} ECCO`)
+    console.log(`Can Work: ${updatedStakeInfo.canWork}`)
+    console.log(`Effective Score: ${updatedStakeInfo.effectiveScore}`)
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('Failed to stake:', errorMsg)
+  }
 
   await agent.stop()
   console.log('\n--- Demo Complete ---\n')
@@ -141,7 +147,7 @@ async function main(): Promise<void> {
 
   console.log('1. AUTO-CONFIGURED WALLET')
   console.log('   - Just pass `wallet: {}` to createAgent')
-  console.log('   - Default RPC URLs for Base Sepolia (testnet) and Base (mainnet)')
+  console.log('   - Default RPC URLs for Monad Testnet and Monad Mainnet')
   console.log('   - Chain ID auto-detected from network config\n')
 
   console.log('2. SIMPLE STAKING')

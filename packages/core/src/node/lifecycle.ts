@@ -125,6 +125,7 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
       maxConnections: 100,
       inboundConnectionThreshold: 50,
     },
+    ...(state.libp2pPrivateKey && { privateKey: state.libp2pPrivateKey }),
   };
 
   const node = await createLibp2p<EccoServices>(libp2pOptions);
@@ -147,24 +148,20 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
   const authState: AuthState = {
     config: {
       enabled: true,
-      privateKey: identity.privateKey,
-      publicKey: identity.publicKey,
+      privateKey: identity.libp2pPrivateKey,
     },
     keyCache: new Map(),
   };
-  updateState(stateRef, (s) => setMessageAuth(s, authState));
-
-  if (!state.config.nodeId) {
-    updateState(stateRef, (current) => ({
-      ...current,
-      id: identity.nodeIdFromKeys
-    }));
-  }
+  updateState(stateRef, (s) => ({
+    ...setMessageAuth(s, authState),
+    libp2pPrivateKey: identity.libp2pPrivateKey,
+    id: state.config.nodeId ?? identity.peerId,
+  }));
 
   const walletRpcUrls = state.config.authentication?.walletRpcUrls;
   const hasWalletRpcUrls = walletRpcUrls && Object.keys(walletRpcUrls).length > 0;
-  
-  if (hasWalletRpcUrls && identity.ethereumPrivateKey) {
+
+  if (hasWalletRpcUrls) {
     const walletState = createWalletState({
       privateKey: identity.ethereumPrivateKey,
       chains: [],
