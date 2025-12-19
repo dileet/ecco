@@ -10,6 +10,7 @@
     "streaming": "bun run streaming-payments.ts",
     "escrow": "bun run escrow-payments.ts",
     "coffee": "bun run coffee-shop-agents.ts",
+    "reputation": "bun run on-chain-reputation.ts",
     "db:push": "ECCO_DB_PATH=default.sqlite bun run ../packages/core/bin/db-push.ts",
     "db:push:streaming": "ECCO_DB_PATH=streaming-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=streaming-client.sqlite bun run ../packages/core/bin/db-push.ts",
     "db:push:escrow": "ECCO_DB_PATH=escrow-service.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=escrow-client.sqlite bun run ../packages/core/bin/db-push.ts && ECCO_DB_PATH=escrow-approver.sqlite bun run ../packages/core/bin/db-push.ts",
@@ -19,7 +20,8 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.62",
     "@ecco/core": "workspace:*",
-    "ai": "^5.0.87"
+    "ai": "^5.0.87",
+    "viem": "^2.43.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

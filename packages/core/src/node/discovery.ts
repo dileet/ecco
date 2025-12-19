@@ -1,9 +1,6 @@
 import type { PeerId } from '@libp2p/interface';
-import { multiaddr } from '@multiformats/multiaddr';
 import type { NodeState, StateRef } from './types';
 import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
-import type { ClientState as RegistryClientState } from '../registry-client';
-import { query as queryRegistryClient } from '../registry-client';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
@@ -102,12 +99,11 @@ async function handlePeerConnect(stateRef: StateRef<NodeState>): Promise<void> {
   await announceCapabilities(state);
 }
 
-type DiscoveryStrategy = 'local' | 'registry' | 'dht' | 'gossip';
+type DiscoveryStrategy = 'local' | 'dht' | 'gossip';
 
 function selectDiscoveryStrategy(
   localMatches: CapabilityMatch[],
   config: NodeState['config'],
-  hasRegistry: boolean,
   hasDHT: boolean
 ): DiscoveryStrategy[] {
   if (localMatches.length > 0) {
@@ -115,10 +111,6 @@ function selectDiscoveryStrategy(
   }
 
   const strategies: DiscoveryStrategy[] = [];
-
-  if (hasRegistry) {
-    strategies.push('registry');
-  }
 
   if (config.discovery.includes('dht') && hasDHT) {
     strategies.push('dht');
@@ -229,43 +221,6 @@ function prioritizeWithBloomFilter(
   return prioritizeWithAllFactors(state, matches, capability);
 }
 
-async function queryRegistry(
-  registryClient: RegistryClientState,
-  query: CapabilityQuery
-): Promise<PeerInfo[]> {
-  try {
-    return await queryRegistryClient(registryClient, query);
-  } catch (error) {
-    console.error('Registry query failed:', error);
-    return [];
-  }
-}
-
-async function dialRegistryPeers(
-  node: NodeState['node'],
-  peers: PeerInfo[]
-): Promise<void> {
-  if (!node) {
-    return;
-  }
-
-  for (const peer of peers) {
-    if (peer.addresses.length === 0) {
-      continue;
-    }
-
-    for (const addrStr of peer.addresses) {
-      try {
-        const addr = multiaddr(addrStr);
-        await node.dial(addr);
-        break;
-      } catch {
-        continue;
-      }
-    }
-  }
-}
-
 const pollForMatches = async (
   stateRef: StateRef<NodeState>,
   query: CapabilityQuery,
@@ -311,12 +266,9 @@ export async function findPeers(
 
   const primaryCapability = query.requiredCapabilities[0]?.type ?? 'unknown';
 
-  const isRegistryConnected = state.registryClient?.connected ?? false;
-
   const strategies = selectDiscoveryStrategy(
     matches,
     state.config,
-    isRegistryConnected,
     !!(state.node?.services.dht)
   );
 
@@ -335,25 +287,6 @@ export async function findPeers(
       }
       matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
       return matches;
-    }
-
-    if (strategy === 'registry' && state.registryClient) {
-      const registryPeers = await queryRegistry(state.registryClient, query);
-      const newPeers = mergePeers(state.peers, registryPeers);
-
-      updateState(stateRef, (s) => addPeers(s, newPeers));
-
-      state = getState(stateRef);
-      const updatedPeerList = getAllPeers(state);
-      matches = matchPeers(updatedPeerList, query);
-
-      if (matches.length > 0) {
-        if (state.node && newPeers.length > 0) {
-          dialRegistryPeers(state.node, newPeers);
-        }
-        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
-        return matches;
-      }
     }
 
     if (strategy === 'dht' && state.node?.services.dht) {
@@ -435,19 +368,7 @@ async function discoverInPhase(
     case 'internet': {
       let matches: CapabilityMatch[] = [];
 
-      if (state.registryClient?.connected) {
-        const registryPeers = await queryRegistry(state.registryClient, query);
-        const newPeers = mergePeers(state.peers, registryPeers);
-        updateState(stateRef, (s) => addPeers(s, newPeers));
-
-        const updatedState = getState(stateRef);
-        matches = matchPeers(getAllPeers(updatedState), query);
-        if (matches.length > 0 && state.node && newPeers.length > 0) {
-          dialRegistryPeers(state.node, newPeers);
-        }
-      }
-
-      if (matches.length === 0 && state.node?.services.dht) {
+      if (state.node?.services.dht) {
         const dhtPeers = await queryCapabilities(state.node, query);
         const newPeers = mergePeers(state.peers, dhtPeers);
         updateState(stateRef, (s) => addPeers(s, newPeers));

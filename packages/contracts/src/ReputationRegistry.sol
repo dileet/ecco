@@ -35,6 +35,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     mapping(address => PeerReputation) public reputations;
     mapping(bytes32 => PaymentRecord) public payments;
 
+    mapping(address => bytes32) public peerIdOf;
+    mapping(bytes32 => address) public walletOf;
+
     uint256 public minStakeToWork = 100 * 10 ** 18;
     uint256 public minStakeToRate = 10 * 10 ** 18;
 
@@ -50,18 +53,44 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     event Rated(address indexed rater, address indexed ratee, int8 delta, uint256 weight);
     event Slashed(address indexed peer, uint256 amount, string reason);
     event JobCompleted(address indexed peer);
+    event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
     }
 
-    function stake(uint256 amount) external nonReentrant {
+    function stake(uint256 amount, bytes32 peerIdHash) external nonReentrant {
         require(amount > 0, "Must stake positive amount");
+        require(peerIdHash != bytes32(0), "Invalid peerId hash");
+
+        if (peerIdOf[msg.sender] == bytes32(0)) {
+            require(walletOf[peerIdHash] == address(0), "PeerId already registered");
+            peerIdOf[msg.sender] = peerIdHash;
+            walletOf[peerIdHash] = msg.sender;
+            emit PeerIdRegistered(msg.sender, peerIdHash);
+        } else {
+            require(peerIdOf[msg.sender] == peerIdHash, "PeerId mismatch");
+        }
+
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
         reputations[msg.sender].stake += amount;
         reputations[msg.sender].lastActive = block.timestamp;
         totalStaked += amount;
         emit Staked(msg.sender, amount);
+    }
+
+    function registerPeerId(bytes32 peerIdHash) external {
+        require(peerIdHash != bytes32(0), "Invalid peerId hash");
+        require(peerIdOf[msg.sender] == bytes32(0), "Already registered");
+        require(walletOf[peerIdHash] == address(0), "PeerId already taken");
+
+        peerIdOf[msg.sender] = peerIdHash;
+        walletOf[peerIdHash] = msg.sender;
+        emit PeerIdRegistered(msg.sender, peerIdHash);
+    }
+
+    function getWalletForPeerId(bytes32 peerIdHash) external view returns (address) {
+        return walletOf[peerIdHash];
     }
 
     function requestUnstake(uint256 amount) external nonReentrant {

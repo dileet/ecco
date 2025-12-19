@@ -114,7 +114,6 @@ export function applyNetworkConfig(
 
   return {
     discovery: networkConfig.discovery,
-    fallbackToP2P: true,
     authentication: { enabled: false },
     ...baseConfig,
     networkId: baseConfig.networkId ?? networkConfig.networkId,
@@ -123,4 +122,33 @@ export function applyNetworkConfig(
 }
 
 export const DEFAULT_NETWORK: NetworkName = 'mainnet';
+
+export const BASE_MAINNET_CHAIN_ID = 8453;
+export const BASE_SEPOLIA_CHAIN_ID = 84532;
+
+export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
+  mainnet: BASE_MAINNET_CHAIN_ID,
+  testnet: BASE_SEPOLIA_CHAIN_ID,
+};
+
+export const DEFAULT_RPC_URLS: Record<number, string> = {
+  [BASE_MAINNET_CHAIN_ID]: 'https://mainnet.base.org',
+  [BASE_SEPOLIA_CHAIN_ID]: 'https://sepolia.base.org',
+};
+
+export function getDefaultChainId(network: NetworkName): number {
+  return DEFAULT_CHAIN_IDS[network];
+}
+
+export function getDefaultRpcUrl(chainId: number): string | undefined {
+  return DEFAULT_RPC_URLS[chainId];
+}
+
+export function getDefaultRpcUrls(chainId: number): Record<number, string> {
+  const url = DEFAULT_RPC_URLS[chainId];
+  if (url) {
+    return { [chainId]: url };
+  }
+  return {};
+}
 

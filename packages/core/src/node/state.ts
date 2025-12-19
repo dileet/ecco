@@ -9,7 +9,6 @@ import type {
   SettlementIntent,
   EccoConfig,
 } from '../types';
-import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { AuthState } from '../services/auth';
 import type { MessageBridgeState } from '../transport/message-bridge';
@@ -230,11 +229,6 @@ export const runCleanupHandlers = async (state: NodeState): Promise<void> => {
     }
   }
 };
-
-export const setRegistryClient = (state: NodeState, client: RegistryClientState): NodeState => ({
-  ...state,
-  registryClient: client,
-});
 
 export const setMessageAuth = (state: NodeState, auth: AuthState): NodeState => ({
   ...state,

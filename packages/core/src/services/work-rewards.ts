@@ -79,11 +79,19 @@ export async function distributeBatchRewards(
     throw new Error('Wallet client account not available');
   }
 
+  const formattedInputs = inputs.map(input => ({
+    jobId: input.jobId,
+    peer: input.peer,
+    difficulty: input.difficulty,
+    consensusAchieved: input.consensusAchieved,
+    fastResponse: input.fastResponse,
+  }));
+
   const hash = await walletClient.writeContract({
     address: addresses.workRewards,
     abi: WORK_REWARDS_ABI,
     functionName: 'distributeBatchRewards',
-    args: [inputs],
+    args: [formattedInputs],
     account: walletClient.account,
     chain: walletClient.chain,
   });

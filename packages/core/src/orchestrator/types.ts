@@ -37,6 +37,7 @@ export interface MultiAgentConfig {
   loadBalancing?: LoadBalancingConfig;
   semanticSimilarity?: SemanticSimilarityConfig;
   zoneSelection?: ZoneSelectionConfig;
+  stakeRequirement?: StakeRequirementConfig;
   nodeRef?: StateRef<NodeState>;
   onStream?: (chunk: { text: string; peerId: string }) => void;
   synthesizeFn?: SynthesizeFn;
@@ -67,6 +68,13 @@ export interface ZoneSelectionConfig {
   maxZone?: 'local' | 'regional' | 'continental' | 'global';
   zoneFallbackTimeout?: number;
   ignoreLatency?: boolean;
+}
+
+export interface StakeRequirementConfig {
+  requireStake?: boolean;
+  minStake?: bigint;
+  preferStaked?: boolean;
+  stakedBonus?: number;
 }
 
 export interface AgentResponse {

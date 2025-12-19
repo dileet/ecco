@@ -11,13 +11,6 @@ import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
 import { withTimeout, retryWithBackoff, debug } from '../utils';
-import {
-  connect as connectRegistry,
-  disconnect as disconnectRegistry,
-  register as registerWithRegistry,
-  unregister as unregisterFromRegistry,
-  type ClientState as RegistryClientState,
-} from '../registry-client';
 import * as storage from '../storage';
 import { closePool } from '../connection';
 import { publish } from './messaging';
@@ -35,7 +28,6 @@ import {
   setNode,
   setMessageAuth,
   setWallet,
-  setRegistryClient,
   setTransport,
   setMessageBridge,
   runCleanupHandlers,
@@ -199,51 +191,6 @@ async function setupBootstrap(stateRef: StateRef<NodeState>): Promise<void> {
   }
 }
 
-async function setupRegistry(stateRef: StateRef<NodeState>): Promise<void> {
-  const state = getState(stateRef);
-
-  if (!state.config.registry) {
-    return;
-  }
-
-  const registryConfig = {
-    url: state.config.registry,
-    reconnect: true,
-    reconnectInterval: 5000,
-    timeout: 10000,
-  };
-
-  let connectedState: RegistryClientState | null = null;
-
-  try {
-    connectedState = await retryWithBackoff(
-      () => withTimeout(connectRegistry(registryConfig), 10000, 'Registry connection timeout'),
-      {
-        maxAttempts: 3,
-        initialDelay: 2000,
-        maxDelay: 10000,
-        onRetry: (attempt, error) => {
-          console.warn(`Registry connection attempt ${attempt} failed: ${error.message}`);
-        },
-      }
-    );
-  } catch {
-    if (state.config.fallbackToP2P) {
-      return;
-    }
-    throw new Error('Failed to connect to registry after multiple attempts');
-  }
-
-  updateState(stateRef, (s) => setRegistryClient(s, connectedState!));
-
-  const updatedState = getState(stateRef);
-  if (updatedState.node) {
-    const addresses = updatedState.node.getMultiaddrs().map(String);
-    const registeredState = await registerWithRegistry(connectedState, updatedState.id, updatedState.capabilities, addresses);
-    updateState(stateRef, (s) => setRegistryClient(s, registeredState));
-  }
-}
-
 async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
   const state = getState(stateRef);
   await storage.initialize(state.id);
@@ -367,7 +314,6 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   setupEventListeners(getState(stateRef), stateRef);
   setupCapabilityTracking(stateRef);
   await setupBootstrap(stateRef);
-  await setupRegistry(stateRef);
   await announceCapabilities(getState(stateRef));
 
   return stateRef;
@@ -388,11 +334,6 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
 
   if (state.transport) {
     await stopHybridDiscovery(state.transport);
-  }
-
-  if (state.registryClient) {
-    await unregisterFromRegistry(state.registryClient);
-    await disconnectRegistry(state.registryClient);
   }
 
   if (state.connectionPool) {

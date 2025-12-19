@@ -13,7 +13,6 @@ import type {
 } from '../types';
 import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
-import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';
@@ -64,7 +63,6 @@ export interface NodeState {
   cleanupHandlers: CleanupHandler[];
   messageAuth?: AuthState;
   connectionPool?: PoolState;
-  registryClient?: RegistryClientState;
   wallet?: WalletState;
   capabilityTrackingSetup: boolean;
   performanceTracker?: PeerPerformanceState;

@@ -55,6 +55,30 @@ const selectAgents = (
   const n = config.agentCount || 3;
   let candidates = matches;
 
+  if (config.stakeRequirement?.requireStake && nodeState?.reputationState) {
+    const minStake = config.stakeRequirement.minStake ?? 0n;
+    candidates = candidates.filter((match) => {
+      const rep = nodeState.reputationState?.peers.get(match.peer.id);
+      if (!rep) return false;
+      return rep.canWork && rep.stake >= minStake;
+    });
+  }
+
+  if (config.stakeRequirement?.preferStaked && nodeState?.reputationState) {
+    const stakedBonus = config.stakeRequirement.stakedBonus ?? 0.2;
+    candidates = candidates.map((match) => {
+      const rep = nodeState.reputationState?.peers.get(match.peer.id);
+      if (rep?.canWork) {
+        return {
+          ...match,
+          matchScore: match.matchScore + stakedBonus,
+        };
+      }
+      return match;
+    });
+    candidates.sort((a, b) => b.matchScore - a.matchScore);
+  }
+
   const ignoreLatency = config.zoneSelection?.ignoreLatency ?? false;
   const preferredZone = config.zoneSelection?.preferredZone as LatencyZone | undefined;
   const maxZone = config.zoneSelection?.maxZone as LatencyZone | undefined;

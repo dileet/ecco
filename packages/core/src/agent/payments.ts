@@ -15,11 +15,9 @@ import { writeSwarmSplit, updateSwarmSplit } from '../storage'
 import { distributeReward, estimateReward, generateJobId } from '../services/work-rewards'
 import {
   calculateFee as calculateFeeOnChain,
-  collectFeeWithEth,
-  collectFeeWithEcco as collectFeeWithEccoOnChain,
+  collectFee as collectFeeOnChain,
   claimRewards as claimRewardsOnChain,
   getPendingRewards as getPendingRewardsOnChain,
-  payWithFee as payWithFeeOnChain,
 } from '../services/fee-collector'
 
 interface PaymentState {
@@ -477,12 +475,12 @@ export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null 
   }
 
   const calculateFee = async (chainId: number, amount: bigint): Promise<FeeCalculation> => {
-    const feeInfo = await calculateFeeOnChain(wallet, chainId, wallet.account.address, amount)
+    const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
     return {
       feePercent: feeInfo.feePercent,
       feeAmount: feeInfo.feeAmount,
       netAmount: amount - feeInfo.feeAmount,
-      isEccoDiscount: feeInfo.isEccoDiscount,
+      isEccoDiscount: false,
     }
   }
 
@@ -491,7 +489,14 @@ export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null 
     recipient: `0x${string}`,
     amount: bigint
   ): Promise<PayWithFeeResult> => {
-    return payWithFeeOnChain(wallet, chainId, recipient, amount)
+    const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
+    const feeHash = await collectFeeOnChain(wallet, chainId, recipient, amount)
+    return {
+      paymentHash: feeHash,
+      feeHash,
+      feeAmount: feeInfo.feeAmount,
+      netAmount: amount - feeInfo.feeAmount,
+    }
   }
 
   const collectFeeWithEcco = async (
@@ -499,7 +504,7 @@ export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null 
     payee: `0x${string}`,
     amount: bigint
   ): Promise<string> => {
-    return collectFeeWithEccoOnChain(wallet, chainId, payee, amount)
+    return collectFeeOnChain(wallet, chainId, payee, amount)
   }
 
   const claimRewards = async (chainId: number): Promise<string> => {
@@ -509,7 +514,8 @@ export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null 
   const getPendingRewards = async (
     chainId: number
   ): Promise<{ ethPending: bigint; eccoPending: bigint }> => {
-    return getPendingRewardsOnChain(wallet, chainId, wallet.account.address)
+    const pending = await getPendingRewardsOnChain(wallet, chainId, wallet.account.address)
+    return { ethPending: 0n, eccoPending: pending }
   }
 
   return {

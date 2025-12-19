@@ -6,6 +6,7 @@ import {
   batchRate,
   generatePaymentId,
 } from '../services/reputation-contract';
+import { getWalletForPeerId, computePeerIdHash } from '../services/peer-binding';
 
 export interface LocalPeerReputation {
   peerId: string;
@@ -34,6 +35,7 @@ export interface PendingRating {
 
 export interface ReputationState {
   peers: Map<string, LocalPeerReputation>;
+  peerIdToWallet: Map<string, `0x${string}`>;
   pendingCommits: PendingRating[];
   commitThreshold: number;
   commitIntervalMs: number;
@@ -56,6 +58,7 @@ const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 export function createReputationState(config: ReputationConfig): ReputationState {
   return {
     peers: new Map(),
+    peerIdToWallet: new Map(),
     pendingCommits: [],
     commitThreshold: config.commitThreshold ?? DEFAULT_COMMIT_THRESHOLD,
     commitIntervalMs: config.commitIntervalMs ?? DEFAULT_COMMIT_INTERVAL_MS,
@@ -324,6 +327,53 @@ export function getPeersByScore(state: ReputationState, limit?: number): LocalPe
 
 export function getStakedPeers(state: ReputationState): LocalPeerReputation[] {
   return Array.from(state.peers.values()).filter((p) => p.canWork);
+}
+
+export function getCachedWallet(state: ReputationState, peerId: string): `0x${string}` | undefined {
+  return state.peerIdToWallet.get(peerId);
+}
+
+export function setCachedWallet(state: ReputationState, peerId: string, wallet: `0x${string}`): void {
+  state.peerIdToWallet.set(peerId, wallet);
+  const peer = state.peers.get(peerId);
+  if (peer) {
+    peer.walletAddress = wallet;
+  }
+}
+
+export async function resolveWalletForPeer(
+  state: ReputationState,
+  wallet: WalletState,
+  peerId: string
+): Promise<`0x${string}` | null> {
+  const cached = state.peerIdToWallet.get(peerId);
+  if (cached) {
+    return cached;
+  }
+
+  const walletAddress = await getWalletForPeerId(wallet, state.chainId, peerId);
+  if (walletAddress) {
+    state.peerIdToWallet.set(peerId, walletAddress);
+    const peer = state.peers.get(peerId);
+    if (peer) {
+      peer.walletAddress = walletAddress;
+    }
+  }
+
+  return walletAddress;
+}
+
+export async function resolveAndSyncPeer(
+  state: ReputationState,
+  wallet: WalletState,
+  peerId: string
+): Promise<LocalPeerReputation | null> {
+  const walletAddress = await resolveWalletForPeer(state, wallet, peerId);
+  if (!walletAddress) {
+    return null;
+  }
+
+  return syncPeerFromChain(state, wallet, peerId, walletAddress);
 }
 
 export function calculateLocalSuccessRate(peer: LocalPeerReputation): number {

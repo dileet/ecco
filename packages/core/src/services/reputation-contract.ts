@@ -47,7 +47,12 @@ function getFeeCollectorContract(state: WalletState, chainId: number) {
   });
 }
 
-export async function stake(state: WalletState, chainId: number, amount: bigint): Promise<`0x${string}`> {
+export async function stake(
+  state: WalletState,
+  chainId: number,
+  amount: bigint,
+  peerIdHash: `0x${string}`
+): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
   const walletClient = getWalletClient(state, chainId);
 
@@ -64,7 +69,7 @@ export async function stake(state: WalletState, chainId: number, amount: bigint)
     address: addresses.reputationRegistry,
     abi: REPUTATION_REGISTRY_ABI,
     functionName: 'stake',
-    args: [amount],
+    args: [amount, peerIdHash],
     account: walletClient.account,
     chain: walletClient.chain,
   });

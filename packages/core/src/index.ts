@@ -16,9 +16,6 @@ export {
   getMultiaddrs,
   getId,
   getLibp2pPeerId,
-  isRegistryConnected,
-  setRegistryReputation,
-  incrementRegistryReputation,
   broadcastCapabilities,
   addPeer,
   removePeer,
@@ -54,15 +51,6 @@ export {
   type SignedMessage,
   type AuthState,
 } from './services/auth';
-export {
-  connect as registryConnect,
-  disconnect as registryDisconnect,
-  register as registryRegister,
-  unregister as registryUnregister,
-  query as registryQuery,
-  setReputation as registrySetReputation,
-  incrementReputation as registryIncrementReputation,
-} from './registry-client';
 export { configDefaults, mergeConfig, createConfig } from './config';
 export {
   ECCO_MAINNET,
@@ -75,6 +63,13 @@ export {
   withBootstrapPeers,
   DEFAULT_NETWORK,
   DEFAULT_CONSTITUTION,
+  BASE_MAINNET_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+  DEFAULT_CHAIN_IDS,
+  DEFAULT_RPC_URLS,
+  getDefaultChainId,
+  getDefaultRpcUrl,
+  getDefaultRpcUrls,
   type NetworkConfig,
   type NetworkName,
 } from './networks';
@@ -125,10 +120,6 @@ export {
   removeSettlement,
   updateSettlement,
 } from './storage';
-
-export {
-  type ClientState as RegistryClientState,
-} from './registry-client';
 
 export {
   type MatchWeights,
@@ -234,6 +225,7 @@ export type {
   LoadBalancingConfig,
   AgentLoadState,
   SemanticSimilarityConfig,
+  StakeRequirementConfig,
 } from './orchestrator/types';
 
 export {
@@ -343,6 +335,8 @@ export {
   type PeerScoringConfig,
   type PriorityDiscoveryConfig,
   type LocalModelConfig,
+  type AgentReputationConfig,
+  type FindPeersOptions,
 } from './agent';
 
 export {
@@ -370,15 +364,12 @@ export {
 
 export {
   calculateFee,
-  collectFeeWithEth,
-  collectFeeWithEcco,
+  collectFee,
   getPendingRewards,
   claimRewards,
   distributeFees,
   getFeeStats,
-  payWithFee,
   type FeeInfo,
-  type PendingRewards,
   type FeeStats,
 } from './services/fee-collector';
 
@@ -394,7 +385,11 @@ export {
   syncAllPeersFromChain,
   getEffectiveScore,
   getPeersByScore,
-  getEccoStakers,
+  getStakedPeers,
+  getCachedWallet,
+  setCachedWallet,
+  resolveWalletForPeer,
+  resolveAndSyncPeer,
   type LocalPeerReputation,
   type ReputationState,
   type ReputationConfig,
@@ -446,3 +441,33 @@ export {
   type ZoneStat,
   type LatencyZoneConfig,
 } from './node/latency-zones';
+
+export {
+  computePeerIdHash,
+  getWalletForPeerId,
+  getPeerIdForWallet,
+  isPeerIdRegistered,
+  isWalletRegistered,
+  getPeerBindingInfo,
+  type PeerBindingInfo,
+} from './services/peer-binding';
+
+export {
+  stake,
+  requestUnstake,
+  completeUnstake,
+  generatePaymentId,
+  recordPayment,
+  rateAfterPayment,
+  batchRate,
+  canWork,
+  canRate,
+  getEffectiveScore as getOnChainEffectiveScore,
+  getStakeInfo,
+  getReputation as getOnChainReputation,
+  getRatingWeight,
+  getTotalStaked,
+  getMinStakes,
+  type PeerReputation as OnChainPeerReputation,
+  type StakeInfo,
+} from './services/reputation-contract';

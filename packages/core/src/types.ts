@@ -2,7 +2,6 @@ export type DiscoveryMethod =
   | 'mdns'
   | 'dht'
   | 'gossip'
-  | 'registry'
   | 'bluetooth';
 
 export interface MemoryLimitsConfig {
@@ -22,8 +21,6 @@ export interface FloodProtectionConfig {
 
 export interface EccoConfig {
   discovery: DiscoveryMethod[];
-  registry?: string;
-  fallbackToP2P?: boolean;
   nodeId?: string;
   networkId?: string;
   listenAddresses?: string[];
@@ -118,6 +115,12 @@ export interface PeerInfo {
   servicesProvided?: number;
   servicesConsumed?: number;
   reputation?: number;
+  walletAddress?: `0x${string}`;
+  onChainReputation?: {
+    score: bigint;
+    stake: bigint;
+    canWork: boolean;
+  };
 }
 
 export interface Message {

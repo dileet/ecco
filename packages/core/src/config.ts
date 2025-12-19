@@ -3,7 +3,6 @@ import { ECCO_MAINNET, type NetworkName, type NetworkConfig, applyNetworkConfig 
 
 export const configDefaults: EccoConfig = {
   discovery: ECCO_MAINNET.discovery,
-  fallbackToP2P: true,
   authentication: { enabled: false },
   networkId: ECCO_MAINNET.networkId,
   bootstrap: ECCO_MAINNET.bootstrap,

@@ -9,9 +9,25 @@ import {
   getLibp2pPeerId,
   subscribeToTopic,
   loadOrCreateNodeIdentity,
+  createReputationState,
+  resolveWalletForPeer as resolveWalletForPeerImpl,
 } from '../node'
 import { createWalletState, getAddress, type WalletState } from '../services/wallet'
-import { ECCO_TESTNET, ECCO_MAINNET, formatProtocolVersion, type NetworkConfig } from '../networks'
+import {
+  ECCO_TESTNET,
+  ECCO_MAINNET,
+  formatProtocolVersion,
+  type NetworkConfig,
+  type NetworkName,
+  getDefaultChainId,
+  DEFAULT_RPC_URLS,
+} from '../networks'
+import {
+  stake as stakeContract,
+  requestUnstake as requestUnstakeContract,
+  getStakeInfo as getStakeInfoContract,
+} from '../services/reputation-contract'
+import { computePeerIdHash } from '../services/peer-binding'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -29,6 +45,7 @@ import type {
   QueryConfig,
   DiscoveryOptions,
   DiscoveryPriority,
+  FindPeersOptions,
 } from './types'
 import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement, createFeeHelpers } from './payments'
@@ -97,23 +114,43 @@ function getExplicitTokens(payload: unknown): number | null {
 }
 
 function resolveNetworkConfig(network: AgentConfig['network']): NetworkConfig {
-  if (Array.isArray(network)) return ECCO_MAINNET
   if (network === 'testnet') return ECCO_TESTNET
   return ECCO_MAINNET
 }
 
-function resolveBootstrapAddrs(network: AgentConfig['network']): string[] {
-  if (!network) return []
+function resolveBootstrapAddrs(network: AgentConfig['network'], bootstrap?: string[]): string[] {
+  if (bootstrap && bootstrap.length > 0) return bootstrap
   if (network === 'testnet') return ECCO_TESTNET.bootstrap.peers
   if (network === 'mainnet') return ECCO_MAINNET.bootstrap.peers
-  if (Array.isArray(network)) return network
-  return []
+  return ECCO_MAINNET.bootstrap.peers
+}
+
+function resolveNetworkName(network: AgentConfig['network']): NetworkName {
+  if (network === 'testnet') return 'testnet'
+  return 'mainnet'
+}
+
+function resolveChainId(network: AgentConfig['network'], reputationConfig?: { chainId?: number }): number {
+  if (reputationConfig?.chainId) return reputationConfig.chainId
+  const networkName = resolveNetworkName(network)
+  return getDefaultChainId(networkName)
+}
+
+function mergeRpcUrls(userRpcUrls: Record<number, string> | undefined): Record<number, string> {
+  const defaultUrls = { ...DEFAULT_RPC_URLS }
+  if (userRpcUrls) {
+    return { ...defaultUrls, ...userRpcUrls }
+  }
+  return defaultUrls
 }
 
 export async function createAgent(config: AgentConfig): Promise<Agent> {
   const networkConfig = resolveNetworkConfig(config.network)
-  const bootstrapAddrs = resolveBootstrapAddrs(config.network)
+  const bootstrapAddrs = resolveBootstrapAddrs(config.network, config.bootstrap)
   const hasBootstrap = bootstrapAddrs.length > 0
+
+  const chainId = resolveChainId(config.network, config.reputation)
+  const rpcUrls = mergeRpcUrls(config.wallet?.rpcUrls)
 
   const identity = await loadOrCreateNodeIdentity({
     nodeId: config.name,
@@ -129,9 +166,17 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   if (ethereumPrivateKey) {
     walletState = createWalletState({
       privateKey: ethereumPrivateKey,
-      rpcUrls: config.wallet?.rpcUrls,
+      rpcUrls,
     })
   }
+
+  const reputationState = walletState
+    ? createReputationState({
+        chainId,
+        commitThreshold: config.reputation?.commitThreshold,
+        syncIntervalMs: config.reputation?.syncIntervalMs,
+      })
+    : null
 
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState)
@@ -413,9 +458,56 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       ? async (texts: string[]): Promise<number[][]> => createLocalEmbedFn(modelState!)(texts)
       : null)
 
-  const findPeers = async (query?: CapabilityQuery): Promise<CapabilityMatch[]> => {
+  const findPeers = async (query?: FindPeersOptions): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
-    return findPeersBase(baseAgent.ref, effectiveQuery)
+    const peers = await findPeersBase(baseAgent.ref, effectiveQuery)
+
+    if (!query?.requireStake && !query?.minStake) {
+      return peers
+    }
+
+    if (!walletState || !reputationState) {
+      return peers
+    }
+
+    const filteredPeers: CapabilityMatch[] = []
+    for (const match of peers) {
+      const peerWallet = await resolveWalletForPeerImpl(reputationState, walletState, match.peer.id)
+      if (!peerWallet) {
+        if (!query.requireStake) {
+          filteredPeers.push(match)
+        }
+        continue
+      }
+
+      try {
+        const stakeInfo = await getStakeInfoContract(walletState, chainId, peerWallet)
+        if (query.requireStake && !stakeInfo.canWork) {
+          continue
+        }
+        if (query.minStake && stakeInfo.stake < query.minStake) {
+          continue
+        }
+        filteredPeers.push({
+          ...match,
+          peer: {
+            ...match.peer,
+            walletAddress: peerWallet,
+            onChainReputation: {
+              stake: stakeInfo.stake,
+              canWork: stakeInfo.canWork,
+              score: stakeInfo.effectiveScore,
+            },
+          },
+        })
+      } catch {
+        if (!query.requireStake) {
+          filteredPeers.push(match)
+        }
+      }
+    }
+
+    return filteredPeers
   }
 
   const request = async (peerId: string, prompt: string): Promise<AgentResponse> => {
@@ -732,12 +824,44 @@ Provide a unified consensus answer that incorporates the key insights from all p
     await stopInternal()
   }
 
+  const walletAddress = walletState ? getAddress(walletState) : null
+
+  const stake = async (amount: bigint): Promise<string> => {
+    if (!walletState) {
+      throw new Error('Wallet required for staking. Configure wallet in createAgent options.')
+    }
+    const peerIdHash = computePeerIdHash(baseAgent.id)
+    return stakeContract(walletState, chainId, amount, peerIdHash)
+  }
+
+  const unstake = async (amount: bigint): Promise<string> => {
+    if (!walletState) {
+      throw new Error('Wallet required for unstaking. Configure wallet in createAgent options.')
+    }
+    return requestUnstakeContract(walletState, chainId, amount)
+  }
+
+  const getStakeInfo = async () => {
+    if (!walletState || !walletAddress) {
+      throw new Error('Wallet required to get stake info. Configure wallet in createAgent options.')
+    }
+    return getStakeInfoContract(walletState, chainId, walletAddress)
+  }
+
+  const resolveWalletForPeer = async (peerId: string): Promise<`0x${string}` | null> => {
+    if (!walletState || !reputationState) {
+      throw new Error('Wallet required to resolve peer wallets. Configure wallet in createAgent options.')
+    }
+    return resolveWalletForPeerImpl(reputationState, walletState, peerId)
+  }
+
   agentInstance = {
     id: baseAgent.id,
     addrs: baseAgent.addrs,
     ref: baseAgent.ref,
     wallet: walletState,
-    address: walletState ? getAddress(walletState) : null,
+    address: walletAddress,
+    chainId,
     capabilities: allCapabilities,
     payments,
     fees,
@@ -750,6 +874,10 @@ Provide a unified consensus answer that incorporates the key insights from all p
     send,
     stop,
     query,
+    stake,
+    unstake,
+    getStakeInfo,
+    resolveWalletForPeer,
   }
 
   registerProcessCleanup()
