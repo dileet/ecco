@@ -33,3 +33,9 @@ export const generatePaymentId = (index: number): `0x${string}` =>
 
 export const generatePeerId = (address: string): `0x${string}` =>
   keccak256(toBytes(address));
+
+export const INITIAL_CONSTITUTION_ITEMS = [
+  "Agents must provide honest and accurate responses to the best of their ability",
+  "Agents must not intentionally disrupt network operations or corrupt shared data",
+  "Agents must respect rate limits and not abuse network resources",
+];

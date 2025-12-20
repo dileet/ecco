@@ -1,5 +1,8 @@
 import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Constitution } from './types';
 
+export const MONAD_MAINNET_CHAIN_ID = 143;
+export const MONAD_TESTNET_CHAIN_ID = 10143;
+
 export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   major: 1,
   minor: 0,
@@ -21,6 +24,11 @@ export interface NetworkConfig {
   };
   protocol: ProtocolConfig;
   constitution: Constitution;
+  onChainConstitution?: {
+    enabled: boolean;
+    chainId: number;
+    rpcUrl?: string;
+  };
 }
 
 export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
@@ -54,6 +62,10 @@ export const ECCO_MAINNET: NetworkConfig = {
     upgradeUrl: 'https://github.com/dileet/ecco',
   },
   constitution: DEFAULT_CONSTITUTION,
+  onChainConstitution: {
+    enabled: true,
+    chainId: MONAD_MAINNET_CHAIN_ID,
+  },
 };
 
 export const ECCO_TESTNET: NetworkConfig = {
@@ -71,6 +83,10 @@ export const ECCO_TESTNET: NetworkConfig = {
     enforcementLevel: 'warn',
   },
   constitution: DEFAULT_CONSTITUTION,
+  onChainConstitution: {
+    enabled: true,
+    chainId: MONAD_TESTNET_CHAIN_ID,
+  },
 };
 
 export function formatBootstrapPeer(host: string, port: number, peerId: string): string {
@@ -122,9 +138,6 @@ export function applyNetworkConfig(
 }
 
 export const DEFAULT_NETWORK: NetworkName = 'mainnet';
-
-export const MONAD_MAINNET_CHAIN_ID = 143;
-export const MONAD_TESTNET_CHAIN_ID = 10143;
 
 export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
   mainnet: MONAD_MAINNET_CHAIN_ID,

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 
-const CONTRACTS = ["EccoToken", "ReputationRegistry", "FeeCollector", "WorkRewards", "EccoGovernor", "EccoTimelock"];
+const CONTRACTS = ["EccoToken", "ReputationRegistry", "FeeCollector", "WorkRewards", "EccoGovernor", "EccoTimelock", "EccoConstitution"];
 
 const ARTIFACTS_DIR = join(import.meta.dir, "../artifacts/src");
 const OUTPUT_DIR = join(import.meta.dir, "../dist");

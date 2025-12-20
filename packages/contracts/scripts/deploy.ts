@@ -82,6 +82,22 @@ async function main() {
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   console.log("Granted PROPOSER and EXECUTOR roles to Governor");
 
+  console.log("\n--- Deploying EccoConstitution ---");
+  const INITIAL_CONSTITUTION_ITEMS = [
+    "Agents must provide honest and accurate responses to the best of their ability",
+    "Agents must not intentionally disrupt network operations or corrupt shared data",
+    "Agents must respect rate limits and not abuse network resources",
+  ];
+  const eccoConstitution = await viem.deployContract("EccoConstitution", [
+    INITIAL_CONSTITUTION_ITEMS,
+    deployer.account.address,
+  ]);
+  console.log("EccoConstitution deployed to:", eccoConstitution.address);
+
+  console.log("\n--- Transferring Constitution ownership to Timelock ---");
+  await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
+  console.log("Constitution ownership transferred to Timelock");
+
   const chainId = await publicClient.getChainId();
 
   console.log("\n--- Deployment Summary ---");
@@ -94,6 +110,7 @@ async function main() {
   console.log("WorkRewards:", workRewards.address);
   console.log("EccoTimelock:", eccoTimelock.address);
   console.log("EccoGovernor:", eccoGovernor.address);
+  console.log("EccoConstitution:", eccoConstitution.address);
   console.log("");
   console.log("Update packages/contracts/dist/addresses.ts with these addresses:");
   console.log(`
@@ -104,6 +121,7 @@ async function main() {
     workRewards: '${workRewards.address}' as const,
     eccoGovernor: '${eccoGovernor.address}' as const,
     eccoTimelock: '${eccoTimelock.address}' as const,
+    eccoConstitution: '${eccoConstitution.address}' as const,
   },
 `);
 

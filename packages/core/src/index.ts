@@ -304,6 +304,12 @@ export {
 } from './protocol/constitution';
 
 export {
+  fetchOnChainConstitution,
+  clearConstitutionCache,
+  getConstitutionCacheAge,
+} from './protocol/on-chain-constitution';
+
+export {
   createAgent,
   extractPromptText,
   createLLMHandler,

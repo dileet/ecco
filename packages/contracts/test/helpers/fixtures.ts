@@ -6,6 +6,7 @@ import {
   PROPOSAL_THRESHOLD,
   QUORUM_PERCENT,
   TIMELOCK_MIN_DELAY,
+  INITIAL_CONSTITUTION_ITEMS,
 } from "./constants";
 
 async function getViem() {
@@ -186,6 +187,26 @@ export async function deployGovernorFixture() {
   };
 }
 
+export async function deployConstitutionFixture() {
+  const viem = await getViem();
+  const [owner, user1, user2, user3] = await viem.getWalletClients();
+  const publicClient = await viem.getPublicClient();
+
+  const eccoConstitution = await viem.deployContract("EccoConstitution", [
+    INITIAL_CONSTITUTION_ITEMS,
+    owner.account.address,
+  ]);
+
+  return {
+    eccoConstitution,
+    owner,
+    user1,
+    user2,
+    user3,
+    publicClient,
+  };
+}
+
 export async function deployFullEcosystemFixture() {
   const viem = await getViem();
   const [owner, treasury, user1, user2, user3, distributor] =
@@ -238,6 +259,13 @@ export async function deployFullEcosystemFixture() {
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
 
+  const eccoConstitution = await viem.deployContract("EccoConstitution", [
+    INITIAL_CONSTITUTION_ITEMS,
+    owner.account.address,
+  ]);
+
+  await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
+
   return {
     eccoToken,
     reputationRegistry,
@@ -245,6 +273,7 @@ export async function deployFullEcosystemFixture() {
     workRewards,
     eccoTimelock,
     eccoGovernor,
+    eccoConstitution,
     owner,
     treasury,
     user1,
