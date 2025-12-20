@@ -1,0 +1,530 @@
+import { describe, it } from "node:test";
+import { expect } from "chai";
+import { parseEther } from "viem";
+import { deployReputationRegistryFixture, getNetworkHelpers } from "./helpers/fixtures";
+import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generatePaymentId } from "./helpers/constants";
+
+async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
+  const networkHelpers = await getNetworkHelpers();
+  return networkHelpers.loadFixture(fixture);
+}
+
+describe("ReputationRegistry", () => {
+  describe("Deployment", () => {
+    it("should set correct minStakeToWork", async () => {
+      const { reputationRegistry } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      expect(await reputationRegistry.read.minStakeToWork()).to.equal(MIN_STAKE_TO_WORK);
+    });
+
+    it("should set correct minStakeToRate", async () => {
+      const { reputationRegistry } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      expect(await reputationRegistry.read.minStakeToRate()).to.equal(MIN_STAKE_TO_RATE);
+    });
+  });
+
+  describe("Staking", () => {
+    it("should allow staking with valid peerId hash", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
+      expect(reputation[4]).to.equal(stakeAmount);
+    });
+
+    it("should reject staking with zero amount", async () => {
+      const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const peerId = generatePeerId(user1.account.address);
+
+      try {
+        await reputationRegistry.write.stake([0n, peerId], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Must stake positive amount/);
+      }
+    });
+  });
+
+  describe("Unstaking", () => {
+    it("should allow requesting unstake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      await reputationRegistry.write.requestUnstake([stakeAmount], { account: user1.account });
+
+      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
+      expect(reputation[5] > 0n).to.equal(true);
+    });
+
+    it("should reject unstake request for more than staked", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.requestUnstake([stakeAmount * 2n], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Insufficient stake/);
+      }
+    });
+
+    it("should reject complete unstake before cooldown", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      await reputationRegistry.write.requestUnstake([stakeAmount], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.completeUnstake({ account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Cooldown not complete/);
+      }
+    });
+  });
+
+  describe("Rating System", () => {
+    it("should allow payer to rate after payment", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(1);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+
+      const payment = await reputationRegistry.read.payments([paymentId]);
+      expect(payment[4]).to.equal(true);
+    });
+  });
+
+  describe("View Functions", () => {
+    it("should return true for canWork with sufficient stake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, generatePeerId(user1.account.address)], { account: user1.account });
+
+      expect(await reputationRegistry.read.canWork([user1.account.address])).to.equal(true);
+    });
+
+    it("should return false for canWork with insufficient stake", async () => {
+      const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      expect(await reputationRegistry.read.canWork([user1.account.address])).to.equal(false);
+    });
+
+    it("should return false for canRate with insufficient stake", async () => {
+      const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      expect(await reputationRegistry.read.canRate([user1.account.address])).to.equal(false);
+    });
+
+    it("should return true for canRate with sufficient stake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      expect(await reputationRegistry.read.canRate([user1.account.address])).to.equal(true);
+    });
+  });
+
+  describe("Peer ID Edge Cases", () => {
+    it("should reject zero peer ID hash", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const zeroHash = "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`;
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, zeroHash], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid peerId hash/);
+      }
+    });
+
+    it("should reject duplicate peer ID registration from different wallet", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId], { account: user1.account });
+
+      await eccoToken.write.mint([user2.account.address, MIN_STAKE_TO_WORK]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user2.account });
+
+      try {
+        await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId], { account: user2.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/PeerId already registered/);
+      }
+    });
+
+    it("should reject peer ID mismatch on subsequent stake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const peerId1 = generatePeerId(user1.account.address);
+      const peerId2 = generatePeerId("different-peer");
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK * 2n]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK * 2n], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId1], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId2], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/PeerId mismatch/);
+      }
+    });
+
+    it("should allow additional stake with same peer ID", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK * 2n]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK * 2n], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, peerId], { account: user1.account });
+
+      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
+      expect(reputation[4]).to.equal(MIN_STAKE_TO_WORK * 2n);
+    });
+  });
+
+  describe("Rating Edge Cases", () => {
+    it("should reject rating delta greater than 5", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(10);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([paymentId, 6], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid rating delta/);
+      }
+    });
+
+    it("should reject rating delta less than -5", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(11);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([paymentId, -6], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid rating delta/);
+      }
+    });
+
+    it("should reject double rating same payment", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(12);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Already rated/);
+      }
+    });
+
+    it("should reject recording duplicate payment", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(13);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Payment already recorded/);
+      }
+    });
+
+    it("should reject rating when not payer", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, user3 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      await eccoToken.write.mint([user2.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user2.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user2.account.address)], { account: user2.account });
+
+      const paymentId = generatePaymentId(14);
+      await reputationRegistry.write.recordPayment([paymentId, user3.account.address, parseEther("100")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user2.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Only payer can rate/);
+      }
+    });
+
+    it("should reject rating non-existent payment", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const nonExistentPaymentId = generatePaymentId(999);
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([nonExistentPaymentId, 5], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Payment not found/);
+      }
+    });
+
+    it("should reject rating with insufficient stake to rate", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const smallStake = parseEther("1");
+      await eccoToken.write.mint([user1.account.address, smallStake]);
+      await eccoToken.write.approve([reputationRegistry.address, smallStake], { account: user1.account });
+      await reputationRegistry.write.stake([smallStake, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(15);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Insufficient stake to rate/);
+      }
+    });
+
+    it("should correctly apply negative rating delta", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId = generatePaymentId(16);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, -3], { account: user1.account });
+
+      const reputation = await reputationRegistry.read.reputations([user2.account.address]);
+      expect(reputation[2]).to.equal(3n);
+    });
+  });
+
+  describe("Complete Unstake Flow", () => {
+    it("should reject complete unstake without request", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.completeUnstake({ account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/No unstake request/);
+      }
+    });
+  });
+
+  describe("Batch Rating", () => {
+    it("should allow batch rating with valid inputs", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId1 = generatePaymentId(20);
+      const paymentId2 = generatePaymentId(21);
+      const paymentId3 = generatePaymentId(22);
+
+      await reputationRegistry.write.recordPayment([paymentId1, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.recordPayment([paymentId2, user2.account.address, parseEther("200")], { account: user1.account });
+      await reputationRegistry.write.recordPayment([paymentId3, user2.account.address, parseEther("300")], { account: user1.account });
+
+      await reputationRegistry.write.batchRate([[paymentId1, paymentId2, paymentId3], [5, 3, -2]], { account: user1.account });
+
+      const payment1 = await reputationRegistry.read.payments([paymentId1]);
+      const payment2 = await reputationRegistry.read.payments([paymentId2]);
+      const payment3 = await reputationRegistry.read.payments([paymentId3]);
+
+      expect(payment1[4]).to.equal(true);
+      expect(payment2[4]).to.equal(true);
+      expect(payment3[4]).to.equal(true);
+    });
+
+    it("should reject batch rating with mismatched array lengths", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const paymentId1 = generatePaymentId(23);
+      const paymentId2 = generatePaymentId(24);
+
+      await reputationRegistry.write.recordPayment([paymentId1, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.recordPayment([paymentId2, user2.account.address, parseEther("200")], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.batchRate([[paymentId1, paymentId2], [5]], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Length mismatch/);
+      }
+    });
+  });
+
+  describe("Slashing", () => {
+    it("should allow owner to slash peer stake", async () => {
+      const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      await reputationRegistry.write.slash([user1.account.address, 50n, "Misbehavior"], { account: owner.account });
+
+      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
+      expect(reputation[4]).to.equal(stakeAmount / 2n);
+    });
+
+    it("should reject slashing more than 100%", async () => {
+      const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.slash([user1.account.address, 101n, "Invalid slash"], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid percentage/);
+      }
+    });
+
+    it("should reject slashing from non-owner", async () => {
+      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.slash([user1.account.address, 50n, "Unauthorized"], { account: user2.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/OwnableUnauthorizedAccount/);
+      }
+    });
+
+    it("should allow 100% slash", async () => {
+      const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      await reputationRegistry.write.slash([user1.account.address, 100n, "Total slash"], { account: owner.account });
+
+      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
+      expect(reputation[4]).to.equal(0n);
+    });
+  });
+
+  describe("View Function Calculations", () => {
+    it("should calculate rating weight based on stake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE * 4n]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE * 4n], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE * 4n, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, parseEther("100")]);
+      expect(weight > 0n).to.equal(true);
+    });
+
+    it("should return minimum weight for stakers below threshold", async () => {
+      const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, parseEther("100")]);
+      expect(weight > 0n).to.equal(true);
+    });
+  });
+});

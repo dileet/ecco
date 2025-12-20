@@ -1,9 +1,6 @@
 import type { PeerId } from '@libp2p/interface';
-import { multiaddr } from '@multiformats/multiaddr';
 import type { NodeState, StateRef } from './types';
 import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
-import type { ClientState as RegistryClientState } from '../registry-client';
-import { query as queryRegistryClient } from '../registry-client';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
@@ -13,6 +10,10 @@ import { queryCapabilities } from './dht';
 import type { LRUCache } from '../utils/lru-cache';
 import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
 import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from '../transport/hybrid-discovery';
+import { findCandidates, type FilterTier } from './bloom-filter';
+import { getLocalReputation, getEffectiveScore } from './reputation';
+import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
+
 
 function extractPeerIdFromAddr(addr: string): string | null {
   const match = addr.match(/\/p2p\/([^/]+)$/);
@@ -98,12 +99,11 @@ async function handlePeerConnect(stateRef: StateRef<NodeState>): Promise<void> {
   await announceCapabilities(state);
 }
 
-type DiscoveryStrategy = 'local' | 'registry' | 'dht' | 'gossip';
+type DiscoveryStrategy = 'local' | 'dht' | 'gossip';
 
 function selectDiscoveryStrategy(
   localMatches: CapabilityMatch[],
   config: NodeState['config'],
-  hasRegistry: boolean,
   hasDHT: boolean
 ): DiscoveryStrategy[] {
   if (localMatches.length > 0) {
@@ -111,10 +111,6 @@ function selectDiscoveryStrategy(
   }
 
   const strategies: DiscoveryStrategy[] = [];
-
-  if (hasRegistry) {
-    strategies.push('registry');
-  }
 
   if (config.discovery.includes('dht') && hasDHT) {
     strategies.push('dht');
@@ -134,41 +130,95 @@ function mergePeers(
   return newPeers.filter(peer => !existingPeers.has(peer.id));
 }
 
-async function queryRegistry(
-  registryClient: RegistryClientState,
-  query: CapabilityQuery
-): Promise<PeerInfo[]> {
-  try {
-    return await queryRegistryClient(registryClient, query);
-  } catch (error) {
-    console.error('Registry query failed:', error);
-    return [];
-  }
+interface PeerScoringFactors {
+  bloomTier: FilterTier | null;
+  reputationScore: number;
+  latencyZone: LatencyZone | null;
+  matchScore: number;
 }
 
-async function dialRegistryPeers(
-  node: NodeState['node'],
-  peers: PeerInfo[]
-): Promise<void> {
-  if (!node) {
-    return;
+function calculateCombinedScore(factors: PeerScoringFactors): number {
+  const tierBonus: Record<FilterTier, number> = { elite: 0.3, good: 0.15, acceptable: 0.05 };
+  const bloomBonus = factors.bloomTier ? tierBonus[factors.bloomTier] : 0;
+
+  const reputationWeight = 0.3;
+  const normalizedReputation = Math.max(0, Math.min(1, factors.reputationScore / 100));
+
+  const zoneWeight = factors.latencyZone ? getZoneWeight(factors.latencyZone) : 0.5;
+  const latencyFactor = zoneWeight * 0.2;
+
+  return (
+    factors.matchScore * 0.4 +
+    bloomBonus +
+    normalizedReputation * reputationWeight +
+    latencyFactor
+  );
+}
+
+function getPeerScoringFactors(
+  state: NodeState,
+  peerId: string,
+  matchScore: number,
+  capability: string
+): PeerScoringFactors {
+  let bloomTier: FilterTier | null = null;
+  if (state.bloomFilters) {
+    const candidates = findCandidates(state.bloomFilters, capability, [peerId]);
+    if (candidates.length > 0) {
+      bloomTier = candidates[0].tier;
+    }
   }
 
-  for (const peer of peers) {
-    if (peer.addresses.length === 0) {
-      continue;
-    }
-
-    for (const addrStr of peer.addresses) {
-      try {
-        const addr = multiaddr(addrStr);
-        await node.dial(addr);
-        break;
-      } catch {
-        continue;
-      }
+  let reputationScore = 0;
+  if (state.reputationState) {
+    const rep = getLocalReputation(state.reputationState, peerId);
+    if (rep) {
+      reputationScore = getEffectiveScore(rep);
     }
   }
+
+  let latencyZone: LatencyZone | null = null;
+  if (state.latencyZones) {
+    latencyZone = getPeerZone(state.latencyZones, peerId) ?? null;
+  }
+
+  return {
+    bloomTier,
+    reputationScore,
+    latencyZone,
+    matchScore,
+  };
+}
+
+function prioritizeWithAllFactors(
+  state: NodeState,
+  matches: CapabilityMatch[],
+  capability: string
+): CapabilityMatch[] {
+  if (matches.length === 0) {
+    return matches;
+  }
+
+  const scoredMatches = matches.map((match) => {
+    const factors = getPeerScoringFactors(state, match.peer.id, match.matchScore, capability);
+    const combinedScore = calculateCombinedScore(factors);
+    return { match, combinedScore, factors };
+  });
+
+  scoredMatches.sort((a, b) => b.combinedScore - a.combinedScore);
+
+  return scoredMatches.map((s) => ({
+    ...s.match,
+    score: s.combinedScore,
+  }));
+}
+
+function prioritizeWithBloomFilter(
+  state: NodeState,
+  matches: CapabilityMatch[],
+  capability: string
+): CapabilityMatch[] {
+  return prioritizeWithAllFactors(state, matches, capability);
 }
 
 const pollForMatches = async (
@@ -214,12 +264,11 @@ export async function findPeers(
   const peerList = getAllPeers(state);
   let matches = matchPeers(peerList, query);
 
-  const isRegistryConnected = state.registryClient?.connected ?? false;
+  const primaryCapability = query.requiredCapabilities[0]?.type ?? 'unknown';
 
   const strategies = selectDiscoveryStrategy(
     matches,
     state.config,
-    isRegistryConnected,
     !!(state.node?.services.dht)
   );
 
@@ -236,25 +285,8 @@ export async function findPeers(
           matches = [...matches, ...newMatches];
         }
       }
+      matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
       return matches;
-    }
-
-    if (strategy === 'registry' && state.registryClient) {
-      const registryPeers = await queryRegistry(state.registryClient, query);
-      const newPeers = mergePeers(state.peers, registryPeers);
-
-      updateState(stateRef, (s) => addPeers(s, newPeers));
-
-      state = getState(stateRef);
-      const updatedPeerList = getAllPeers(state);
-      matches = matchPeers(updatedPeerList, query);
-
-      if (matches.length > 0) {
-        if (state.node && newPeers.length > 0) {
-          dialRegistryPeers(state.node, newPeers);
-        }
-        return matches;
-      }
     }
 
     if (strategy === 'dht' && state.node?.services.dht) {
@@ -267,6 +299,7 @@ export async function findPeers(
       const updatedPeerList = getAllPeers(state);
       matches = matchPeers(updatedPeerList, query);
       if (matches.length > 0) {
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
         return matches;
       }
     }
@@ -274,12 +307,13 @@ export async function findPeers(
     if (strategy === 'gossip') {
       matches = await queryGossip(stateRef, query);
       if (matches.length > 0) {
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
         return matches;
       }
     }
   }
 
-  return matches;
+  return prioritizeWithBloomFilter(state, matches, primaryCapability);
 }
 
 function discoveryResultToPeerInfo(result: DiscoveryResult): PeerInfo {
@@ -334,19 +368,7 @@ async function discoverInPhase(
     case 'internet': {
       let matches: CapabilityMatch[] = [];
 
-      if (state.registryClient?.connected) {
-        const registryPeers = await queryRegistry(state.registryClient, query);
-        const newPeers = mergePeers(state.peers, registryPeers);
-        updateState(stateRef, (s) => addPeers(s, newPeers));
-
-        const updatedState = getState(stateRef);
-        matches = matchPeers(getAllPeers(updatedState), query);
-        if (matches.length > 0 && state.node && newPeers.length > 0) {
-          dialRegistryPeers(state.node, newPeers);
-        }
-      }
-
-      if (matches.length === 0 && state.node?.services.dht) {
+      if (state.node?.services.dht) {
         const dhtPeers = await queryCapabilities(state.node, query);
         const newPeers = mergePeers(state.peers, dhtPeers);
         updateState(stateRef, (s) => addPeers(s, newPeers));

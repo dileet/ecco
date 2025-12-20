@@ -13,6 +13,8 @@ import {
   type MessageBridgeState,
 } from '../transport/message-bridge';
 import { z } from 'zod';
+import type { LatencyZone } from '../node/latency-zones';
+import { selectByZoneWithFallback, sortByZone } from '../node/latency-zones';
 
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
@@ -47,19 +49,69 @@ const defaultLoadState = (peerId: string): AgentLoadState => ({
 const selectAgents = (
   matches: CapabilityMatch[],
   config: MultiAgentConfig,
-  loadStates: Record<string, AgentLoadState>
+  loadStates: Record<string, AgentLoadState>,
+  nodeState?: NodeState
 ): CapabilityMatch[] => {
   const n = config.agentCount || 3;
+  let candidates = matches;
+
+  if (config.stakeRequirement?.requireStake && nodeState?.reputationState) {
+    const minStake = config.stakeRequirement.minStake ?? 0n;
+    candidates = candidates.filter((match) => {
+      const rep = nodeState.reputationState?.peers.get(match.peer.id);
+      if (!rep) return false;
+      return rep.canWork && rep.stake >= minStake;
+    });
+  }
+
+  if (config.stakeRequirement?.preferStaked && nodeState?.reputationState) {
+    const stakedBonus = config.stakeRequirement.stakedBonus ?? 0.2;
+    candidates = candidates.map((match) => {
+      const rep = nodeState.reputationState?.peers.get(match.peer.id);
+      if (rep?.canWork) {
+        return {
+          ...match,
+          matchScore: match.matchScore + stakedBonus,
+        };
+      }
+      return match;
+    });
+    candidates.sort((a, b) => b.matchScore - a.matchScore);
+  }
+
+  const ignoreLatency = config.zoneSelection?.ignoreLatency ?? false;
+  const preferredZone = config.zoneSelection?.preferredZone as LatencyZone | undefined;
+  const maxZone = config.zoneSelection?.maxZone as LatencyZone | undefined;
+
+  if (!ignoreLatency && nodeState?.latencyZones) {
+    const zoneFiltered = selectByZoneWithFallback(
+      candidates.map((m) => ({ peerId: m.peer.id, match: m })),
+      nodeState.latencyZones,
+      { preferredZone, maxZone, ignoreLatency },
+      n
+    );
+
+    if (zoneFiltered.length > 0) {
+      candidates = zoneFiltered.map((z) => z.match);
+    } else if (preferredZone) {
+      const sorted = sortByZone(
+        candidates.map((m) => ({ peerId: m.peer.id, match: m })),
+        nodeState.latencyZones,
+        preferredZone
+      );
+      candidates = sorted.map((s) => s.match);
+    }
+  }
 
   switch (config.selectionStrategy) {
     case 'all':
-      return matches;
+      return candidates;
 
     case 'top-n':
-      return matches.slice(0, n);
+      return candidates.slice(0, n);
 
     case 'round-robin': {
-      const sorted = [...matches].sort((a, b) => {
+      const sorted = [...candidates].sort((a, b) => {
         const loadA = loadStates[a.peer.id]?.totalRequests ?? 0;
         const loadB = loadStates[b.peer.id]?.totalRequests ?? 0;
         return loadA - loadB;
@@ -68,13 +120,13 @@ const selectAgents = (
     }
 
     case 'random':
-      return [...matches].sort(() => Math.random() - 0.5).slice(0, n);
+      return [...candidates].sort(() => Math.random() - 0.5).slice(0, n);
 
     case 'weighted': {
       const loadWeight = config.loadBalancing?.loadWeight ?? 0.3;
       const loadBalancingEnabled = config.loadBalancing?.enabled ?? false;
       const selected: CapabilityMatch[] = [];
-      const available = [...matches];
+      const available = [...candidates];
 
       for (let i = 0; i < n && available.length > 0; i++) {
         const weights = available.map((match) => {
@@ -103,7 +155,7 @@ const selectAgents = (
     }
 
     default:
-      return matches.slice(0, n);
+      return candidates.slice(0, n);
   }
 };
 
@@ -203,7 +255,8 @@ export const executeOrchestration = async (
     throw new Error(validation.error);
   }
 
-  const selectedAgents = selectAgents(matchesExcludingSelf, config, state.loadStates);
+  const nodeState = getState(nodeRef);
+  const selectedAgents = selectAgents(matchesExcludingSelf, config, state.loadStates, nodeState);
 
   const requests = prepareAgentRequests(
     selectedAgents,
@@ -274,7 +327,6 @@ export const executeOrchestration = async (
     }
   };
 
-  const nodeState = getState(nodeRef);
   let updatedBridge: MessageBridgeState | undefined;
 
   if (nodeState.messageBridge) {

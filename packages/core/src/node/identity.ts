@@ -2,27 +2,18 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { generatePrivateKey } from 'viem/accounts';
-import { importPrivateKey, importPublicKey, generateKeyPair, exportPrivateKey, exportPublicKey } from '../services/auth';
+import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from '@libp2p/crypto/keys';
+import { peerIdFromPrivateKey } from '@libp2p/peer-id';
+import type { PrivateKey } from '@libp2p/interface';
 import type { EccoConfig } from '../types';
 import { z } from 'zod';
 
 const PersistedKeyFileSchema = z.object({
-  algorithm: z.literal('ECDSA-P-256'),
-  privateKey: z.string(),
-  publicKey: z.string(),
-  ethereumPrivateKey: z.string().startsWith('0x').optional() as z.ZodType<`0x${string}` | undefined>,
+  libp2pPrivateKey: z.string(),
+  ethereumPrivateKey: z.string().startsWith('0x') as z.ZodType<`0x${string}`>,
 });
 
-function toBase64Url(input: Uint8Array): string {
-  const base64 = Buffer.from(input).toString('base64');
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-async function computePublicKeyFingerprint(publicKey: CryptoKey): Promise<string> {
-  const spki = await crypto.subtle.exportKey('spki', publicKey);
-  const digest = await crypto.subtle.digest('SHA-256', spki);
-  return toBase64Url(new Uint8Array(digest));
-}
+type PersistedKeyFile = z.infer<typeof PersistedKeyFileSchema>;
 
 function resolveKeyPath(config: EccoConfig): string {
   const configuredPath = config.authentication?.['keyPath'];
@@ -49,72 +40,56 @@ async function ensureDir(dirPath: string): Promise<void> {
   await fs.mkdir(dirPath, { recursive: true });
 }
 
-export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<{
-  privateKey: CryptoKey;
-  publicKey: CryptoKey;
-  ethereumPrivateKey?: `0x${string}`;
-  nodeIdFromKeys: string;
+export interface NodeIdentity {
+  libp2pPrivateKey: PrivateKey;
+  ethereumPrivateKey: `0x${string}`;
+  peerId: string;
   keyFilePath: string;
   created: boolean;
-}> {
+}
+
+export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<NodeIdentity> {
   const keyFilePath = resolveKeyPath(config);
   const exists = await fileExists(keyFilePath);
 
   if (exists) {
     const raw = await fs.readFile(keyFilePath, 'utf8');
     const result = PersistedKeyFileSchema.safeParse(JSON.parse(raw));
-    
+
     if (!result.success) {
       throw new Error(`Invalid key file format at ${keyFilePath}: ${result.error.message}`);
     }
-    
-    const parsed = result.data;
-    const privateKey = await importPrivateKey(parsed.privateKey);
-    const publicKey = await importPublicKey(parsed.publicKey);
-    const fingerprint = await computePublicKeyFingerprint(publicKey);
-    
-    let ethereumPrivateKey = parsed.ethereumPrivateKey;
-    if (!ethereumPrivateKey) {
-      ethereumPrivateKey = generatePrivateKey();
-      const updatedPersist = {
-        ...parsed,
-        ethereumPrivateKey,
-      };
-      await fs.writeFile(keyFilePath, JSON.stringify(updatedPersist), 'utf8');
-    }
-    
+
+    const data = result.data;
+    const protobufBytes = Buffer.from(data.libp2pPrivateKey, 'base64');
+    const libp2pPrivateKey = privateKeyFromProtobuf(protobufBytes);
+    const peerId = peerIdFromPrivateKey(libp2pPrivateKey);
+
     return {
-      privateKey,
-      publicKey,
-      ethereumPrivateKey,
-      nodeIdFromKeys: `pk-${fingerprint}`,
+      libp2pPrivateKey,
+      ethereumPrivateKey: data.ethereumPrivateKey,
+      peerId: peerId.toString(),
       keyFilePath,
       created: false,
     };
   }
 
-  const { privateKey, publicKey } = await generateKeyPair();
-  const privateKeyStr = await exportPrivateKey(privateKey);
-  const publicKeyStr = await exportPublicKey(publicKey);
+  const libp2pPrivateKey = await generateKeyPair('Ed25519');
   const ethereumPrivateKey = generatePrivateKey();
-  const persist = {
-    algorithm: 'ECDSA-P-256' as const,
-    privateKey: privateKeyStr,
-    publicKey: publicKeyStr,
+  const peerId = peerIdFromPrivateKey(libp2pPrivateKey);
+
+  const persist: PersistedKeyFile = {
+    libp2pPrivateKey: Buffer.from(privateKeyToProtobuf(libp2pPrivateKey)).toString('base64'),
     ethereumPrivateKey,
   };
   await ensureDir(path.dirname(keyFilePath));
-  await fs.writeFile(keyFilePath, JSON.stringify(persist), 'utf8');
+  await fs.writeFile(keyFilePath, JSON.stringify(persist, null, 2), 'utf8');
 
-  const fingerprint = await computePublicKeyFingerprint(publicKey);
   return {
-    privateKey,
-    publicKey,
+    libp2pPrivateKey,
     ethereumPrivateKey,
-    nodeIdFromKeys: `pk-${fingerprint}`,
+    peerId: peerId.toString(),
     keyFilePath,
     created: true,
   };
 }
-
-

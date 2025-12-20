@@ -1,4 +1,5 @@
 import type { Libp2p } from 'libp2p';
+import type { PrivateKey } from '@libp2p/interface';
 import type {
   Capability,
   EccoConfig,
@@ -13,7 +14,6 @@ import type {
 } from '../types';
 import type { AuthState } from '../services/auth';
 import type { PoolState } from '../connection';
-import type { ClientState as RegistryClientState } from '../registry-client';
 import type { WalletState } from '../services/wallet';
 import type { EccoEvent } from '../events';
 import type { KadDHT } from '@libp2p/kad-dht';
@@ -23,6 +23,9 @@ import type { HybridDiscoveryState } from '../transport/hybrid-discovery';
 import type { MessageBridgeState } from '../transport/message-bridge';
 import type { LRUCache } from '../utils/lru-cache';
 import type { MessageDeduplicator, RateLimiter } from '../utils/bloom-filter';
+import type { BloomFilterState } from './bloom-filter';
+import type { ReputationState } from './reputation';
+import type { LatencyZoneState } from './latency-zones';
 
 export type StateRef<T> = { 
   current: T;
@@ -51,6 +54,7 @@ export interface MessageFloodProtection {
 export interface NodeState {
   id: string;
   libp2pPeerId?: string;
+  libp2pPrivateKey?: PrivateKey;
   shuttingDown: boolean;
   config: EccoConfig;
   node: EccoLibp2p | null;
@@ -61,7 +65,6 @@ export interface NodeState {
   cleanupHandlers: CleanupHandler[];
   messageAuth?: AuthState;
   connectionPool?: PoolState;
-  registryClient?: RegistryClientState;
   wallet?: WalletState;
   capabilityTrackingSetup: boolean;
   performanceTracker?: PeerPerformanceState;
@@ -76,4 +79,7 @@ export interface NodeState {
   floodProtection: MessageFloodProtection;
   protocolVersion: ProtocolVersion;
   versionValidatedPeers: Set<string>;
+  bloomFilters?: BloomFilterState;
+  reputationState?: ReputationState;
+  latencyZones?: LatencyZoneState;
 }

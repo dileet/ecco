@@ -9,6 +9,7 @@ import type {
   PeerInfo,
   ProtocolVersion,
 } from '../types'
+import type { StakeInfo } from '../services/reputation-contract'
 import type { NodeState, StateRef } from '../node/types'
 import type { WalletState } from '../services/wallet'
 import type { LocalModelState } from '../services/llm'
@@ -21,7 +22,7 @@ import type {
   LoadBalancingConfig,
 } from '../orchestrator/types'
 
-export type NetworkOption = 'testnet' | 'mainnet' | string[]
+export type NetworkOption = 'testnet' | 'mainnet'
 
 export type GenerateFn = (options: {
   model: unknown
@@ -133,6 +134,39 @@ export interface DistributeToSwarmResult {
   totalAmount: string
 }
 
+export interface WorkRewardOptions {
+  difficulty?: number
+  consensusAchieved?: boolean
+  fastResponse?: boolean
+}
+
+export interface WorkRewardResult {
+  txHash: string
+  estimatedReward: bigint
+}
+
+export interface FeeCalculation {
+  feePercent: number
+  feeAmount: bigint
+  netAmount: bigint
+  isEccoDiscount: boolean
+}
+
+export interface PayWithFeeResult {
+  paymentHash: string
+  feeHash: string
+  feeAmount: bigint
+  netAmount: bigint
+}
+
+export interface FeeHelpers {
+  calculateFee: (chainId: number, amount: bigint) => Promise<FeeCalculation>
+  payWithFee: (chainId: number, recipient: `0x${string}`, amount: bigint) => Promise<PayWithFeeResult>
+  collectFeeWithEcco: (chainId: number, payee: `0x${string}`, amount: bigint) => Promise<string>
+  claimRewards: (chainId: number) => Promise<string>
+  getPendingRewards: (chainId: number) => Promise<{ ethPending: bigint; eccoPending: bigint }>
+}
+
 export interface PaymentHelpers {
   requirePayment: (ctx: MessageContext, pricing: PricingConfig) => Promise<PaymentProof>
   createInvoice: (ctx: MessageContext, pricing: PricingConfig) => Promise<Invoice>
@@ -145,6 +179,7 @@ export interface PaymentHelpers {
   queueInvoice: (invoice: Invoice) => void
   settleAll: () => Promise<BatchSettlementResult[]>
   getPendingInvoices: () => Invoice[]
+  rewardPeer: (jobId: string, peerAddress: string, chainId: number, options?: WorkRewardOptions) => Promise<WorkRewardResult | null>
 }
 
 export interface LocalModelConfig {
@@ -156,9 +191,16 @@ export interface LocalModelConfig {
   modelName?: string
 }
 
+export interface AgentReputationConfig {
+  chainId?: number
+  commitThreshold?: number
+  syncIntervalMs?: number
+}
+
 export interface AgentConfig {
   name: string
   network?: NetworkOption
+  bootstrap?: string[]
   capabilities: Capability[]
   handler?: (msg: Message, ctx: MessageContext) => Promise<void>
   systemPrompt?: string
@@ -170,6 +212,7 @@ export interface AgentConfig {
   embedding?: AgentEmbeddingConfig | LocalModelState
   transports?: TransportsConfig
   localModel?: LocalModelConfig
+  reputation?: AgentReputationConfig
 }
 
 export interface ConsensusRequestOptions {
@@ -194,23 +237,34 @@ export interface ConsensusResult {
   raw: AggregatedResult
 }
 
+export interface FindPeersOptions extends CapabilityQuery {
+  minStake?: bigint
+  requireStake?: boolean
+}
+
 export interface Agent {
   id: string
   addrs: string[]
   ref: StateRef<NodeState>
   wallet: WalletState | null
   address: string | null
+  chainId: number
   capabilities: Capability[]
   payments: PaymentHelpers
+  fees: FeeHelpers | null
   hasEmbedding: boolean
   protocolVersion: ProtocolVersion
   embed: ((texts: string[]) => Promise<number[][]>) | null
-  findPeers: (query?: CapabilityQuery) => Promise<CapabilityMatch[]>
+  findPeers: (query?: FindPeersOptions) => Promise<CapabilityMatch[]>
   request: (peerId: string, prompt: string) => Promise<AgentResponse>
   requestConsensus: (options: ConsensusRequestOptions) => Promise<ConsensusResult>
   send: (peerId: string, type: MessageType, payload: unknown) => Promise<void>
   stop: () => Promise<void>
   query: (prompt: string, config?: QueryConfig) => Promise<ConsensusResult>
+  stake: (amount: bigint) => Promise<string>
+  unstake: (amount: bigint) => Promise<string>
+  getStakeInfo: () => Promise<StakeInfo>
+  resolveWalletForPeer: (peerId: string) => Promise<`0x${string}` | null>
 }
 
 interface BaseNetworkQueryConfig {

@@ -25,7 +25,6 @@ async function main(): Promise<void> {
     systemPrompt: 'You are a helpful assistant.',
     model: {},
     streamGenerateFn: streamGenerate,
-    wallet: { rpcUrls },
     pricing: {
       type: 'streaming',
       chainId: ETH_SEPOLIA_CHAIN_ID,
@@ -38,7 +37,8 @@ async function main(): Promise<void> {
 
   const client = await createAgent({
     name: 'streaming-client',
-    network: service.addrs,
+    bootstrap: service.addrs,
+    network: 'testnet',
     capabilities: [],
     wallet: { rpcUrls },
   })

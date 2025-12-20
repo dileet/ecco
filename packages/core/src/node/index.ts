@@ -13,7 +13,6 @@ import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
 import { publish as publishFn, subscribeWithRef } from './messaging';
 import { announceCapabilities } from './capabilities';
-import { setReputation, incrementReputation } from '../registry-client';
 import { signMessage, verifyMessage, isMessageFresh, type AuthState, type SignedMessage } from '../services/auth';
 import { getAddress, type WalletState } from '../services/wallet';
 import { subscribeToAllDirectMessages } from '../transport/message-bridge';
@@ -253,35 +252,6 @@ export function getLibp2pPeerId(ref: StateRef<NodeState>): string | undefined {
   return state.node?.peerId?.toString();
 }
 
-export function isRegistryConnected(ref: StateRef<NodeState>): boolean {
-  const state = getState(ref);
-  return state.registryClient?.connected ?? false;
-}
-
-export async function setRegistryReputation(
-  ref: StateRef<NodeState>,
-  nodeId: string,
-  value: number
-): Promise<void> {
-  const state = getState(ref);
-  if (!state.registryClient) {
-    throw new Error('Node not connected to registry');
-  }
-  await setReputation(state.registryClient, nodeId, value);
-}
-
-export async function incrementRegistryReputation(
-  ref: StateRef<NodeState>,
-  nodeId: string,
-  increment: number = 1
-): Promise<void> {
-  const state = getState(ref);
-  if (!state.registryClient) {
-    throw new Error('Node not connected to registry');
-  }
-  await incrementReputation(state.registryClient, nodeId, increment);
-}
-
 export async function broadcastCapabilities(ref: StateRef<NodeState>): Promise<void> {
   const state = getState(ref);
   await announceCapabilities(state);
@@ -289,3 +259,86 @@ export async function broadcastCapabilities(ref: StateRef<NodeState>): Promise<v
 
 export type { NodeState } from './types';
 export { loadOrCreateNodeIdentity } from './identity';
+
+export {
+  createReputationState,
+  getLocalReputation,
+  recordLocalSuccess,
+  recordLocalFailure,
+  queueRating,
+  commitPendingRatings,
+  shouldCommit,
+  syncPeerFromChain,
+  syncAllPeersFromChain,
+  getEffectiveScore,
+  getPeersByScore,
+  getStakedPeers as getStakedPeersFromReputation,
+  resolveWalletForPeer,
+} from './reputation';
+export type { LocalPeerReputation, ReputationState, ReputationConfig, PendingRating } from './reputation';
+
+export {
+  createPeerTracker,
+  trackSuccess,
+  trackFailure,
+  getPeerScore,
+  getAllPeerScores,
+  getTopPeers,
+  getStakedPeers,
+  syncPeerReputation,
+  commitRatings,
+  getPendingRatingsCount,
+} from './peer-tracker';
+export type { PeerTrackerState, PeerScore, TrackSuccessOptions, TrackFailureOptions } from './peer-tracker';
+
+export {
+  createPerformanceTracker,
+  setupPerformanceTracking,
+  recordSuccess as recordPerformanceSuccess,
+  recordFailure as recordPerformanceFailure,
+  getMetrics as getPerformanceMetrics,
+  calculatePerformanceScore,
+  calculateSuccessRate,
+  calculateAverageLatency,
+  getAllMetrics as getAllPerformanceMetrics,
+} from './peer-performance';
+export type { PeerMetrics, PeerPerformanceState } from './peer-performance';
+
+export {
+  createBloomFilterState,
+  createFilter,
+  addToFilter,
+  testFilter,
+  mergeFilters,
+  buildLocalFilters,
+  receiveFilter,
+  queryFilter,
+  findCandidates,
+  serializeFilter,
+  deserializeFilter,
+  gossipFilters,
+  subscribeToFilters,
+  shouldGossip,
+  estimateFalsePositiveRate,
+  getFilterStats,
+} from './bloom-filter';
+export type { FilterTier, ReputationBloomFilter, BloomFilterState, BloomFilterConfig } from './bloom-filter';
+
+export {
+  createLatencyZoneState,
+  classifyLatency,
+  updatePeerZone,
+  getPeerZone,
+  getPeersInZone,
+  getPeersUpToZone,
+  getZoneStats,
+  getAllZoneStats,
+  syncFromPerformance,
+  filterByZone,
+  sortByZone,
+  selectByZoneWithFallback,
+  estimateLatencyByZone,
+  getZoneWeight,
+  calculateZoneScore,
+} from './latency-zones';
+export type { LatencyZone, ZoneThresholds, LatencyZoneState, ZoneStat, LatencyZoneConfig, ZoneSelectionConfig } from './latency-zones';

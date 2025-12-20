@@ -16,9 +16,6 @@ export {
   getMultiaddrs,
   getId,
   getLibp2pPeerId,
-  isRegistryConnected,
-  setRegistryReputation,
-  incrementRegistryReputation,
   broadcastCapabilities,
   addPeer,
   removePeer,
@@ -42,11 +39,6 @@ export {
   resetLoadStatistics,
 } from './orchestrator';
 export {
-  generateKeyPair,
-  exportPublicKey,
-  importPublicKey,
-  exportPrivateKey,
-  importPrivateKey,
   signMessage,
   verifyMessage,
   isMessageFresh,
@@ -54,15 +46,6 @@ export {
   type SignedMessage,
   type AuthState,
 } from './services/auth';
-export {
-  connect as registryConnect,
-  disconnect as registryDisconnect,
-  register as registryRegister,
-  unregister as registryUnregister,
-  query as registryQuery,
-  setReputation as registrySetReputation,
-  incrementReputation as registryIncrementReputation,
-} from './registry-client';
 export { configDefaults, mergeConfig, createConfig } from './config';
 export {
   ECCO_MAINNET,
@@ -75,6 +58,13 @@ export {
   withBootstrapPeers,
   DEFAULT_NETWORK,
   DEFAULT_CONSTITUTION,
+  MONAD_MAINNET_CHAIN_ID,
+  MONAD_TESTNET_CHAIN_ID,
+  DEFAULT_CHAIN_IDS,
+  DEFAULT_RPC_URLS,
+  getDefaultChainId,
+  getDefaultRpcUrl,
+  getDefaultRpcUrls,
   type NetworkConfig,
   type NetworkName,
 } from './networks';
@@ -125,10 +115,6 @@ export {
   removeSettlement,
   updateSettlement,
 } from './storage';
-
-export {
-  type ClientState as RegistryClientState,
-} from './registry-client';
 
 export {
   type MatchWeights,
@@ -234,6 +220,7 @@ export type {
   LoadBalancingConfig,
   AgentLoadState,
   SemanticSimilarityConfig,
+  StakeRequirementConfig,
 } from './orchestrator/types';
 
 export {
@@ -317,6 +304,12 @@ export {
 } from './protocol/constitution';
 
 export {
+  fetchOnChainConstitution,
+  clearConstitutionCache,
+  getConstitutionCacheAge,
+} from './protocol/on-chain-constitution';
+
+export {
   createAgent,
   extractPromptText,
   createLLMHandler,
@@ -343,4 +336,139 @@ export {
   type PeerScoringConfig,
   type PriorityDiscoveryConfig,
   type LocalModelConfig,
+  type AgentReputationConfig,
+  type FindPeersOptions,
 } from './agent';
+
+export {
+  getGovernorSettings,
+  propose,
+  getProposalId,
+  getProposalState,
+  castVote,
+  castVoteWithReason,
+  queueProposal,
+  executeProposal,
+  cancelProposal,
+  getVotes,
+  hasVoted,
+  getProposalVotes,
+  getQuorum,
+  getTimelockMinDelay,
+  encodeProposalAction,
+  hashDescription,
+  type ProposalState,
+  type ProposalInfo,
+  type GovernorSettings,
+  type ProposalAction,
+} from './services/governance';
+
+export {
+  calculateFee,
+  collectFee,
+  getPendingRewards,
+  claimRewards,
+  distributeFees,
+  getFeeStats,
+  type FeeInfo,
+  type FeeStats,
+} from './services/fee-collector';
+
+export {
+  createReputationState,
+  getLocalReputation,
+  recordLocalSuccess,
+  recordLocalFailure,
+  queueRating,
+  commitPendingRatings,
+  shouldCommit,
+  syncPeerFromChain,
+  syncAllPeersFromChain,
+  getEffectiveScore,
+  getPeersByScore,
+  getStakedPeers,
+  getCachedWallet,
+  setCachedWallet,
+  resolveWalletForPeer,
+  resolveAndSyncPeer,
+  type LocalPeerReputation,
+  type ReputationState,
+  type ReputationConfig,
+  type PendingRating,
+} from './node/reputation';
+
+export {
+  createBloomFilterState,
+  createFilter,
+  addToFilter,
+  testFilter,
+  mergeFilters,
+  buildLocalFilters,
+  receiveFilter,
+  queryFilter,
+  findCandidates,
+  serializeFilter,
+  deserializeFilter,
+  gossipFilters,
+  subscribeToFilters,
+  shouldGossip,
+  estimateFalsePositiveRate,
+  getFilterStats,
+  type FilterTier,
+  type ReputationBloomFilter,
+  type BloomFilterState,
+  type BloomFilterConfig,
+} from './node/bloom-filter';
+
+export {
+  createLatencyZoneState,
+  classifyLatency,
+  updatePeerZone,
+  getPeerZone,
+  getPeersInZone,
+  getPeersUpToZone,
+  getZoneStats,
+  getAllZoneStats,
+  syncFromPerformance,
+  filterByZone,
+  sortByZone,
+  selectByZoneWithFallback,
+  estimateLatencyByZone,
+  getZoneWeight,
+  calculateZoneScore,
+  type LatencyZone,
+  type ZoneThresholds,
+  type LatencyZoneState,
+  type ZoneStat,
+  type LatencyZoneConfig,
+} from './node/latency-zones';
+
+export {
+  computePeerIdHash,
+  getWalletForPeerId,
+  getPeerIdForWallet,
+  isPeerIdRegistered,
+  isWalletRegistered,
+  getPeerBindingInfo,
+  type PeerBindingInfo,
+} from './services/peer-binding';
+
+export {
+  stake,
+  requestUnstake,
+  completeUnstake,
+  generatePaymentId,
+  recordPayment,
+  rateAfterPayment,
+  batchRate,
+  canWork,
+  canRate,
+  getEffectiveScore as getOnChainEffectiveScore,
+  getStakeInfo,
+  getReputation as getOnChainReputation,
+  getRatingWeight,
+  getTotalStaked,
+  getMinStakes,
+  type PeerReputation as OnChainPeerReputation,
+  type StakeInfo,
+} from './services/reputation-contract';

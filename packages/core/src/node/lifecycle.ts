@@ -11,13 +11,6 @@ import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage } from '../services/auth';
 import { withTimeout, retryWithBackoff, debug } from '../utils';
-import {
-  connect as connectRegistry,
-  disconnect as disconnectRegistry,
-  register as registerWithRegistry,
-  unregister as unregisterFromRegistry,
-  type ClientState as RegistryClientState,
-} from '../registry-client';
 import * as storage from '../storage';
 import { closePool } from '../connection';
 import { publish } from './messaging';
@@ -35,7 +28,6 @@ import {
   setNode,
   setMessageAuth,
   setWallet,
-  setRegistryClient,
   setTransport,
   setMessageBridge,
   runCleanupHandlers,
@@ -133,6 +125,7 @@ async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
       maxConnections: 100,
       inboundConnectionThreshold: 50,
     },
+    ...(state.libp2pPrivateKey && { privateKey: state.libp2pPrivateKey }),
   };
 
   const node = await createLibp2p<EccoServices>(libp2pOptions);
@@ -155,24 +148,20 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
   const authState: AuthState = {
     config: {
       enabled: true,
-      privateKey: identity.privateKey,
-      publicKey: identity.publicKey,
+      privateKey: identity.libp2pPrivateKey,
     },
     keyCache: new Map(),
   };
-  updateState(stateRef, (s) => setMessageAuth(s, authState));
-
-  if (!state.config.nodeId) {
-    updateState(stateRef, (current) => ({
-      ...current,
-      id: identity.nodeIdFromKeys
-    }));
-  }
+  updateState(stateRef, (s) => ({
+    ...setMessageAuth(s, authState),
+    libp2pPrivateKey: identity.libp2pPrivateKey,
+    id: state.config.nodeId ?? identity.peerId,
+  }));
 
   const walletRpcUrls = state.config.authentication?.walletRpcUrls;
   const hasWalletRpcUrls = walletRpcUrls && Object.keys(walletRpcUrls).length > 0;
-  
-  if (hasWalletRpcUrls && identity.ethereumPrivateKey) {
+
+  if (hasWalletRpcUrls) {
     const walletState = createWalletState({
       privateKey: identity.ethereumPrivateKey,
       chains: [],
@@ -196,51 +185,6 @@ async function setupBootstrap(stateRef: StateRef<NodeState>): Promise<void> {
   const result = await connectToBootstrapPeers(state);
   if (!result.success && result.error) {
     throw new Error(result.error);
-  }
-}
-
-async function setupRegistry(stateRef: StateRef<NodeState>): Promise<void> {
-  const state = getState(stateRef);
-
-  if (!state.config.registry) {
-    return;
-  }
-
-  const registryConfig = {
-    url: state.config.registry,
-    reconnect: true,
-    reconnectInterval: 5000,
-    timeout: 10000,
-  };
-
-  let connectedState: RegistryClientState | null = null;
-
-  try {
-    connectedState = await retryWithBackoff(
-      () => withTimeout(connectRegistry(registryConfig), 10000, 'Registry connection timeout'),
-      {
-        maxAttempts: 3,
-        initialDelay: 2000,
-        maxDelay: 10000,
-        onRetry: (attempt, error) => {
-          console.warn(`Registry connection attempt ${attempt} failed: ${error.message}`);
-        },
-      }
-    );
-  } catch {
-    if (state.config.fallbackToP2P) {
-      return;
-    }
-    throw new Error('Failed to connect to registry after multiple attempts');
-  }
-
-  updateState(stateRef, (s) => setRegistryClient(s, connectedState!));
-
-  const updatedState = getState(stateRef);
-  if (updatedState.node) {
-    const addresses = updatedState.node.getMultiaddrs().map(String);
-    const registeredState = await registerWithRegistry(connectedState, updatedState.id, updatedState.capabilities, addresses);
-    updateState(stateRef, (s) => setRegistryClient(s, registeredState));
   }
 }
 
@@ -367,7 +311,6 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   setupEventListeners(getState(stateRef), stateRef);
   setupCapabilityTracking(stateRef);
   await setupBootstrap(stateRef);
-  await setupRegistry(stateRef);
   await announceCapabilities(getState(stateRef));
 
   return stateRef;
@@ -388,11 +331,6 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
 
   if (state.transport) {
     await stopHybridDiscovery(state.transport);
-  }
-
-  if (state.registryClient) {
-    await unregisterFromRegistry(state.registryClient);
-    await disconnectRegistry(state.registryClient);
   }
 
   if (state.connectionPool) {

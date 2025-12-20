@@ -104,10 +104,7 @@ export async function connectToBootstrapPeers(
 
   if (connectedCount < minPeers) {
     const message = `Only connected to ${connectedCount}/${minPeers} required bootstrap peers`;
-
-    if (!state.config.fallbackToP2P) {
-      return { success: false, connectedCount, failedPeers, error: message };
-    }
+    return { success: false, connectedCount, failedPeers, error: message };
   }
 
   return { success: true, connectedCount, failedPeers };
