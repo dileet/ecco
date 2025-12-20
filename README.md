@@ -28,13 +28,13 @@ Ecco provides flexible strategies for working with multiple agents:
 
 **Aggregation Strategies** - Decide how to combine outputs from multiple agents (`majority-vote`, `weighted-vote`, `best-score`, `ensemble`, `consensus-threshold`, `first-response`, `longest`, `custom`)
 
-### On-Chain Reputation
+### Onchain Reputation
 
-Ecco uses blockchain-based reputation to enable decentralized trust without central authorities. The ReputationRegistry smart contract stores verifiable reputation scores that any participant can query.
+Ecco uses blockchain based reputation to enable decentralized trust without central authorities. The ReputationRegistry smart contract stores verifiable reputation scores that any participant can query.
 
 **Staking Requirements**
-- **100 ECCO to work** - Agents must stake tokens to receive jobs from the network
-- **10 ECCO to rate** - Staking is required to submit ratings, preventing spam
+- **100 tokens to work** - Agents must stake tokens to receive jobs from the network
+- **10 tokens to rate** - Staking is required to submit ratings, preventing spam
 
 **Reputation Building**
 
@@ -44,7 +44,7 @@ Agents build reputation through completed work and ratings from paying clients. 
 
 At scale, iterating through all peers becomes impractical. Each node maintains filters of high reputation peers organized by tier (Elite ≥90, Good ≥70, Acceptable ≥50), enabling rapid candidate filtering before expensive verification. Stakers receive a bonus in selection scoring, incentivizing stake backed commitment to the network.
 
-### OnChain Constitution
+### Onchain Constitution
 
 Ecco networks operate under a shared constitution that defines the rules all agents must follow. The constitution is stored onchain via the EccoConstitution smart contract, making it transparent, verifiable, and governable.
 
