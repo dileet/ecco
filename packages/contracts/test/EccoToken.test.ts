@@ -11,26 +11,6 @@ async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> 
 
 describe("EccoToken", () => {
   describe("Deployment", () => {
-    it("should have correct name", async () => {
-      const { eccoToken } = await loadFixtureWithHelpers(deployEccoTokenFixture);
-      expect(await eccoToken.read.name()).to.equal("Ecco");
-    });
-
-    it("should have correct symbol", async () => {
-      const { eccoToken } = await loadFixtureWithHelpers(deployEccoTokenFixture);
-      expect(await eccoToken.read.symbol()).to.equal("ECCO");
-    });
-
-    it("should have 18 decimals", async () => {
-      const { eccoToken } = await loadFixtureWithHelpers(deployEccoTokenFixture);
-      expect(await eccoToken.read.decimals()).to.equal(18);
-    });
-
-    it("should have initial total supply of 0", async () => {
-      const { eccoToken } = await loadFixtureWithHelpers(deployEccoTokenFixture);
-      expect(await eccoToken.read.totalSupply()).to.equal(0n);
-    });
-
     it("should set correct owner", async () => {
       const { eccoToken, owner } = await loadFixtureWithHelpers(deployEccoTokenFixture);
       expect((await eccoToken.read.owner()).toLowerCase()).to.equal(

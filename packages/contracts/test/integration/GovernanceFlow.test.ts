@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { parseEther, encodeFunctionData, keccak256, toBytes } from "viem";
 import { deployGovernorFixture, getNetworkHelpers } from "../helpers/fixtures";
 import { mineBlocks } from "../helpers/time";
-import { VOTING_DELAY, VOTING_PERIOD, TIMELOCK_MIN_DELAY, PROPOSAL_THRESHOLD } from "../helpers/constants";
+import { PROPOSAL_THRESHOLD } from "../helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();

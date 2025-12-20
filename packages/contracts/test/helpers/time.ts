@@ -17,7 +17,11 @@ export async function getBlockTimestamp(): Promise<bigint> {
 }
 
 export async function setNextBlockTimestamp(timestamp: bigint): Promise<void> {
-  const connection = await hre.network.connect();
-  const provider = connection.provider;
-  await provider.request({ method: "evm_setNextBlockTimestamp", params: [Number(timestamp)] });
+  const { networkHelpers } = await hre.network.connect();
+  await networkHelpers.time.setNextBlockTimestamp(Number(timestamp));
+}
+
+export async function increaseTimeTo(timestamp: bigint): Promise<void> {
+  const { networkHelpers } = await hre.network.connect();
+  await networkHelpers.time.increaseTo(Number(timestamp));
 }
