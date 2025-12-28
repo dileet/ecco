@@ -70,6 +70,12 @@ contract EccoGovernor is
         return super.proposalThreshold();
     }
 
+    function proposalSnapshot(uint256 proposalId) public view override returns (uint256) {
+        uint256 voteStart = super.proposalSnapshot(proposalId);
+        if (voteStart == 0) return 0;
+        return voteStart - 1;
+    }
+
     function _queueOperations(
         uint256 proposalId,
         address[] memory targets,

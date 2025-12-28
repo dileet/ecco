@@ -166,4 +166,60 @@ describe("EccoGovernor", () => {
       expect(deadline > snapshot).to.equal(true);
     });
   });
+
+  describe("Voting Power Snapshot", () => {
+    it("should use timestamp before voteStart for snapshot (prevents same-timestamp manipulation)", async () => {
+      const { eccoGovernor, eccoToken, voter1, publicClient } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test snapshot timing";
+
+      const block = await publicClient.getBlock();
+      const currentTimestamp = block.timestamp;
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+      const proposalId = await eccoGovernor.read.hashProposal([targets, values, calldatas, descriptionHash]);
+
+      const snapshot = await eccoGovernor.read.proposalSnapshot([proposalId]);
+      const expectedVoteStart = currentTimestamp + BigInt(VOTING_DELAY) + 1n;
+
+      expect(snapshot).to.equal(expectedVoteStart - 1n);
+    });
+
+    it("should not count tokens acquired after snapshot timestamp", async () => {
+      const { eccoGovernor, eccoToken, voter1, voter2, publicClient } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test late token acquisition";
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+      const proposalId = await eccoGovernor.read.hashProposal([targets, values, calldatas, descriptionHash]);
+
+      const snapshot = await eccoGovernor.read.proposalSnapshot([proposalId]);
+
+      await publicClient.request({ method: "evm_increaseTime" as never, params: [Number(VOTING_DELAY) + 100] as never });
+      await eccoToken.write.mint([voter2.account.address, parseEther("1000000")]);
+      await eccoToken.write.delegate([voter2.account.address], { account: voter2.account });
+      await mineBlocks(1);
+
+      const votingPower = await eccoGovernor.read.getVotes([voter2.account.address, snapshot]);
+      expect(votingPower).to.equal(0n);
+    });
+  });
 });
