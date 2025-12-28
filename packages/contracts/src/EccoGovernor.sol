@@ -16,6 +16,8 @@ contract EccoGovernor is
     GovernorVotesQuorumFraction,
     GovernorTimelockControl
 {
+    error ProposerAboveThreshold(address proposer, uint256 votes, uint256 threshold);
+
     constructor(
         IVotes _token,
         TimelockController _timelock,
@@ -107,5 +109,24 @@ contract EccoGovernor is
 
     function _executor() internal view override(Governor, GovernorTimelockControl) returns (address) {
         return super._executor();
+    }
+
+    function cancelProposalBelowThreshold(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        bytes32 descriptionHash
+    ) public returns (uint256) {
+        uint256 proposalId = hashProposal(targets, values, calldatas, descriptionHash);
+        address proposer = proposalProposer(proposalId);
+
+        uint256 currentVotes = getVotes(proposer, clock() - 1);
+        uint256 threshold = proposalThreshold();
+
+        if (currentVotes >= threshold) {
+            revert ProposerAboveThreshold(proposer, currentVotes, threshold);
+        }
+
+        return _cancel(targets, values, calldatas, descriptionHash);
     }
 }

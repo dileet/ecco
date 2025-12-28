@@ -222,4 +222,115 @@ describe("EccoGovernor", () => {
       expect(votingPower).to.equal(0n);
     });
   });
+
+  describe("Proposal Threshold Enforcement", () => {
+    it("should track proposal proposer", async () => {
+      const { eccoGovernor, eccoToken, voter1 } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test proposer tracking";
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+      const proposalId = await eccoGovernor.read.hashProposal([targets, values, calldatas, descriptionHash]);
+
+      const proposer = await eccoGovernor.read.proposalProposer([proposalId]);
+      expect(proposer.toLowerCase()).to.equal(voter1.account.address.toLowerCase());
+    });
+
+    it("should allow cancellation when proposer drops below threshold", async () => {
+      const { eccoGovernor, eccoToken, voter1, voter2 } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test cancel below threshold";
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+      const proposalId = await eccoGovernor.read.hashProposal([targets, values, calldatas, descriptionHash]);
+
+      await eccoToken.write.transfer([voter2.account.address, PROPOSAL_THRESHOLD], { account: voter1.account });
+      await mineBlocks(1);
+
+      await eccoGovernor.write.cancelProposalBelowThreshold(
+        [targets, values, calldatas, descriptionHash],
+        { account: voter2.account }
+      );
+
+      const state = await eccoGovernor.read.state([proposalId]);
+      expect(state).to.equal(2);
+    });
+
+    it("should reject cancellation when proposer is above threshold", async () => {
+      const { eccoGovernor, eccoToken, voter1, voter2 } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test reject cancel above threshold";
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+
+      try {
+        await eccoGovernor.write.cancelProposalBelowThreshold(
+          [targets, values, calldatas, descriptionHash],
+          { account: voter2.account }
+        );
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/ProposerAboveThreshold/);
+      }
+    });
+
+    it("should prevent threshold bypass via token transfer after proposal", async () => {
+      const { eccoGovernor, eccoToken, voter1, voter2 } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
+      await eccoToken.write.delegate([voter1.account.address], { account: voter1.account });
+      await mineBlocks(1);
+
+      const targets = [eccoToken.address];
+      const values = [0n];
+      const calldatas = ["0x" as `0x${string}`];
+      const description = "Test threshold bypass prevention";
+
+      await eccoGovernor.write.propose([targets, values, calldatas, description], { account: voter1.account });
+
+      const descriptionHash = keccak256(toBytes(description));
+      const proposalId = await eccoGovernor.read.hashProposal([targets, values, calldatas, descriptionHash]);
+
+      let state = await eccoGovernor.read.state([proposalId]);
+      expect(state).to.equal(0);
+
+      await eccoToken.write.transfer([voter2.account.address, PROPOSAL_THRESHOLD], { account: voter1.account });
+      await mineBlocks(2);
+
+      await eccoGovernor.write.cancelProposalBelowThreshold(
+        [targets, values, calldatas, descriptionHash],
+        { account: voter2.account }
+      );
+
+      state = await eccoGovernor.read.state([proposalId]);
+      expect(state).to.equal(2);
+    });
+  });
 });
