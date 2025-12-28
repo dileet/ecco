@@ -94,9 +94,17 @@ async function main() {
   ]);
   console.log("EccoConstitution deployed to:", eccoConstitution.address);
 
-  console.log("\n--- Transferring Constitution ownership to Timelock ---");
+  console.log("\n--- Transferring Contract Ownership to Timelock ---");
+  await eccoToken.write.transferOwnership([eccoTimelock.address]);
+  console.log("EccoToken ownership transferred to Timelock");
+  await reputationRegistry.write.transferOwnership([eccoTimelock.address]);
+  console.log("ReputationRegistry ownership transferred to Timelock");
+  await feeCollector.write.transferOwnership([eccoTimelock.address]);
+  console.log("FeeCollector ownership transferred to Timelock");
+  await workRewards.write.transferOwnership([eccoTimelock.address]);
+  console.log("WorkRewards ownership transferred to Timelock");
   await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
-  console.log("Constitution ownership transferred to Timelock");
+  console.log("EccoConstitution ownership transferred to Timelock");
 
   const chainId = await publicClient.getChainId();
 
