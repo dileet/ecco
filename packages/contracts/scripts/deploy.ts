@@ -78,9 +78,11 @@ async function main() {
   console.log("\n--- Setting up Timelock roles ---");
   const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
   const EXECUTOR_ROLE = await eccoTimelock.read.EXECUTOR_ROLE();
+  const CANCELLER_ROLE = await eccoTimelock.read.CANCELLER_ROLE();
   await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
-  console.log("Granted PROPOSER and EXECUTOR roles to Governor");
+  await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+  console.log("Granted PROPOSER, EXECUTOR, and CANCELLER roles to Governor");
 
   console.log("\n--- Securing Timelock (revoking deployer admin) ---");
   await eccoTimelock.write.completeSetup();
