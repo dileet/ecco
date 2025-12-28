@@ -6,6 +6,8 @@ export const configDefaults: EccoConfig = {
   authentication: { enabled: false },
   networkId: ECCO_MAINNET.networkId,
   bootstrap: ECCO_MAINNET.bootstrap,
+  protocol: ECCO_MAINNET.protocol,
+  constitution: ECCO_MAINNET.constitution,
 };
 
 export function mergeConfig(base: EccoConfig, overrides: Partial<EccoConfig>): EccoConfig {

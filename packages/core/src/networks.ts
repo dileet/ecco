@@ -134,6 +134,8 @@ export function applyNetworkConfig(
     ...baseConfig,
     networkId: baseConfig.networkId ?? networkConfig.networkId,
     bootstrap: baseConfig.bootstrap ?? networkConfig.bootstrap,
+    protocol: baseConfig.protocol ?? networkConfig.protocol,
+    constitution: baseConfig.constitution ?? networkConfig.constitution,
   };
 }
 

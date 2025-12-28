@@ -51,8 +51,22 @@ import {
 import {
   createMessageBridge,
   setAuthState as setMessageBridgeAuth,
+  setHandshakeCallbacks,
   handleIncomingBroadcast,
+  handleVersionHandshake,
+  handleVersionHandshakeResponse,
+  handleVersionIncompatibleNotice,
+  handleConstitutionMismatchNotice,
+  initiateHandshake,
+  isPeerValidated,
+  isHandshakeRequired,
+  queueMessageForPeer,
+  removePeerValidation,
+  deserializeMessage,
+  serializeMessage,
 } from '../transport/message-bridge';
+import { isHandshakeMessage } from '../protocol/handshake';
+import { ECCO_MAINNET, DEFAULT_CONSTITUTION, type NetworkConfig } from '../networks';
 import type { LocalContext } from '../transport/types';
 
 function buildListenAddresses(config: NodeState['config']): string[] {
@@ -77,6 +91,21 @@ function buildDHTProtocol(networkId?: string): string {
     return `${baseProtocol}/${networkId}`;
   }
   return baseProtocol;
+}
+
+function buildNetworkConfig(config: NodeState['config']): NetworkConfig {
+  return {
+    networkId: config.networkId ?? ECCO_MAINNET.networkId,
+    discovery: config.discovery,
+    bootstrap: {
+      enabled: config.bootstrap?.enabled ?? false,
+      peers: config.bootstrap?.peers ?? [],
+      timeout: config.bootstrap?.timeout ?? 30000,
+      minPeers: config.bootstrap?.minPeers ?? 1,
+    },
+    protocol: config.protocol ?? ECCO_MAINNET.protocol,
+    constitution: config.constitution ?? DEFAULT_CONSTITUTION,
+  };
 }
 
 async function createLibp2pNode(stateRef: StateRef<NodeState>): Promise<void> {
@@ -221,7 +250,7 @@ async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
 
 async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
   const state = getState(stateRef);
-  
+
   if (!state.node) {
     return;
   }
@@ -237,14 +266,64 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     return;
   }
 
+  const networkConfig = buildNetworkConfig(state.config);
+
   let messageBridge = createMessageBridge({
     nodeId: state.id,
     authEnabled: state.config.authentication?.enabled ?? false,
+    networkConfig,
   });
 
   if (state.messageAuth) {
     messageBridge = setMessageBridgeAuth(messageBridge, state.messageAuth);
   }
+
+  messageBridge = setHandshakeCallbacks(messageBridge, {
+    onPeerValidated: (peerId: string) => {
+      debug('handshake', `Peer ${peerId} validated`);
+    },
+    onPeerRejected: (peerId: string, reason: string) => {
+      debug('handshake', `Peer ${peerId} rejected: ${reason}`);
+    },
+    onUpgradeRequired: (peerId: string, requiredVersion: string, upgradeUrl?: string) => {
+      console.warn(`[ecco] Peer ${peerId} requires protocol upgrade to ${requiredVersion}. ${upgradeUrl ? `Upgrade at: ${upgradeUrl}` : ''}`);
+    },
+    onConstitutionMismatch: (peerId: string, expectedHash: string, receivedHash: string) => {
+      console.warn(`[ecco] Constitution mismatch with peer ${peerId}. Expected: ${expectedHash}, received: ${receivedHash}`);
+    },
+    sendMessage: async (peerId: string, message: Message) => {
+      const currentState = getState(stateRef);
+      if (!currentState.transport || !currentState.messageBridge) return;
+
+      const transportMessage = await serializeMessage(currentState.messageBridge, message);
+
+      for (const adapter of currentState.transport.adapters.values()) {
+        if (adapter.state === 'connected') {
+          try {
+            await adapter.send(peerId, transportMessage);
+            return;
+          } catch {
+            continue;
+          }
+        }
+      }
+    },
+    disconnectPeer: async (peerId: string) => {
+      const currentState = getState(stateRef);
+      if (currentState.node) {
+        const connections = currentState.node.getConnections().filter(
+          conn => conn.remotePeer.toString() === peerId
+        );
+        for (const conn of connections) {
+          await conn.close();
+        }
+      }
+      if (currentState.messageBridge) {
+        const updatedBridge = removePeerValidation(currentState.messageBridge, peerId);
+        updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
+      }
+    },
+  });
 
   updateState(stateRef, (s) => setMessageBridge(s, messageBridge));
 
@@ -263,7 +342,7 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     const localContext: LocalContext = {
       locationId: state.config.proximity.localContext?.locationId,
       locationName: state.config.proximity.localContext?.locationName,
-      capabilities: state.config.proximity.localContext?.capabilities ?? 
+      capabilities: state.config.proximity.localContext?.capabilities ??
                     state.capabilities.map(c => c.name),
       metadata: state.config.proximity.localContext?.metadata,
     };
@@ -273,7 +352,7 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
       advertise: state.config.proximity.bluetooth.advertise ?? true,
       scan: state.config.proximity.bluetooth.scan ?? true,
     });
-    
+
     bleAdapterState = setBLELocalContext(bleAdapterState, localContext);
     hybridDiscovery = registerHybridAdapter(hybridDiscovery, toBLEAdapter(bleAdapterState));
   }
@@ -288,14 +367,60 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     if (peerId === currentState.libp2pPeerId || peerId === currentState.id) {
       return;
     }
-    if (currentState.messageBridge) {
-      const updatedBridge = await handleIncomingBroadcast(
-        currentState.messageBridge,
-        peerId,
-        transportMessage
-      );
-      updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
+    if (!currentState.messageBridge) {
+      return;
     }
+
+    const { message, valid, updatedState: deserializedState } = await deserializeMessage(
+      currentState.messageBridge,
+      {
+        id: '',
+        from: peerId,
+        to: currentState.id,
+        data: transportMessage.data,
+        timestamp: Date.now()
+      }
+    );
+
+    if (!valid || !message) {
+      return;
+    }
+
+    let bridge = deserializedState;
+
+    if (isHandshakeMessage(message)) {
+      switch (message.type) {
+        case 'version-handshake':
+          bridge = await handleVersionHandshake(bridge, peerId, message);
+          break;
+        case 'version-handshake-response':
+          bridge = await handleVersionHandshakeResponse(bridge, peerId, message);
+          break;
+        case 'version-incompatible-notice':
+          bridge = handleVersionIncompatibleNotice(bridge, peerId, message);
+          break;
+        case 'constitution-mismatch-notice':
+          bridge = handleConstitutionMismatchNotice(bridge, peerId, message);
+          break;
+      }
+      updateState(stateRef, (s) => setMessageBridge(s, bridge));
+      return;
+    }
+
+    if (isHandshakeRequired(bridge) && !isPeerValidated(bridge, peerId)) {
+      debug('handshake', `Message from unvalidated peer ${peerId}, queueing`);
+      bridge = queueMessageForPeer(bridge, peerId, message);
+      bridge = await initiateHandshake(bridge, peerId);
+      updateState(stateRef, (s) => setMessageBridge(s, bridge));
+      return;
+    }
+
+    const updatedBridge = await handleIncomingBroadcast(
+      bridge,
+      peerId,
+      transportMessage
+    );
+    updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
   });
 
   updateState(stateRef, (s) => setTransport(s, hybridDiscovery));

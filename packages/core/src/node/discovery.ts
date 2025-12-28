@@ -4,8 +4,8 @@ import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
-import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers } from './state';
-import { delay } from '../utils';
+import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers, setMessageBridge } from './state';
+import { delay, debug } from '../utils';
 import { queryCapabilities } from './dht';
 import type { LRUCache } from '../utils/lru-cache';
 import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
@@ -13,6 +13,7 @@ import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from '../tra
 import { findCandidates, type FilterTier } from './bloom-filter';
 import { getLocalReputation, getEffectiveScore } from './reputation';
 import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
+import { initiateHandshake, isHandshakeRequired, removePeerValidation } from '../transport/message-bridge';
 
 
 function extractPeerIdFromAddr(addr: string): string | null {
@@ -74,7 +75,7 @@ export function setupEventListeners(
       const peerAddresses = node.getConnections()
         .filter(conn => conn.remotePeer.toString() === peerId)
         .flatMap(conn => conn.remoteAddr ? [conn.remoteAddr.toString()] : []);
-      
+
       updateState(stateRef, (s) => addPeers(s, [{
         id: peerId,
         addresses: peerAddresses,
@@ -82,13 +83,28 @@ export function setupEventListeners(
         lastSeen: Date.now(),
       }]));
     }
-    
+
+    if (currentState.messageBridge && isHandshakeRequired(currentState.messageBridge)) {
+      debug('discovery', `Initiating handshake with peer ${peerId}`);
+      initiateHandshake(currentState.messageBridge, peerId)
+        .then((updatedBridge) => {
+          updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
+        })
+        .catch(() => {});
+    }
+
     handlePeerConnect(stateRef).catch(() => {});
   });
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
-    updateState(stateRef, (s) => removePeer(s, peerId));
+    const currentState = getState(stateRef);
+    if (currentState.messageBridge) {
+      const updatedBridge = removePeerValidation(currentState.messageBridge, peerId);
+      updateState(stateRef, (s) => ({ ...removePeer(s, peerId), messageBridge: updatedBridge }));
+    } else {
+      updateState(stateRef, (s) => removePeer(s, peerId));
+    }
   });
 }
 

@@ -9,7 +9,10 @@ import {
   serializeMessage,
   subscribeToTopic as bridgeSubscribeToTopic,
   createMessage,
+  isPeerValidated,
+  isHandshakeRequired,
 } from '../transport/message-bridge';
+import { isHandshakeMessage } from '../protocol/handshake';
 import { debug } from '../utils';
 
 const PubSubMessageSchema = z.object({
@@ -172,14 +175,21 @@ export async function publishDirect(
     return;
   }
 
+  if (!hasTransportLayer(state) || !state.transport) {
+    throw new Error('No transport available for direct messaging');
+  }
+
+  if (state.messageBridge && !isHandshakeMessage(message)) {
+    if (isHandshakeRequired(state.messageBridge) && !isPeerValidated(state.messageBridge, peerId)) {
+      debug('publishDirect', `Peer ${peerId} not validated, message blocked`);
+      throw new Error(`Cannot send message to unvalidated peer ${peerId}. Handshake required.`);
+    }
+  }
+
   debug('publishDirect', `Sending to ${peerId}, type=${message.type}`);
   let messageToSend = message;
   if (state.messageAuth) {
     messageToSend = await signMessage(state.messageAuth, message);
-  }
-
-  if (!hasTransportLayer(state) || !state.transport) {
-    throw new Error('No transport available for direct messaging');
   }
 
   const transportMessage = await serializeMessage(

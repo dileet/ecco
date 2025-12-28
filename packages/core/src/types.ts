@@ -30,6 +30,8 @@ export interface EccoConfig {
   proximity?: ProximityConfig;
   memoryLimits?: MemoryLimitsConfig;
   floodProtection?: FloodProtectionConfig;
+  protocol?: ProtocolConfig;
+  constitution?: Constitution;
   authentication?: {
     enabled: boolean;
     keyPath?: string;
