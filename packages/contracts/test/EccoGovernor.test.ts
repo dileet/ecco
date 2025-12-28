@@ -1,9 +1,10 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
 import { parseEther, encodeFunctionData, keccak256, toBytes } from "viem";
+import hre from "hardhat";
 import { deployGovernorFixture, getNetworkHelpers } from "./helpers/fixtures";
 import { mineBlocks } from "./helpers/time";
-import { VOTING_DELAY, PROPOSAL_THRESHOLD } from "./helpers/constants";
+import { VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT, TIMELOCK_MIN_DELAY } from "./helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();
@@ -331,6 +332,65 @@ describe("EccoGovernor", () => {
 
       state = await eccoGovernor.read.state([proposalId]);
       expect(state).to.equal(2);
+    });
+  });
+
+  describe("Minimum Voting Delay", () => {
+    it("should reject deployment with votingDelay of 0", async () => {
+      const { viem } = await hre.network.connect();
+      const [owner] = await viem.getWalletClients();
+
+      const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [
+        TIMELOCK_MIN_DELAY,
+        [owner.account.address],
+        [owner.account.address],
+        owner.account.address,
+      ]);
+
+      try {
+        await viem.deployContract("EccoGovernor", [
+          eccoToken.address,
+          eccoTimelock.address,
+          0,
+          VOTING_PERIOD,
+          PROPOSAL_THRESHOLD,
+          QUORUM_PERCENT,
+        ]);
+        expect.fail("Expected deployment to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/VotingDelayTooShort/);
+      }
+    });
+
+    it("should expose MIN_VOTING_DELAY constant", async () => {
+      const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
+      const minDelay = await eccoGovernor.read.MIN_VOTING_DELAY();
+      expect(Number(minDelay)).to.equal(1);
+    });
+
+    it("should allow deployment with votingDelay of 1", async () => {
+      const { viem } = await hre.network.connect();
+      const [owner] = await viem.getWalletClients();
+
+      const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [
+        TIMELOCK_MIN_DELAY,
+        [owner.account.address],
+        [owner.account.address],
+        owner.account.address,
+      ]);
+
+      const eccoGovernor = await viem.deployContract("EccoGovernor", [
+        eccoToken.address,
+        eccoTimelock.address,
+        1,
+        VOTING_PERIOD,
+        PROPOSAL_THRESHOLD,
+        QUORUM_PERCENT,
+      ]);
+
+      expect(await eccoGovernor.read.votingDelay()).to.equal(1n);
     });
   });
 });

@@ -16,7 +16,10 @@ contract EccoGovernor is
     GovernorVotesQuorumFraction,
     GovernorTimelockControl
 {
+    uint48 public constant MIN_VOTING_DELAY = 1;
+
     error ProposerAboveThreshold(address proposer, uint256 votes, uint256 threshold);
+    error VotingDelayTooShort(uint48 provided, uint48 minimum);
 
     constructor(
         IVotes _token,
@@ -31,7 +34,11 @@ contract EccoGovernor is
         GovernorVotes(_token)
         GovernorVotesQuorumFraction(_quorumPercent)
         GovernorTimelockControl(_timelock)
-    {}
+    {
+        if (_votingDelay < MIN_VOTING_DELAY) {
+            revert VotingDelayTooShort(_votingDelay, MIN_VOTING_DELAY);
+        }
+    }
 
     function votingDelay() public view override(Governor, GovernorSettings) returns (uint256) {
         return super.votingDelay();
@@ -70,6 +77,13 @@ contract EccoGovernor is
 
     function proposalThreshold() public view override(Governor, GovernorSettings) returns (uint256) {
         return super.proposalThreshold();
+    }
+
+    function setVotingDelay(uint48 newVotingDelay) public override onlyGovernance {
+        if (newVotingDelay < MIN_VOTING_DELAY) {
+            revert VotingDelayTooShort(newVotingDelay, MIN_VOTING_DELAY);
+        }
+        super.setVotingDelay(newVotingDelay);
     }
 
     function proposalSnapshot(uint256 proposalId) public view override returns (uint256) {
