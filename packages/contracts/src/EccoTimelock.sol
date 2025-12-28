@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
 contract EccoTimelock is TimelockController {
     error SetupAlreadyComplete();
     error NotAdmin();
+    error EmptyProposers();
+    error EmptyExecutors();
 
     bool public setupComplete;
 
@@ -14,7 +16,10 @@ contract EccoTimelock is TimelockController {
         address[] memory proposers,
         address[] memory executors,
         address admin
-    ) TimelockController(minDelay, proposers, executors, admin) {}
+    ) TimelockController(minDelay, proposers, executors, admin) {
+        if (proposers.length == 0) revert EmptyProposers();
+        if (executors.length == 0) revert EmptyExecutors();
+    }
 
     function completeSetup() external {
         if (setupComplete) revert SetupAlreadyComplete();

@@ -153,8 +153,8 @@ export async function deployGovernorFixture() {
 
   const eccoTimelock = await viem.deployContract("EccoTimelock", [
     TIMELOCK_MIN_DELAY,
-    [],
-    [],
+    [owner.account.address],
+    [owner.account.address],
     owner.account.address,
   ]);
 
@@ -174,6 +174,8 @@ export async function deployGovernorFixture() {
   await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+  await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+  await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
   await eccoTimelock.write.completeSetup();
 
@@ -239,8 +241,8 @@ export async function deployFullEcosystemFixture() {
 
   const eccoTimelock = await viem.deployContract("EccoTimelock", [
     TIMELOCK_MIN_DELAY,
-    [],
-    [],
+    [owner.account.address],
+    [owner.account.address],
     owner.account.address,
   ]);
 
@@ -260,6 +262,8 @@ export async function deployFullEcosystemFixture() {
   await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+  await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+  await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
   await eccoTimelock.write.completeSetup();
 

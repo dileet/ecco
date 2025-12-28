@@ -54,8 +54,8 @@ async function main() {
   const minDelay = 86400n;
   const eccoTimelock = await viem.deployContract("EccoTimelock", [
     minDelay,
-    [],
-    [],
+    [deployer.account.address],
+    [deployer.account.address],
     deployer.account.address,
   ]);
   console.log("EccoTimelock deployed to:", eccoTimelock.address);
@@ -82,7 +82,10 @@ async function main() {
   await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+  await eccoTimelock.write.revokeRole([PROPOSER_ROLE, deployer.account.address]);
+  await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, deployer.account.address]);
   console.log("Granted PROPOSER, EXECUTOR, and CANCELLER roles to Governor");
+  console.log("Revoked PROPOSER and EXECUTOR roles from deployer");
 
   console.log("\n--- Securing Timelock (revoking deployer admin) ---");
   await eccoTimelock.write.completeSetup();

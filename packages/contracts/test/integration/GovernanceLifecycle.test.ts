@@ -11,7 +11,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [], [], owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
         eccoTimelock.address,
@@ -28,6 +28,8 @@ describe("Governance Lifecycle Tests", () => {
       await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+      await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+      await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
       const totalVotes = parseEther("10000000");
       await eccoToken.write.mint([voter1.account.address, totalVotes]);
@@ -90,7 +92,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [], [], owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
         eccoTimelock.address,
@@ -107,6 +109,8 @@ describe("Governance Lifecycle Tests", () => {
       await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+      await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+      await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
       await eccoToken.write.mint([voter1.account.address, PROPOSAL_THRESHOLD]);
       await eccoToken.write.mint([voter2.account.address, parseEther("5000000")]);

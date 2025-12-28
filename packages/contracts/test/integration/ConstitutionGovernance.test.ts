@@ -18,7 +18,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [], [], owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
         eccoTimelock.address,
@@ -40,6 +40,8 @@ describe("Constitution Governance Integration", () => {
       await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+      await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+      await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
       await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
 
@@ -105,7 +107,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [], [], owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
         eccoTimelock.address,
@@ -127,6 +129,8 @@ describe("Constitution Governance Integration", () => {
       await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
       await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+      await eccoTimelock.write.revokeRole([PROPOSER_ROLE, owner.account.address]);
+      await eccoTimelock.write.revokeRole([EXECUTOR_ROLE, owner.account.address]);
 
       await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
 
@@ -182,7 +186,7 @@ describe("Constitution Governance Integration", () => {
       const { viem } = await hre.network.connect();
       const [owner, user1] = await viem.getWalletClients();
 
-      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [], [], owner.account.address]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoConstitution = await viem.deployContract("EccoConstitution", [
         INITIAL_CONSTITUTION_ITEMS,
         owner.account.address,
