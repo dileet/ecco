@@ -175,6 +175,8 @@ export async function deployGovernorFixture() {
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
 
+  await eccoTimelock.write.completeSetup();
+
   return {
     eccoToken,
     eccoTimelock,
@@ -258,6 +260,8 @@ export async function deployFullEcosystemFixture() {
   await eccoTimelock.write.grantRole([PROPOSER_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   await eccoTimelock.write.grantRole([CANCELLER_ROLE, eccoGovernor.address]);
+
+  await eccoTimelock.write.completeSetup();
 
   const eccoConstitution = await viem.deployContract("EccoConstitution", [
     INITIAL_CONSTITUTION_ITEMS,

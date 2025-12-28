@@ -4,10 +4,23 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
 contract EccoTimelock is TimelockController {
+    error SetupAlreadyComplete();
+    error NotAdmin();
+
+    bool public setupComplete;
+
     constructor(
         uint256 minDelay,
         address[] memory proposers,
         address[] memory executors,
         address admin
     ) TimelockController(minDelay, proposers, executors, admin) {}
+
+    function completeSetup() external {
+        if (setupComplete) revert SetupAlreadyComplete();
+        if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert NotAdmin();
+
+        _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        setupComplete = true;
+    }
 }

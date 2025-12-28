@@ -207,4 +207,67 @@ describe("EccoTimelock", () => {
       expect(await eccoTimelock.read.isOperation([operationId])).to.equal(false);
     });
   });
+
+  describe("Setup Completion", () => {
+    it("should allow admin to complete setup", async () => {
+      const { eccoTimelock } = await loadFixtureWithHelpers(deployTimelockFixture);
+
+      await eccoTimelock.write.completeSetup();
+
+      expect(await eccoTimelock.read.setupComplete()).to.equal(true);
+    });
+
+    it("should revoke admin role after completeSetup", async () => {
+      const { eccoTimelock, owner } = await loadFixtureWithHelpers(deployTimelockFixture);
+      const DEFAULT_ADMIN_ROLE = await eccoTimelock.read.DEFAULT_ADMIN_ROLE();
+
+      expect(
+        await eccoTimelock.read.hasRole([DEFAULT_ADMIN_ROLE, owner.account.address])
+      ).to.equal(true);
+
+      await eccoTimelock.write.completeSetup();
+
+      expect(
+        await eccoTimelock.read.hasRole([DEFAULT_ADMIN_ROLE, owner.account.address])
+      ).to.equal(false);
+    });
+
+    it("should reject calling completeSetup twice", async () => {
+      const { eccoTimelock } = await loadFixtureWithHelpers(deployTimelockFixture);
+
+      await eccoTimelock.write.completeSetup();
+
+      try {
+        await eccoTimelock.write.completeSetup();
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/SetupAlreadyComplete/);
+      }
+    });
+
+    it("should reject completeSetup from non-admin", async () => {
+      const { eccoTimelock, proposer } = await loadFixtureWithHelpers(deployTimelockFixture);
+
+      try {
+        await eccoTimelock.write.completeSetup({ account: proposer.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/NotAdmin/);
+      }
+    });
+
+    it("should prevent admin from granting roles after completeSetup", async () => {
+      const { eccoTimelock, executor } = await loadFixtureWithHelpers(deployTimelockFixture);
+      const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
+
+      await eccoTimelock.write.completeSetup();
+
+      try {
+        await eccoTimelock.write.grantRole([PROPOSER_ROLE, executor.account.address]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/AccessControlUnauthorizedAccount/);
+      }
+    });
+  });
 });

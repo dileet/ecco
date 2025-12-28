@@ -82,6 +82,10 @@ async function main() {
   await eccoTimelock.write.grantRole([EXECUTOR_ROLE, eccoGovernor.address]);
   console.log("Granted PROPOSER and EXECUTOR roles to Governor");
 
+  console.log("\n--- Securing Timelock (revoking deployer admin) ---");
+  await eccoTimelock.write.completeSetup();
+  console.log("Timelock setup complete - deployer admin role revoked");
+
   console.log("\n--- Deploying EccoConstitution ---");
   const INITIAL_CONSTITUTION_ITEMS = [
     "Agents must provide honest and accurate responses to the best of their ability",
