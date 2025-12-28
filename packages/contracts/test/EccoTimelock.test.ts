@@ -226,6 +226,69 @@ describe("EccoTimelock", () => {
     });
   });
 
+  describe("Admin Renunciation Protection", () => {
+    it("should prevent timelock from renouncing its own admin role", async () => {
+      const hre = await import("hardhat");
+      const { eccoTimelock } = await loadFixtureWithHelpers(deployTimelockFixture);
+      const DEFAULT_ADMIN_ROLE = await eccoTimelock.read.DEFAULT_ADMIN_ROLE();
+
+      expect(
+        await eccoTimelock.read.hasRole([DEFAULT_ADMIN_ROLE, eccoTimelock.address])
+      ).to.equal(true);
+
+      const networkHelpers = await getNetworkHelpers();
+      await networkHelpers.impersonateAccount(eccoTimelock.address);
+      await networkHelpers.setBalance(eccoTimelock.address, 10n ** 18n);
+
+      const { viem } = await hre.default.network.connect();
+      const timelockSigner = await viem.getWalletClient(eccoTimelock.address);
+
+      try {
+        await eccoTimelock.write.renounceRole(
+          [DEFAULT_ADMIN_ROLE, eccoTimelock.address],
+          { account: timelockSigner.account }
+        );
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/CannotRenounceTimelockAdmin/);
+      }
+
+      await networkHelpers.stopImpersonatingAccount(eccoTimelock.address);
+    });
+
+    it("should allow renouncing other roles", async () => {
+      const { eccoTimelock, proposer } = await loadFixtureWithHelpers(deployTimelockFixture);
+      const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
+
+      expect(
+        await eccoTimelock.read.hasRole([PROPOSER_ROLE, proposer.account.address])
+      ).to.equal(true);
+
+      await eccoTimelock.write.renounceRole([PROPOSER_ROLE, proposer.account.address], {
+        account: proposer.account,
+      });
+
+      expect(
+        await eccoTimelock.read.hasRole([PROPOSER_ROLE, proposer.account.address])
+      ).to.equal(false);
+    });
+
+    it("should allow renouncing admin role from non-timelock addresses", async () => {
+      const { eccoTimelock, owner } = await loadFixtureWithHelpers(deployTimelockFixture);
+      const DEFAULT_ADMIN_ROLE = await eccoTimelock.read.DEFAULT_ADMIN_ROLE();
+
+      expect(
+        await eccoTimelock.read.hasRole([DEFAULT_ADMIN_ROLE, owner.account.address])
+      ).to.equal(true);
+
+      await eccoTimelock.write.renounceRole([DEFAULT_ADMIN_ROLE, owner.account.address]);
+
+      expect(
+        await eccoTimelock.read.hasRole([DEFAULT_ADMIN_ROLE, owner.account.address])
+      ).to.equal(false);
+    });
+  });
+
   describe("Setup Completion", () => {
     it("should allow admin to complete setup", async () => {
       const { eccoTimelock } = await loadFixtureWithHelpers(deployTimelockFixture);

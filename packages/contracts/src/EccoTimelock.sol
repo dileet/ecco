@@ -9,6 +9,7 @@ contract EccoTimelock is TimelockController {
     error EmptyProposers();
     error EmptyExecutors();
     error MinDelayTooShort();
+    error CannotRenounceTimelockAdmin();
 
     uint256 public constant MIN_DELAY = 1 days;
 
@@ -31,5 +32,12 @@ contract EccoTimelock is TimelockController {
 
         _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
         setupComplete = true;
+    }
+
+    function renounceRole(bytes32 role, address callerConfirmation) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && callerConfirmation == address(this)) {
+            revert CannotRenounceTimelockAdmin();
+        }
+        super.renounceRole(role, callerConfirmation);
     }
 }
