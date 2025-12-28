@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/governance/extensions/GovernorCountingSimple.sol
 import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
+import "./IReputationRegistry.sol";
 
 contract EccoGovernor is
     Governor,
@@ -18,6 +19,8 @@ contract EccoGovernor is
 {
     uint48 public constant MIN_VOTING_DELAY = 1;
 
+    IReputationRegistry public immutable reputationRegistry;
+
     error ProposerAboveThreshold(address proposer, uint256 votes, uint256 threshold);
     error VotingDelayTooShort(uint48 provided, uint48 minimum);
 
@@ -27,7 +30,8 @@ contract EccoGovernor is
         uint48 _votingDelay,
         uint32 _votingPeriod,
         uint256 _proposalThreshold,
-        uint256 _quorumPercent
+        uint256 _quorumPercent,
+        IReputationRegistry _reputationRegistry
     )
         Governor("EccoGovernor")
         GovernorSettings(_votingDelay, _votingPeriod, _proposalThreshold)
@@ -38,6 +42,7 @@ contract EccoGovernor is
         if (_votingDelay < MIN_VOTING_DELAY) {
             revert VotingDelayTooShort(_votingDelay, MIN_VOTING_DELAY);
         }
+        reputationRegistry = _reputationRegistry;
     }
 
     function votingDelay() public view override(Governor, GovernorSettings) returns (uint256) {
@@ -54,7 +59,12 @@ contract EccoGovernor is
         override(Governor, GovernorVotesQuorumFraction)
         returns (uint256)
     {
-        return super.quorum(blockNumber);
+        uint256 totalSupply = token().getPastTotalSupply(blockNumber);
+        uint256 stakedTokens = address(reputationRegistry) != address(0)
+            ? reputationRegistry.totalStaked()
+            : 0;
+        uint256 votableSupply = totalSupply > stakedTokens ? totalSupply - stakedTokens : 0;
+        return (votableSupply * quorumNumerator(blockNumber)) / quorumDenominator();
     }
 
     function state(uint256 proposalId)

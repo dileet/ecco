@@ -11,6 +11,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const reputationRegistry = await viem.deployContract("ReputationRegistry", [eccoToken.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -19,6 +20,7 @@ describe("Governance Lifecycle Tests", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
+        reputationRegistry.address,
       ]);
 
       const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
@@ -92,6 +94,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const reputationRegistry = await viem.deployContract("ReputationRegistry", [eccoToken.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -100,6 +103,7 @@ describe("Governance Lifecycle Tests", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
+        reputationRegistry.address,
       ]);
 
       const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();

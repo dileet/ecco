@@ -335,12 +335,66 @@ describe("EccoGovernor", () => {
     });
   });
 
+  describe("Quorum Excludes Staked Tokens", () => {
+    it("should exclude staked tokens from quorum calculation", async () => {
+      const { viem } = await hre.network.connect();
+      const [owner, staker] = await viem.getWalletClients();
+
+      const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+        eccoToken.address,
+        owner.account.address,
+      ]);
+      const eccoTimelock = await viem.deployContract("EccoTimelock", [
+        TIMELOCK_MIN_DELAY,
+        [owner.account.address],
+        [owner.account.address],
+        owner.account.address,
+      ]);
+      const eccoGovernor = await viem.deployContract("EccoGovernor", [
+        eccoToken.address,
+        eccoTimelock.address,
+        VOTING_DELAY,
+        VOTING_PERIOD,
+        PROPOSAL_THRESHOLD,
+        QUORUM_PERCENT,
+        reputationRegistry.address,
+      ]);
+
+      const totalStakedBefore = await reputationRegistry.read.totalStaked();
+      expect(totalStakedBefore).to.equal(0n);
+
+      const stakeAmount = parseEther("300000");
+      await eccoToken.write.mint([staker.account.address, stakeAmount]);
+
+      const peerIdHash = keccak256(toBytes("test-peer-id"));
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: staker.account });
+      await reputationRegistry.write.stake([stakeAmount, peerIdHash], { account: staker.account });
+
+      const totalStakedAfter = await reputationRegistry.read.totalStaked();
+      expect(totalStakedAfter).to.equal(stakeAmount);
+
+      const registryAddr = await eccoGovernor.read.reputationRegistry();
+      expect(registryAddr.toLowerCase()).to.equal(reputationRegistry.address.toLowerCase());
+    });
+
+    it("should have reputationRegistry reference", async () => {
+      const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
+      const registryAddress = await eccoGovernor.read.reputationRegistry();
+      expect(registryAddress).to.not.equal("0x0000000000000000000000000000000000000000");
+    });
+  });
+
   describe("Minimum Voting Delay", () => {
     it("should reject deployment with votingDelay of 0", async () => {
       const { viem } = await hre.network.connect();
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+        eccoToken.address,
+        owner.account.address,
+      ]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [
         TIMELOCK_MIN_DELAY,
         [owner.account.address],
@@ -356,6 +410,7 @@ describe("EccoGovernor", () => {
           VOTING_PERIOD,
           PROPOSAL_THRESHOLD,
           QUORUM_PERCENT,
+          reputationRegistry.address,
         ]);
         expect.fail("Expected deployment to revert");
       } catch (error) {
@@ -374,6 +429,10 @@ describe("EccoGovernor", () => {
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
+      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+        eccoToken.address,
+        owner.account.address,
+      ]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [
         TIMELOCK_MIN_DELAY,
         [owner.account.address],
@@ -388,6 +447,7 @@ describe("EccoGovernor", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
+        reputationRegistry.address,
       ]);
 
       expect(await eccoGovernor.read.votingDelay()).to.equal(1n);
