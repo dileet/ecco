@@ -453,4 +453,29 @@ describe("EccoGovernor", () => {
       expect(await eccoGovernor.read.votingDelay()).to.equal(1n);
     });
   });
+
+  describe("Circulating Supply", () => {
+    it("should return 0 for circulatingSupply by default", async () => {
+      const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
+      const supply = await eccoGovernor.read.circulatingSupply();
+      expect(supply).to.equal(0n);
+    });
+
+    it("should reject setCirculatingSupply from non-governance caller", async () => {
+      const { eccoGovernor, voter1 } = await loadFixtureWithHelpers(deployGovernorFixture);
+
+      try {
+        await eccoGovernor.write.setCirculatingSupply([parseEther("1000000")], { account: voter1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/GovernorOnlyExecutor/);
+      }
+    });
+
+    it("should expose circulatingSupply getter", async () => {
+      const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
+      const supply = await eccoGovernor.read.circulatingSupply();
+      expect(typeof supply).to.equal("bigint");
+    });
+  });
 });

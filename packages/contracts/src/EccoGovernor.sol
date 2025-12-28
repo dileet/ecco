@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/governance/extensions/GovernorCountingSimple.sol
 import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./IReputationRegistry.sol";
 
 contract EccoGovernor is
@@ -21,8 +22,13 @@ contract EccoGovernor is
 
     IReputationRegistry public immutable reputationRegistry;
 
+    uint256 private _circulatingSupply;
+
+    event CirculatingSupplyUpdated(uint256 oldSupply, uint256 newSupply);
+
     error ProposerAboveThreshold(address proposer, uint256 votes, uint256 threshold);
     error VotingDelayTooShort(uint48 provided, uint48 minimum);
+    error CirculatingSupplyTooHigh(uint256 provided, uint256 totalSupply);
 
     constructor(
         IVotes _token,
@@ -60,11 +66,28 @@ contract EccoGovernor is
         returns (uint256)
     {
         uint256 totalSupply = token().getPastTotalSupply(blockNumber);
+        uint256 effectiveSupply = _circulatingSupply > 0 && _circulatingSupply < totalSupply
+            ? _circulatingSupply
+            : totalSupply;
         uint256 stakedTokens = address(reputationRegistry) != address(0)
             ? reputationRegistry.totalStaked()
             : 0;
-        uint256 votableSupply = totalSupply > stakedTokens ? totalSupply - stakedTokens : 0;
+        uint256 votableSupply = effectiveSupply > stakedTokens ? effectiveSupply - stakedTokens : 0;
         return (votableSupply * quorumNumerator(blockNumber)) / quorumDenominator();
+    }
+
+    function circulatingSupply() public view returns (uint256) {
+        return _circulatingSupply;
+    }
+
+    function setCirculatingSupply(uint256 newCirculatingSupply) public onlyGovernance {
+        uint256 currentTotalSupply = IERC20(address(token())).totalSupply();
+        if (newCirculatingSupply > currentTotalSupply) {
+            revert CirculatingSupplyTooHigh(newCirculatingSupply, currentTotalSupply);
+        }
+        uint256 oldSupply = _circulatingSupply;
+        _circulatingSupply = newCirculatingSupply;
+        emit CirculatingSupplyUpdated(oldSupply, newCirculatingSupply);
     }
 
     function state(uint256 proposalId)
