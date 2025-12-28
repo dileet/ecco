@@ -193,6 +193,26 @@ describe("EccoToken", () => {
         expect(String(error)).to.match(/ERC20InsufficientAllowance/);
       }
     });
+
+    it("should not reopen mint capacity after burning tokens", async () => {
+      const { eccoToken, user1 } = await loadFixtureWithHelpers(deployEccoTokenFixture);
+
+      await eccoToken.write.mint([user1.account.address, MAX_SUPPLY]);
+      expect(await eccoToken.read.totalMinted()).to.equal(MAX_SUPPLY);
+
+      const burnAmount = parseEther("100000000");
+      await eccoToken.write.burn([burnAmount], { account: user1.account });
+
+      expect(await eccoToken.read.totalSupply()).to.equal(MAX_SUPPLY - burnAmount);
+      expect(await eccoToken.read.totalMinted()).to.equal(MAX_SUPPLY);
+
+      try {
+        await eccoToken.write.mint([user1.account.address, 1n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/max supply exceeded/);
+      }
+    });
   });
 
   describe("ERC20Votes", () => {

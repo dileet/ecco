@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract EccoToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes, Ownable {
     uint256 public constant MAX_SUPPLY = 1_000_000_000 * 10 ** 18;
+    uint256 public totalMinted;
 
     constructor(address initialOwner)
         ERC20("Ecco", "ECCO")
@@ -25,7 +26,8 @@ contract EccoToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes, Ownable {
     }
 
     function mint(address to, uint256 amount) external onlyOwner {
-        require(totalSupply() + amount <= MAX_SUPPLY, "EccoToken: max supply exceeded");
+        require(totalMinted + amount <= MAX_SUPPLY, "EccoToken: max supply exceeded");
+        totalMinted += amount;
         _mint(to, amount);
     }
 
