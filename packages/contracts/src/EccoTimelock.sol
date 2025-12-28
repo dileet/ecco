@@ -8,6 +8,9 @@ contract EccoTimelock is TimelockController {
     error NotAdmin();
     error EmptyProposers();
     error EmptyExecutors();
+    error MinDelayTooShort();
+
+    uint256 public constant MIN_DELAY = 1 days;
 
     bool public setupComplete;
 
@@ -17,6 +20,7 @@ contract EccoTimelock is TimelockController {
         address[] memory executors,
         address admin
     ) TimelockController(minDelay, proposers, executors, admin) {
+        if (minDelay < MIN_DELAY) revert MinDelayTooShort();
         if (proposers.length == 0) revert EmptyProposers();
         if (executors.length == 0) revert EmptyExecutors();
     }

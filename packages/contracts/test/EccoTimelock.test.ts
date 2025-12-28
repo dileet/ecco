@@ -16,6 +16,24 @@ describe("EccoTimelock", () => {
       expect(await eccoTimelock.read.getMinDelay()).to.equal(TIMELOCK_MIN_DELAY);
     });
 
+    it("should reject minDelay less than MIN_DELAY", async () => {
+      const hre = await import("hardhat");
+      const { viem } = await hre.default.network.connect();
+      const [owner, proposer, executor] = await viem.getWalletClients();
+
+      try {
+        await viem.deployContract("EccoTimelock", [
+          0n,
+          [proposer.account.address],
+          [executor.account.address],
+          owner.account.address,
+        ]);
+        expect.fail("Expected deployment to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/MinDelayTooShort/);
+      }
+    });
+
     it("should grant proposer role to specified address", async () => {
       const { eccoTimelock, proposer } = await loadFixtureWithHelpers(deployTimelockFixture);
       const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
