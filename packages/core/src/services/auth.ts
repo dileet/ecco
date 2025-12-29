@@ -106,10 +106,14 @@ export async function verifyMessage(
   }
 }
 
-export function isMessageFresh(message: Message, maxAgeMs: number = 60000): boolean {
+export function isMessageFresh(
+  message: Message,
+  maxAgeMs: number = 60000,
+  clockSkewToleranceMs: number = 5000
+): boolean {
   const now = Date.now();
   const age = now - message.timestamp;
-  return age >= 0 && age <= maxAgeMs;
+  return age >= -clockSkewToleranceMs && age <= maxAgeMs;
 }
 
 function canonicalJsonStringify(value: unknown): string {
