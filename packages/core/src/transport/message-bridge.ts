@@ -571,7 +571,28 @@ export async function handleVersionHandshakeResponse(
   const queued = queuedMessages.get(peerId) ?? [];
   queuedMessages.delete(peerId);
 
+  let currentAuthState = state.authState;
+
   for (const queuedMessage of queued) {
+    if (state.config.authEnabled && currentAuthState) {
+      if (!queuedMessage.signature) {
+        debug('handleVersionHandshakeResponse', `Queued message ${queuedMessage.id} has no signature, discarding`);
+        continue;
+      }
+
+      const { valid, state: newAuthState } = await verifyMessage(
+        currentAuthState,
+        queuedMessage as SignedMessage
+      );
+
+      if (!valid) {
+        debug('handleVersionHandshakeResponse', `Queued message ${queuedMessage.id} failed re-verification, discarding`);
+        continue;
+      }
+
+      currentAuthState = newAuthState;
+    }
+
     const peerHandlers = state.directHandlers.get(peerId);
     if (peerHandlers) {
       for (const handler of peerHandlers) {
@@ -586,7 +607,7 @@ export async function handleVersionHandshakeResponse(
     }
   }
 
-  return { ...state, pendingHandshakes, validatedPeers, queuedMessages };
+  return { ...state, pendingHandshakes, validatedPeers, queuedMessages, authState: currentAuthState };
 }
 
 export function handleVersionIncompatibleNotice(
