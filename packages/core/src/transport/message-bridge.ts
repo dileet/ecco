@@ -118,7 +118,12 @@ export async function deserializeMessage(
 
     const parsed = result.data;
 
-    if (state.config.authEnabled && state.authState && parsed.signature) {
+    if (state.config.authEnabled && state.authState) {
+      if (!parsed.signature) {
+        debug('deserializeMessage', 'Auth enabled but message has no signature, rejecting');
+        return { message: null, valid: false, updatedState: state };
+      }
+
       const { valid, state: newAuthState } = await verifyMessage(
         state.authState,
         parsed as SignedMessage
@@ -304,7 +309,12 @@ export async function handleIncomingBroadcast(
       debug('handleIncomingBroadcast', `Parsed as topic message, topic=${topicMessage.topic}`);
       let currentState = state;
 
-      if (state.config.authEnabled && state.authState && message.signature) {
+      if (state.config.authEnabled && state.authState) {
+        if (!message.signature) {
+          debug('handleIncomingBroadcast', `Auth enabled but broadcast from ${peerId} has no signature, discarding`);
+          return state;
+        }
+
         const { valid, state: newAuthState } = await verifyMessage(
           state.authState,
           message as SignedMessage

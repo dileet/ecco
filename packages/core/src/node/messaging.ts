@@ -273,7 +273,11 @@ export function subscribeWithRef(
           markMessageSeen(currentState, messageId);
           checkAndRotateDeduplicator(stateRef);
 
-          if (currentState.messageAuth && rawData.signature) {
+          if (currentState.messageAuth) {
+            if (!rawData.signature) {
+              console.warn('Auth enabled but received unsigned pubsub message, ignoring');
+              return;
+            }
             const { valid } = await verifyMessage(currentState.messageAuth, rawData);
             if (!valid) {
               console.warn('Received message with invalid signature, ignoring');
