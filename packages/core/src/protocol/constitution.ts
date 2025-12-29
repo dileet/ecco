@@ -19,11 +19,27 @@ export async function computeConstitutionHash(constitution: Constitution): Promi
   };
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    let result = 0;
+    for (let i = 0; i < a.length; i++) {
+      result |= a.charCodeAt(i) ^ a.charCodeAt(i);
+    }
+    return false;
+  }
+
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 export function validateConstitution(
   localHash: ConstitutionHash,
   peerHash: ConstitutionHash
 ): { valid: boolean; reason?: string } {
-  if (localHash.hash !== peerHash.hash) {
+  if (!timingSafeEqual(localHash.hash, peerHash.hash)) {
     return {
       valid: false,
       reason: `Constitution mismatch: expected hash ${localHash.hash.slice(0, 16)}..., received ${peerHash.hash.slice(0, 16)}...`,
