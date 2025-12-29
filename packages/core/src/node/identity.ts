@@ -125,7 +125,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 async function ensureDir(dirPath: string): Promise<void> {
-  await fs.mkdir(dirPath, { recursive: true });
+  await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });
 }
 
 export interface NodeIdentity {
@@ -196,9 +196,9 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<Node
   if (password) {
     const plaintext = JSON.stringify(persist);
     const encrypted = encryptData(plaintext, password);
-    await fs.writeFile(keyFilePath, JSON.stringify(encrypted, null, 2), 'utf8');
+    await fs.writeFile(keyFilePath, JSON.stringify(encrypted, null, 2), { encoding: 'utf8', mode: 0o600 });
   } else {
-    await fs.writeFile(keyFilePath, JSON.stringify(persist, null, 2), 'utf8');
+    await fs.writeFile(keyFilePath, JSON.stringify(persist, null, 2), { encoding: 'utf8', mode: 0o600 });
   }
 
   return {
