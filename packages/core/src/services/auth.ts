@@ -19,6 +19,7 @@ export interface AuthState {
 }
 
 const BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
+const ED25519_SIGNATURE_LENGTH = 64;
 
 function isValidBase64(str: string): boolean {
   if (typeof str !== 'string' || str.length === 0) {
@@ -93,6 +94,9 @@ export async function verifyMessage(
 
     const data = createSignaturePayload(signedMessage);
     const signature = decodeBase64(signedMessage.signature);
+    if (signature.length !== ED25519_SIGNATURE_LENGTH) {
+      return { valid: false, state: newState };
+    }
     const isValid = await publicKey.verify(data, signature);
 
     return { valid: isValid, state: newState };
