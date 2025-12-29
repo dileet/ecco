@@ -16,6 +16,38 @@ const KEY_LENGTH = 32;
 const SALT_LENGTH = 32;
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
+const ENTROPY_TEST_SIZE = 32;
+const MIN_UNIQUE_BYTES_RATIO = 0.25;
+
+function validateCSPRNG(): void {
+  const testBytes = crypto.randomBytes(ENTROPY_TEST_SIZE);
+
+  const allZero = testBytes.every((b) => b === 0);
+  if (allZero) {
+    throw new Error('CSPRNG validation failed: random bytes are all zeros');
+  }
+
+  const allSame = testBytes.every((b) => b === testBytes[0]);
+  if (allSame) {
+    throw new Error('CSPRNG validation failed: random bytes are all identical');
+  }
+
+  const uniqueBytes = new Set(testBytes);
+  const uniqueRatio = uniqueBytes.size / ENTROPY_TEST_SIZE;
+  if (uniqueRatio < MIN_UNIQUE_BYTES_RATIO) {
+    throw new Error(`CSPRNG validation failed: insufficient entropy (${Math.round(uniqueRatio * 100)}% unique bytes)`);
+  }
+}
+
+let csprngValidated = false;
+
+function ensureCSPRNGValidated(): void {
+  if (csprngValidated) {
+    return;
+  }
+  validateCSPRNG();
+  csprngValidated = true;
+}
 
 const PersistedKeyFileSchema = z.object({
   libp2pPrivateKey: z.string(),
@@ -41,6 +73,8 @@ function deriveKey(password: string, salt: Buffer): Buffer {
 }
 
 function encryptData(plaintext: string, password: string): EncryptedKeyFile {
+  ensureCSPRNGValidated();
+
   const salt = crypto.randomBytes(SALT_LENGTH);
   const iv = crypto.randomBytes(IV_LENGTH);
   const key = deriveKey(password, salt);
@@ -181,6 +215,8 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<Node
       created: false,
     };
   }
+
+  ensureCSPRNGValidated();
 
   const libp2pPrivateKey = await generateKeyPair('Ed25519');
   const ethereumPrivateKey = generatePrivateKey();
