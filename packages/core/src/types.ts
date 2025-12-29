@@ -35,6 +35,7 @@ export interface EccoConfig {
   authentication?: {
     enabled: boolean;
     keyPath?: string;
+    keyPassword?: string;
     walletRpcUrls?: Record<number, string>;
   };
   retry?: {
