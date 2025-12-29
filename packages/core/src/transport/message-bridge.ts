@@ -227,6 +227,11 @@ export async function handleIncomingTransportMessage(
     return updatedState;
   }
 
+  if (message.from !== peerId) {
+    debug('handleIncomingTransportMessage', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
+    return updatedState;
+  }
+
   debug('handleIncomingTransportMessage', `Message type=${message.type}, from=${message.from}, to=${message.to}`);
 
   const peerHandlers = updatedState.directHandlers.get(peerId);
@@ -307,6 +312,12 @@ export async function handleIncomingBroadcast(
       const topicMessage = result.data;
       const message = topicMessage.message;
       debug('handleIncomingBroadcast', `Parsed as topic message, topic=${topicMessage.topic}`);
+
+      if (message.from !== peerId) {
+        debug('handleIncomingBroadcast', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
+        return state;
+      }
+
       let currentState = state;
 
       if (state.config.authEnabled && state.authState) {
