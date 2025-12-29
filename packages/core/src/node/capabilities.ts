@@ -62,8 +62,8 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     const { peerId, libp2pPeerId, capabilities, timestamp } = event as CapabilityAnnouncementEvent;
 
     const current = getState(stateRef);
-    if (peerId === current.id) return;
-    if (libp2pPeerId && libp2pPeerId === current.node?.peerId?.toString()) return;
+    if (peerId.toLowerCase() === current.id.toLowerCase()) return;
+    if (libp2pPeerId && libp2pPeerId.toLowerCase() === current.node?.peerId?.toString().toLowerCase()) return;
     
     const targetPeerId = libp2pPeerId ?? peerId;
     updateOrAddPeer(stateRef, targetPeerId, capabilities, timestamp);

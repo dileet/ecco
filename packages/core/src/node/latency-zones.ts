@@ -239,7 +239,7 @@ export function selectByZoneWithFallback<T extends { peerId: string }>(
 
     for (const peer of validPeers) {
       if (selected.length >= minCount) break;
-      if (!selected.some((s) => s.peerId === peer.peerId)) {
+      if (!selected.some((s) => s.peerId.toLowerCase() === peer.peerId.toLowerCase())) {
         selected.push(peer);
       }
     }

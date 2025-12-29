@@ -199,9 +199,10 @@ export async function publishDirect(
   }
 
   const nodePeerId = state.node?.peerId?.toString();
-  const isSelf = peerId === state.libp2pPeerId ||
-                 peerId === state.id ||
-                 (nodePeerId && peerId === nodePeerId);
+  const normalizedPeerId = peerId.toLowerCase();
+  const isSelf = normalizedPeerId === state.libp2pPeerId?.toLowerCase() ||
+                 normalizedPeerId === state.id.toLowerCase() ||
+                 (nodePeerId && normalizedPeerId === nodePeerId.toLowerCase());
 
   if (isSelf) {
     debug('publishDirect', `Skipping send to self (${peerId})`);
@@ -295,7 +296,7 @@ export function subscribeWithRef(
           const transportPeerId = messageData.transportPeerId;
           const claimedSender = rawData.peerId ?? rawData.from ?? 'unknown';
 
-          if (transportPeerId && claimedSender !== 'unknown' && claimedSender !== transportPeerId) {
+          if (transportPeerId && claimedSender !== 'unknown' && claimedSender.toLowerCase() !== transportPeerId.toLowerCase()) {
             console.warn(`[${currentState.id}] Claimed sender (${claimedSender}) does not match transport peer ID (${transportPeerId}), dropping message`);
             return;
           }

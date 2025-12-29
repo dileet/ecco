@@ -227,7 +227,7 @@ export async function handleIncomingTransportMessage(
     return updatedState;
   }
 
-  if (message.from !== peerId) {
+  if (message.from.toLowerCase() !== peerId.toLowerCase()) {
     debug('handleIncomingTransportMessage', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
     return updatedState;
   }
@@ -313,7 +313,7 @@ export async function handleIncomingBroadcast(
       const message = topicMessage.message;
       debug('handleIncomingBroadcast', `Parsed as topic message, topic=${topicMessage.topic}`);
 
-      if (message.from !== peerId) {
+      if (message.from.toLowerCase() !== peerId.toLowerCase()) {
         debug('handleIncomingBroadcast', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
         return state;
       }

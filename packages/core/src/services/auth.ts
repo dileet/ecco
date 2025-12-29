@@ -88,7 +88,7 @@ export async function verifyMessage(
     }
 
     const derivedPeerId = peerIdFromPublicKey(publicKey);
-    if (derivedPeerId.toString() !== signedMessage.from) {
+    if (derivedPeerId.toString().toLowerCase() !== signedMessage.from.toLowerCase()) {
       return { valid: false, state: newState };
     }
 

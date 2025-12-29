@@ -73,7 +73,7 @@ export function setupEventListeners(
     const currentState = getState(stateRef);
     if (!hasPeer(currentState, peerId)) {
       const peerAddresses = node.getConnections()
-        .filter(conn => conn.remotePeer.toString() === peerId)
+        .filter(conn => conn.remotePeer.toString().toLowerCase() === peerId.toLowerCase())
         .flatMap(conn => conn.remoteAddr ? [conn.remoteAddr.toString()] : []);
 
       updateState(stateRef, (s) => addPeers(s, [{

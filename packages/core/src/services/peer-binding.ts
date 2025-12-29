@@ -5,7 +5,7 @@ import { getPublicClient } from './wallet';
 import { REPUTATION_REGISTRY_ABI, getContractAddresses } from '@ecco/contracts';
 
 export function computePeerIdHash(peerId: string): `0x${string}` {
-  return keccak256(toBytes(peerId));
+  return keccak256(toBytes(peerId.toLowerCase()));
 }
 
 function getReputationContract(state: WalletState, chainId: number) {

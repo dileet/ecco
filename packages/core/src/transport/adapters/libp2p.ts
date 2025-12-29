@@ -354,7 +354,7 @@ export async function disconnect(
   peerId: string
 ): Promise<void> {
   const { node } = state.config;
-  const connections = node.getConnections().filter(c => c.remotePeer.toString() === peerId);
+  const connections = node.getConnections().filter(c => c.remotePeer.toString().toLowerCase() === peerId.toLowerCase());
 
   for (const conn of connections) {
     await conn.close();
@@ -369,7 +369,7 @@ export async function send(
   const { node } = state.config;
 
   const selfPeerId = node.peerId.toString();
-  if (peerId === selfPeerId) {
+  if (peerId.toLowerCase() === selfPeerId.toLowerCase()) {
     return;
   }
 

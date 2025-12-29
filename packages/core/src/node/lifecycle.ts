@@ -312,7 +312,7 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
       const currentState = getState(stateRef);
       if (currentState.node) {
         const connections = currentState.node.getConnections().filter(
-          conn => conn.remotePeer.toString() === peerId
+          conn => conn.remotePeer.toString().toLowerCase() === peerId.toLowerCase()
         );
         for (const conn of connections) {
           await conn.close();
@@ -364,7 +364,7 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     if (currentState.shuttingDown) {
       return;
     }
-    if (peerId === currentState.libp2pPeerId || peerId === currentState.id) {
+    if (peerId.toLowerCase() === currentState.libp2pPeerId?.toLowerCase() || peerId.toLowerCase() === currentState.id.toLowerCase()) {
       return;
     }
     if (!currentState.messageBridge) {
