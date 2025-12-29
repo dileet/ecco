@@ -1,5 +1,6 @@
 import type { PrivateKey, PublicKey } from '@libp2p/interface';
 import { publicKeyFromRaw } from '@libp2p/crypto/keys';
+import { peerIdFromPublicKey } from '@libp2p/peer-id';
 import type { Message } from '../types';
 
 export interface AuthConfig {
@@ -64,6 +65,11 @@ export async function verifyMessage(
         ...state,
         keyCache: new Map(state.keyCache).set(signedMessage.publicKey, publicKey),
       };
+    }
+
+    const derivedPeerId = peerIdFromPublicKey(publicKey);
+    if (derivedPeerId.toString() !== signedMessage.from) {
+      return { valid: false, state: newState };
     }
 
     const data = createSignaturePayload(signedMessage);
