@@ -18,6 +18,25 @@ export interface AuthState {
   keyCache: Map<string, PublicKey>;
 }
 
+const BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function isValidBase64(str: string): boolean {
+  if (typeof str !== 'string' || str.length === 0) {
+    return false;
+  }
+  if (str.length % 4 !== 0) {
+    return false;
+  }
+  return BASE64_REGEX.test(str);
+}
+
+function decodeBase64(str: string): Uint8Array {
+  if (!isValidBase64(str)) {
+    throw new Error('Invalid Base64 format');
+  }
+  return Buffer.from(str, 'base64');
+}
+
 function createSignaturePayload(message: Message | SignedMessage): Uint8Array {
   const payload = canonicalJsonStringify({
     id: message.id,
@@ -59,7 +78,7 @@ export async function verifyMessage(
     let newState = state;
 
     if (!publicKey) {
-      const publicKeyBytes = Buffer.from(signedMessage.publicKey, 'base64');
+      const publicKeyBytes = decodeBase64(signedMessage.publicKey);
       publicKey = publicKeyFromRaw(publicKeyBytes);
       newState = {
         ...state,
@@ -73,7 +92,7 @@ export async function verifyMessage(
     }
 
     const data = createSignaturePayload(signedMessage);
-    const signature = Buffer.from(signedMessage.signature, 'base64');
+    const signature = decodeBase64(signedMessage.signature);
     const isValid = await publicKey.verify(data, signature);
 
     return { valid: isValid, state: newState };
