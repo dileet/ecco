@@ -4,8 +4,16 @@ import type { WalletState } from './wallet';
 import { getPublicClient } from './wallet';
 import { REPUTATION_REGISTRY_ABI, getContractAddresses } from '@ecco/contracts';
 
+function canonicalizePeerId(peerId: string): string {
+  return peerId.trim().normalize('NFC').toLowerCase();
+}
+
 export function computePeerIdHash(peerId: string): `0x${string}` {
-  return keccak256(toBytes(peerId.toLowerCase()));
+  const canonicalPeerId = canonicalizePeerId(peerId);
+  if (canonicalPeerId.length === 0) {
+    throw new Error('PeerId cannot be empty');
+  }
+  return keccak256(toBytes(canonicalPeerId));
 }
 
 function getReputationContract(state: WalletState, chainId: number) {
