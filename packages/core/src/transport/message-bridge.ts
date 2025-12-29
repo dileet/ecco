@@ -386,8 +386,22 @@ export async function initiateHandshake(
   peerId: string
 ): Promise<MessageBridgeState> {
   const networkConfig = state.config.networkConfig;
-  if (!networkConfig || !state.sendMessage) {
-    state.validatedPeers.add(peerId);
+
+  if (!networkConfig) {
+    debug('handshake', `Cannot initiate handshake with ${peerId}: networkConfig is required`);
+    state.onPeerRejected?.(peerId, 'Network configuration required for handshake');
+    return state;
+  }
+
+  if (networkConfig.protocol.enforcementLevel === 'none') {
+    const validatedPeers = new Set(state.validatedPeers);
+    validatedPeers.add(peerId);
+    return { ...state, validatedPeers };
+  }
+
+  if (!state.sendMessage) {
+    debug('handshake', `Cannot initiate handshake with ${peerId}: sendMessage not configured`);
+    state.onPeerRejected?.(peerId, 'Send message handler required for handshake');
     return state;
   }
 
@@ -430,7 +444,24 @@ export async function handleVersionHandshake(
   message: Message
 ): Promise<MessageBridgeState> {
   const networkConfig = state.config.networkConfig;
-  if (!networkConfig || !state.sendMessage) {
+
+  if (!networkConfig) {
+    debug('handshake', `Cannot handle handshake from ${peerId}: networkConfig is required`);
+    state.onPeerRejected?.(peerId, 'Network configuration required for handshake');
+    state.disconnectPeer?.(peerId);
+    return state;
+  }
+
+  if (networkConfig.protocol.enforcementLevel === 'none') {
+    const validatedPeers = new Set(state.validatedPeers);
+    validatedPeers.add(peerId);
+    state.onPeerValidated?.(peerId);
+    return { ...state, validatedPeers };
+  }
+
+  if (!state.sendMessage) {
+    debug('handshake', `Cannot respond to handshake from ${peerId}: sendMessage not configured`);
+    state.onPeerRejected?.(peerId, 'Send message handler required for handshake');
     return state;
   }
 
