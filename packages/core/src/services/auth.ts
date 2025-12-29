@@ -2,6 +2,7 @@ import type { PrivateKey, PublicKey } from '@libp2p/interface';
 import { publicKeyFromRaw } from '@libp2p/crypto/keys';
 import { peerIdFromPublicKey } from '@libp2p/peer-id';
 import type { Message } from '../types';
+import { canonicalJsonStringify } from '../utils/canonical-json';
 
 export interface AuthConfig {
   enabled: boolean;
@@ -116,32 +117,3 @@ export function isMessageFresh(
   return age >= -clockSkewToleranceMs && age <= maxAgeMs;
 }
 
-function canonicalJsonStringify(value: unknown): string {
-  if (value === null) {
-    return 'null';
-  }
-
-  if (typeof value === 'boolean' || typeof value === 'number') {
-    return JSON.stringify(value);
-  }
-
-  if (typeof value === 'string') {
-    return JSON.stringify(value);
-  }
-
-  if (Array.isArray(value)) {
-    const items = value.map((item) => canonicalJsonStringify(item));
-    return '[' + items.join(',') + ']';
-  }
-
-  if (typeof value === 'object') {
-    const keys = Object.keys(value).sort();
-    const pairs = keys.map((key) => {
-      const v = (value as Record<string, unknown>)[key];
-      return JSON.stringify(key) + ':' + canonicalJsonStringify(v);
-    });
-    return '{' + pairs.join(',') + '}';
-  }
-
-  return 'null';
-}

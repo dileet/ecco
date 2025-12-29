@@ -13,3 +13,4 @@ export {
 } from './bloom-filter';
 export { debug } from './debug';
 export { secureRandom } from './crypto';
+export { canonicalJsonStringify } from './canonical-json';

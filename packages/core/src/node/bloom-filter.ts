@@ -1,8 +1,12 @@
+import type { PrivateKey } from '@libp2p/interface';
+import { publicKeyFromRaw } from '@libp2p/crypto/keys';
+import { peerIdFromPublicKey } from '@libp2p/peer-id';
 import type { EccoEvent } from '../events';
 import type { NodeState, StateRef } from './types';
 import { getState, setState } from './state';
 import { publish, subscribeWithRef } from './messaging';
 import { getEffectiveScore, type ReputationState } from './reputation';
+import { canonicalJsonStringify } from '../utils/canonical-json';
 
 export type FilterTier = 'elite' | 'good' | 'acceptable';
 
@@ -15,6 +19,7 @@ export interface ReputationBloomFilter {
   createdAt: number;
   createdBy: string;
   signature?: Uint8Array;
+  publicKey?: Uint8Array;
 }
 
 export interface BloomFilterState {
@@ -43,8 +48,100 @@ const TIERS: FilterTier[] = ['elite', 'good', 'acceptable'];
 const DEFAULT_FILTER_SIZE = 1024;
 const DEFAULT_HASH_COUNT = 7;
 const DEFAULT_GOSSIP_INTERVAL_MS = 300000;
+const MAX_FILTER_SIZE = 8192;
+const ED25519_SIGNATURE_LENGTH = 64;
 
 const REPUTATION_FILTERS_TOPIC = 'ecco:reputation-filters';
+
+function createFilterSignaturePayload(filter: ReputationBloomFilter): Uint8Array {
+  const payload = canonicalJsonStringify({
+    capability: filter.capability,
+    tier: filter.tier,
+    minReputation: filter.minReputation,
+    filter: Array.from(filter.filter),
+    peerCount: filter.peerCount,
+    createdAt: filter.createdAt,
+    createdBy: filter.createdBy,
+  });
+  return new TextEncoder().encode(payload);
+}
+
+export async function signFilter(
+  filter: ReputationBloomFilter,
+  privateKey: PrivateKey
+): Promise<ReputationBloomFilter> {
+  const data = createFilterSignaturePayload(filter);
+  const signature = await privateKey.sign(data);
+  const publicKeyBytes = privateKey.publicKey.raw;
+
+  return {
+    ...filter,
+    signature: new Uint8Array(signature),
+    publicKey: new Uint8Array(publicKeyBytes),
+  };
+}
+
+export async function verifyFilter(
+  filter: ReputationBloomFilter
+): Promise<boolean> {
+  if (!filter.signature || !filter.publicKey) {
+    return false;
+  }
+
+  if (filter.signature.length !== ED25519_SIGNATURE_LENGTH) {
+    return false;
+  }
+
+  try {
+    const publicKey = publicKeyFromRaw(filter.publicKey);
+    const derivedPeerId = peerIdFromPublicKey(publicKey);
+
+    if (derivedPeerId.toString().toLowerCase() !== filter.createdBy.toLowerCase()) {
+      return false;
+    }
+
+    const data = createFilterSignaturePayload(filter);
+    return await publicKey.verify(data, filter.signature);
+  } catch {
+    return false;
+  }
+}
+
+export function validateFilterParams(
+  filter: ReputationBloomFilter,
+  expectedSize: number
+): boolean {
+  if (filter.filter.length !== expectedSize) {
+    return false;
+  }
+
+  if (filter.filter.length > MAX_FILTER_SIZE) {
+    return false;
+  }
+
+  const validTiers: FilterTier[] = ['elite', 'good', 'acceptable'];
+  if (!validTiers.includes(filter.tier)) {
+    return false;
+  }
+
+  if (filter.minReputation !== TIER_THRESHOLDS[filter.tier]) {
+    return false;
+  }
+
+  if (typeof filter.peerCount !== 'number' || filter.peerCount < 0) {
+    return false;
+  }
+
+  if (typeof filter.createdAt !== 'number' || filter.createdAt <= 0) {
+    return false;
+  }
+
+  if (typeof filter.createdBy !== 'string' || filter.createdBy.length === 0) {
+    return false;
+  }
+
+  return true;
+}
 
 export function createBloomFilterState(config?: BloomFilterConfig): BloomFilterState {
   return {
@@ -275,6 +372,7 @@ export function serializeFilter(filter: ReputationBloomFilter): string {
     ...filter,
     filter: Array.from(filter.filter),
     signature: filter.signature ? Array.from(filter.signature) : undefined,
+    publicKey: filter.publicKey ? Array.from(filter.publicKey) : undefined,
   });
 }
 
@@ -284,6 +382,7 @@ export function deserializeFilter(data: string): ReputationBloomFilter {
     ...parsed,
     filter: new Uint8Array(parsed.filter),
     signature: parsed.signature ? new Uint8Array(parsed.signature) : undefined,
+    publicKey: parsed.publicKey ? new Uint8Array(parsed.publicKey) : undefined,
   };
 }
 
@@ -291,15 +390,16 @@ export async function gossipFilters(
   ref: StateRef<NodeState>
 ): Promise<number> {
   const state = getState(ref);
-  if (!state.bloomFilters || !state.node) {
+  if (!state.bloomFilters || !state.node || !state.libp2pPrivateKey) {
     return 0;
   }
 
   let count = 0;
   for (const filter of state.bloomFilters.localFilters.values()) {
+    const signedFilter = await signFilter(filter, state.libp2pPrivateKey);
     const event: EccoEvent = {
       type: 'reputation-filter',
-      payload: serializeFilter(filter),
+      payload: serializeFilter(signedFilter),
       timestamp: Date.now(),
     };
 
@@ -316,22 +416,43 @@ export async function gossipFilters(
   return count;
 }
 
+async function handleFilterEvent(ref: StateRef<NodeState>, event: EccoEvent): Promise<void> {
+  if (event.type !== 'reputation-filter' || typeof event.payload !== 'string') {
+    return;
+  }
+
+  const state = getState(ref);
+  if (!state.bloomFilters) {
+    return;
+  }
+
+  try {
+    const filter = deserializeFilter(event.payload);
+
+    if (!validateFilterParams(filter, state.bloomFilters.filterSize)) {
+      return;
+    }
+
+    const isValid = await verifyFilter(filter);
+    if (!isValid) {
+      return;
+    }
+
+    const currentState = getState(ref);
+    if (!currentState.bloomFilters) {
+      return;
+    }
+
+    const updatedBloomState = receiveFilter(currentState.bloomFilters, filter);
+    setState(ref, { ...getState(ref), bloomFilters: updatedBloomState });
+  } catch {
+    return;
+  }
+}
+
 export function subscribeToFilters(ref: StateRef<NodeState>): () => void {
   const handler = (event: EccoEvent): void => {
-    if (event.type === 'reputation-filter' && typeof event.payload === 'string') {
-      const state = getState(ref);
-      if (!state.bloomFilters) {
-        return;
-      }
-
-      try {
-        const filter = deserializeFilter(event.payload);
-        const updatedBloomState = receiveFilter(state.bloomFilters, filter);
-        setState(ref, { ...getState(ref), bloomFilters: updatedBloomState });
-      } catch {
-        return;
-      }
-    }
+    handleFilterEvent(ref, event);
   };
 
   return subscribeWithRef(ref, REPUTATION_FILTERS_TOPIC, handler);
