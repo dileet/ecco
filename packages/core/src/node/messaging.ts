@@ -20,14 +20,47 @@ const PubSubMessageSchema = z.object({
   data: z.instanceof(Uint8Array),
 });
 
+const PeerIdSchema = z.preprocess(
+  (val) => (val && typeof val === 'object' && 'toString' in val ? String(val) : val),
+  z.string()
+);
+
+const PubSubEventDetailSchema = z.object({
+  topic: z.string(),
+  data: z.instanceof(Uint8Array),
+  from: PeerIdSchema.optional(),
+});
+
 const MessageDetailSchema = z.union([
   z.object({ msg: PubSubMessageSchema }).transform(({ msg }) => msg),
   PubSubMessageSchema,
 ]);
 
-function extractMessageData(detail: unknown): z.infer<typeof PubSubMessageSchema> | null {
+interface ExtractedPubSubData {
+  topic: string;
+  data: Uint8Array;
+  transportPeerId: string | null;
+}
+
+function extractMessageData(detail: unknown): ExtractedPubSubData | null {
+  const eventResult = PubSubEventDetailSchema.safeParse(detail);
+  if (eventResult.success) {
+    return {
+      topic: eventResult.data.topic,
+      data: eventResult.data.data,
+      transportPeerId: eventResult.data.from ?? null,
+    };
+  }
+
   const result = MessageDetailSchema.safeParse(detail);
-  return result.success ? result.data : null;
+  if (result.success) {
+    return {
+      topic: result.data.topic,
+      data: result.data.data,
+      transportPeerId: null,
+    };
+  }
+  return null;
 }
 
 function hasTransportLayer(state: NodeState): boolean {
@@ -259,14 +292,23 @@ export function subscribeWithRef(
           const rawData = JSON.parse(new TextDecoder().decode(messageData.data));
           const currentState = getState(stateRef);
 
+          const transportPeerId = messageData.transportPeerId;
+          const claimedSender = rawData.peerId ?? rawData.from ?? 'unknown';
+
+          if (transportPeerId && claimedSender !== 'unknown' && claimedSender !== transportPeerId) {
+            console.warn(`[${currentState.id}] Claimed sender (${claimedSender}) does not match transport peer ID (${transportPeerId}), dropping message`);
+            return;
+          }
+
+          const rateLimitId = transportPeerId ?? claimedSender;
+
           const messageId = rawData.id ?? `${rawData.timestamp}-${rawData.peerId}`;
           if (isMessageDuplicate(currentState, messageId)) {
             return;
           }
 
-          const senderId = rawData.peerId ?? rawData.from ?? 'unknown';
-          if (!checkRateLimit(currentState, senderId)) {
-            console.warn(`[${currentState.id}] Rate limit exceeded for peer ${senderId}, dropping message`);
+          if (!checkRateLimit(currentState, rateLimitId)) {
+            console.warn(`[${currentState.id}] Rate limit exceeded for peer ${rateLimitId}, dropping message`);
             return;
           }
 
