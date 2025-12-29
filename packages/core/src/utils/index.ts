@@ -12,3 +12,4 @@ export {
   type MessageDeduplicator,
 } from './bloom-filter';
 export { debug } from './debug';
+export { secureRandom } from './crypto';

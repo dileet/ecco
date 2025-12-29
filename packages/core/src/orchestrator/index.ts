@@ -15,6 +15,7 @@ import {
 import { z } from 'zod';
 import type { LatencyZone } from '../node/latency-zones';
 import { selectByZoneWithFallback, sortByZone } from '../node/latency-zones';
+import { secureRandom } from '../utils';
 
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
@@ -120,7 +121,7 @@ const selectAgents = (
     }
 
     case 'random':
-      return [...candidates].sort(() => Math.random() - 0.5).slice(0, n);
+      return [...candidates].sort(() => secureRandom() - 0.5).slice(0, n);
 
     case 'weighted': {
       const loadWeight = config.loadBalancing?.loadWeight ?? 0.3;
@@ -136,7 +137,7 @@ const selectAgents = (
         });
 
         const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-        let random = Math.random() * totalWeight;
+        let random = secureRandom() * totalWeight;
 
         let selectedIndex = 0;
         for (let j = 0; j < weights.length; j++) {
