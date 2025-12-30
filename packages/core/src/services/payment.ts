@@ -7,6 +7,7 @@ import type {
 } from '../types';
 
 const PRECISION_DECIMALS = 18;
+const MAX_SAFE_CONTRIBUTION = Number.MAX_SAFE_INTEGER / 1e9;
 
 function parseDecimalToBigInt(value: string): bigint {
   const [integerPart, fractionalPart = ''] = value.split('.');
@@ -96,6 +97,19 @@ export function releaseEscrowMilestone(
   };
 }
 
+function safeContributionToBigInt(contribution: number): bigint {
+  if (contribution < 0) {
+    throw new Error('Contribution cannot be negative');
+  }
+  if (contribution > MAX_SAFE_CONTRIBUTION) {
+    throw new Error(`Contribution ${contribution} exceeds maximum safe value ${MAX_SAFE_CONTRIBUTION}`);
+  }
+  if (!Number.isFinite(contribution)) {
+    throw new Error('Contribution must be a finite number');
+  }
+  return BigInt(Math.round(contribution * 1e9));
+}
+
 export function createSwarmSplit(
   jobId: string,
   payer: string,
@@ -104,12 +118,27 @@ export function createSwarmSplit(
   token: string,
   participants: Array<{ peerId: string; walletAddress: string; contribution: number }>
 ): SwarmSplit {
-  const totalContribution = participants.reduce((sum, p) => sum + p.contribution, 0);
+  if (participants.length === 0) {
+    throw new Error('At least one participant is required');
+  }
+
   const totalAmountBigInt = parseDecimalToBigInt(totalAmount);
 
-  const swarmParticipants: SwarmParticipant[] = participants.map((p) => {
-    const contributionBigInt = BigInt(Math.round(p.contribution * 1e9));
-    const totalContributionBigInt = BigInt(Math.round(totalContribution * 1e9));
+  let totalContributionBigInt = 0n;
+  const contributionsBigInt: bigint[] = [];
+
+  for (const p of participants) {
+    const contrib = safeContributionToBigInt(p.contribution);
+    contributionsBigInt.push(contrib);
+    totalContributionBigInt += contrib;
+  }
+
+  if (totalContributionBigInt === 0n) {
+    throw new Error('Total contribution cannot be zero');
+  }
+
+  const swarmParticipants: SwarmParticipant[] = participants.map((p, i) => {
+    const contributionBigInt = contributionsBigInt[i];
     const amount = (totalAmountBigInt * contributionBigInt) / totalContributionBigInt;
     return {
       peerId: p.peerId,
