@@ -105,3 +105,18 @@ export const processedPaymentProofs = sqliteTable('processed_payment_proofs', {
   processedAt: integer('processed_at').notNull(),
 });
 
+export const timedOutPayments = sqliteTable('timed_out_payments', {
+  invoiceId: text('invoice_id').primaryKey(),
+  jobId: text('job_id').notNull(),
+  chainId: integer('chain_id').notNull(),
+  amount: text('amount').notNull(),
+  token: text('token').notNull(),
+  recipient: text('recipient').notNull(),
+  validUntil: integer('valid_until').notNull(),
+  tokenAddress: text('token_address'),
+  timedOutAt: integer('timed_out_at').notNull(),
+  status: text('status').notNull(),
+  recoveredAt: integer('recovered_at'),
+  txHash: text('tx_hash'),
+});
+

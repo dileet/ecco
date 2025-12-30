@@ -11,6 +11,9 @@ import {
   updateStreamingChannel,
   isPaymentProofProcessed,
   markPaymentProofProcessed,
+  writeTimedOutPayment,
+  getTimedOutPayment,
+  markTimedOutPaymentRecovered,
 } from '../storage'
 import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from './types'
 import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
@@ -96,8 +99,12 @@ export function createPaymentHelpers(
     await ctx.reply({ invoice }, 'invoice')
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        paymentState.pendingPayments.delete(invoice.id)
+      const timeout = setTimeout(async () => {
+        const pending = paymentState.pendingPayments.get(invoice.id)
+        if (pending) {
+          paymentState.pendingPayments.delete(invoice.id)
+          await writeTimedOutPayment(pending.invoice, Date.now())
+        }
         reject(new Error('Payment timeout'))
       }, 60000)
 
@@ -128,23 +135,38 @@ export function createPaymentHelpers(
     }
 
     const pending = paymentState.pendingPayments.get(proof.invoiceId)
-    if (!pending) {
-      return false
+    if (pending) {
+      try {
+        const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
+        if (valid) {
+          await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+          paymentState.pendingPayments.delete(proof.invoiceId)
+          pending.resolve(proof)
+        }
+        return valid
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error(String(error)))
+        paymentState.pendingPayments.delete(proof.invoiceId)
+        return false
+      }
     }
 
-    try {
-      const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
-      if (valid) {
-        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-        paymentState.pendingPayments.delete(proof.invoiceId)
-        pending.resolve(proof)
+    const timedOut = await getTimedOutPayment(proof.invoiceId)
+    if (timedOut && timedOut.status === 'pending') {
+      try {
+        const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
+        if (valid) {
+          await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+          await markTimedOutPaymentRecovered(proof.invoiceId, proof.txHash)
+          return true
+        }
+        return false
+      } catch {
+        return false
       }
-      return valid
-    } catch (error) {
-      pending.reject(error instanceof Error ? error : new Error(String(error)))
-      paymentState.pendingPayments.delete(proof.invoiceId)
-      return false
     }
+
+    return false
   }
 
   const releaseMilestone = async (
@@ -435,34 +457,47 @@ export async function handlePaymentProof(
     return false
   }
 
-  const pending = paymentState.pendingPayments.get(proof.invoiceId)
-  if (!pending) {
-    return false
-  }
-
   if (!wallet) {
-    pending.reject(new Error('Wallet not configured for payment verification'))
-    paymentState.pendingPayments.delete(proof.invoiceId)
     return false
   }
 
-  try {
-    const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
-    if (valid) {
-      await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-      paymentState.pendingPayments.delete(proof.invoiceId)
-      pending.resolve(proof)
-      return true
-    } else {
-      pending.reject(new Error('Payment verification failed: transaction invalid'))
+  const pending = paymentState.pendingPayments.get(proof.invoiceId)
+  if (pending) {
+    try {
+      const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
+      if (valid) {
+        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+        paymentState.pendingPayments.delete(proof.invoiceId)
+        pending.resolve(proof)
+        return true
+      } else {
+        pending.reject(new Error('Payment verification failed: transaction invalid'))
+        paymentState.pendingPayments.delete(proof.invoiceId)
+        return false
+      }
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)))
       paymentState.pendingPayments.delete(proof.invoiceId)
       return false
     }
-  } catch (error) {
-    pending.reject(error instanceof Error ? error : new Error(String(error)))
-    paymentState.pendingPayments.delete(proof.invoiceId)
-    return false
   }
+
+  const timedOut = await getTimedOutPayment(proof.invoiceId)
+  if (timedOut && timedOut.status === 'pending') {
+    try {
+      const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
+      if (valid) {
+        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+        await markTimedOutPaymentRecovered(proof.invoiceId, proof.txHash)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  return false
 }
 
 export async function setupEscrowAgreement(

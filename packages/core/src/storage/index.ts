@@ -12,6 +12,7 @@ import {
   swarmSplits,
   pendingSettlements,
   processedPaymentProofs,
+  timedOutPayments,
 } from './schema';
 import type {
   EscrowAgreement,
@@ -20,7 +21,16 @@ import type {
   StakePosition,
   SwarmSplit,
   SettlementIntent,
+  Invoice,
 } from '../types';
+
+export interface TimedOutPaymentRecord {
+  invoice: Invoice;
+  timedOutAt: number;
+  status: 'pending' | 'recovered' | 'expired';
+  recoveredAt?: number;
+  txHash?: string;
+}
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 let sqliteDb: Database | null = null;
@@ -671,5 +681,162 @@ export const markPaymentProofProcessed = async (
       processedAt: Date.now(),
     })
     .onConflictDoNothing()
+    .run();
+};
+
+export const writeTimedOutPayment = async (
+  invoice: Invoice,
+  timedOutAt: number
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.insert(timedOutPayments)
+    .values({
+      invoiceId: invoice.id,
+      jobId: invoice.jobId,
+      chainId: invoice.chainId,
+      amount: invoice.amount,
+      token: invoice.token,
+      recipient: invoice.recipient,
+      validUntil: invoice.validUntil,
+      tokenAddress: invoice.tokenAddress ?? null,
+      timedOutAt,
+      status: 'pending',
+    })
+    .onConflictDoUpdate({
+      target: timedOutPayments.invoiceId,
+      set: {
+        jobId: invoice.jobId,
+        chainId: invoice.chainId,
+        amount: invoice.amount,
+        token: invoice.token,
+        recipient: invoice.recipient,
+        validUntil: invoice.validUntil,
+        tokenAddress: invoice.tokenAddress ?? null,
+        timedOutAt,
+        status: 'pending',
+      },
+    })
+    .run();
+};
+
+export const getTimedOutPayment = async (
+  invoiceId: string
+): Promise<TimedOutPaymentRecord | null> => {
+  const db = getDb();
+  if (!db) {
+    return null;
+  }
+  try {
+    const rows = db
+      .select()
+      .from(timedOutPayments)
+      .where(eq(timedOutPayments.invoiceId, invoiceId))
+      .all();
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0];
+    return {
+      invoice: {
+        id: row.invoiceId,
+        jobId: row.jobId,
+        chainId: row.chainId,
+        amount: row.amount,
+        token: row.token,
+        recipient: row.recipient,
+        validUntil: row.validUntil,
+        tokenAddress: row.tokenAddress ?? undefined,
+      },
+      timedOutAt: row.timedOutAt,
+      status: row.status as TimedOutPaymentRecord['status'],
+      recoveredAt: row.recoveredAt ?? undefined,
+      txHash: row.txHash ?? undefined,
+    };
+  } catch (error) {
+    if (isNoSuchTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+export const loadPendingTimedOutPayments = async (): Promise<TimedOutPaymentRecord[]> => {
+  const db = getDb();
+  if (!db) {
+    return [];
+  }
+  try {
+    const rows = db
+      .select()
+      .from(timedOutPayments)
+      .where(eq(timedOutPayments.status, 'pending'))
+      .all();
+    return rows.map((row) => ({
+      invoice: {
+        id: row.invoiceId,
+        jobId: row.jobId,
+        chainId: row.chainId,
+        amount: row.amount,
+        token: row.token,
+        recipient: row.recipient,
+        validUntil: row.validUntil,
+        tokenAddress: row.tokenAddress ?? undefined,
+      },
+      timedOutAt: row.timedOutAt,
+      status: row.status as TimedOutPaymentRecord['status'],
+      recoveredAt: row.recoveredAt ?? undefined,
+      txHash: row.txHash ?? undefined,
+    }));
+  } catch (error) {
+    if (isNoSuchTableError(error)) {
+      return [];
+    }
+    throw error;
+  }
+};
+
+export const markTimedOutPaymentRecovered = async (
+  invoiceId: string,
+  txHash: string
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.update(timedOutPayments)
+    .set({
+      status: 'recovered',
+      recoveredAt: Date.now(),
+      txHash,
+    })
+    .where(eq(timedOutPayments.invoiceId, invoiceId))
+    .run();
+};
+
+export const markTimedOutPaymentExpired = async (invoiceId: string): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.update(timedOutPayments)
+    .set({ status: 'expired' })
+    .where(eq(timedOutPayments.invoiceId, invoiceId))
+    .run();
+};
+
+export const deleteTimedOutPayment = async (invoiceId: string): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.delete(timedOutPayments)
+    .where(eq(timedOutPayments.invoiceId, invoiceId))
     .run();
 };
