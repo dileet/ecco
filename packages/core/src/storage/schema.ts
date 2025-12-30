@@ -120,3 +120,10 @@ export const timedOutPayments = sqliteTable('timed_out_payments', {
   txHash: text('tx_hash'),
 });
 
+export const expectedInvoices = sqliteTable('expected_invoices', {
+  jobId: text('job_id').primaryKey(),
+  expectedRecipient: text('expected_recipient').notNull(),
+  createdAt: integer('created_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+

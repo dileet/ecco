@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { LatencyZone } from '../node/latency-zones';
 import { selectByZoneWithFallback, sortByZone } from '../node/latency-zones';
 import { secureRandom } from '../utils';
+import { writeExpectedInvoice } from '../storage';
 
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
@@ -348,7 +349,9 @@ export const executeOrchestration = async (
   };
 
   try {
+    const invoiceExpiresAt = Date.now() + 300000;
     for (const req of requests) {
+      writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch(() => {});
       sendMessage(nodeRef, req.message.to, req.message).catch((error) => {
         const resolver = responseResolvers.get(req.message.id);
         if (resolver) {

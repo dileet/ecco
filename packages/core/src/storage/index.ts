@@ -13,6 +13,7 @@ import {
   pendingSettlements,
   processedPaymentProofs,
   timedOutPayments,
+  expectedInvoices,
 } from './schema';
 import type {
   EscrowAgreement,
@@ -942,4 +943,83 @@ export const createAndDistributeSwarmSplit = async (
       .where(eq(swarmSplits.id, updatedSplit.id))
       .run();
   });
+};
+
+export interface ExpectedInvoiceRecord {
+  jobId: string;
+  expectedRecipient: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export const writeExpectedInvoice = async (
+  jobId: string,
+  expectedRecipient: string,
+  expiresAt: number
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.insert(expectedInvoices)
+    .values({
+      jobId,
+      expectedRecipient,
+      createdAt: Date.now(),
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: expectedInvoices.jobId,
+      set: {
+        expectedRecipient,
+        expiresAt,
+      },
+    })
+    .run();
+};
+
+export const getExpectedInvoice = async (
+  jobId: string
+): Promise<ExpectedInvoiceRecord | null> => {
+  const db = getDb();
+  if (!db) {
+    return null;
+  }
+  try {
+    const rows = db
+      .select()
+      .from(expectedInvoices)
+      .where(eq(expectedInvoices.jobId, jobId))
+      .all();
+    if (rows.length === 0) {
+      return null;
+    }
+    const row = rows[0];
+    if (row.expiresAt < Date.now()) {
+      return null;
+    }
+    return {
+      jobId: row.jobId,
+      expectedRecipient: row.expectedRecipient,
+      createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
+    };
+  } catch (error) {
+    if (isNoSuchTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+export const deleteExpectedInvoice = async (jobId: string): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.delete(expectedInvoices)
+    .where(eq(expectedInvoices.jobId, jobId))
+    .run();
 };

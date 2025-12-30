@@ -50,6 +50,7 @@ import type {
 } from './types'
 import { createLLMHandler } from './handlers'
 import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement, createFeeHelpers } from './payments'
+import { writeExpectedInvoice, getExpectedInvoice, deleteExpectedInvoice } from '../storage'
 import { setupEmbeddingProvider } from '../services/embedding'
 import { setupGenerationProvider } from '../services/generation'
 import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, unloadModel, isLocalModelState, type LocalModelState } from '../services/llm'
@@ -327,6 +328,16 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
                 return
               }
             }
+            const expectedInvoice = await getExpectedInvoice(invoice.jobId)
+            if (!expectedInvoice) {
+              debug('invoice', `Rejected invoice ${invoice.id}: no expected invoice for job ${invoice.jobId}`)
+              return
+            }
+            if (msg.from !== expectedInvoice.expectedRecipient) {
+              debug('invoice', `Rejected invoice ${invoice.id}: sender ${msg.from} does not match expected recipient ${expectedInvoice.expectedRecipient}`)
+              return
+            }
+            await deleteExpectedInvoice(invoice.jobId)
             payments.queueInvoice(invoice)
           }
         }
@@ -553,6 +564,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       payload: { prompt },
       timestamp: Date.now(),
     }
+
+    const invoiceExpiresAt = Date.now() + 300000
+    await writeExpectedInvoice(requestMessage.id, peerId, invoiceExpiresAt)
 
     debug('request', `Sending request ${requestMessage.id} from ${baseAgent.id} to ${peerId}`)
 
