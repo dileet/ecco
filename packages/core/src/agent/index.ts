@@ -304,7 +304,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         if (msg.type === 'submit-payment-proof') {
           const proofResult = PaymentProofSchema.safeParse(msg.payload)
           if (proofResult.success) {
-            handlePaymentProof(paymentState, proofResult.data)
+            await handlePaymentProof(paymentState, proofResult.data, walletState)
           }
           return
         }

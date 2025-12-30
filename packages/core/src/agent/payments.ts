@@ -415,16 +415,37 @@ export function createPaymentState(): PaymentState {
   }
 }
 
-export function handlePaymentProof(
+export async function handlePaymentProof(
   paymentState: PaymentState,
-  proof: PaymentProof
-): boolean {
+  proof: PaymentProof,
+  wallet: WalletState | null
+): Promise<boolean> {
   const pending = paymentState.pendingPayments.get(proof.invoiceId)
-  if (pending) {
-    pending.resolve(proof)
-    return true
+  if (!pending) {
+    return false
   }
-  return false
+
+  if (!wallet) {
+    pending.reject(new Error('Wallet not configured for payment verification'))
+    paymentState.pendingPayments.delete(proof.invoiceId)
+    return false
+  }
+
+  try {
+    const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
+    if (valid) {
+      pending.resolve(proof)
+      return true
+    } else {
+      pending.reject(new Error('Payment verification failed: transaction invalid'))
+      paymentState.pendingPayments.delete(proof.invoiceId)
+      return false
+    }
+  } catch (error) {
+    pending.reject(error instanceof Error ? error : new Error(String(error)))
+    paymentState.pendingPayments.delete(proof.invoiceId)
+    return false
+  }
 }
 
 export async function setupEscrowAgreement(
