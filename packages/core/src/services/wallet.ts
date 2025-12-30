@@ -148,20 +148,48 @@ export async function verifyPayment(
     throw new Error('Transaction failed');
   }
 
-  if (invoice.token !== 'ETH' && invoice.token !== 'ETHEREUM') {
+  if (invoice.token === 'ETH' || invoice.token === 'ETHEREUM') {
+    const expectedAmount = parseEther(invoice.amount);
+
+    if (receipt.to?.toLowerCase() !== invoice.recipient.toLowerCase()) {
+      throw new Error('Transaction recipient does not match invoice recipient');
+    }
+
+    const tx = await publicClient.getTransaction({ hash: paymentProof.txHash as `0x${string}` });
+
+    if (tx.value !== expectedAmount) {
+      throw new Error(`Transaction amount ${tx.value.toString()} does not match invoice amount ${expectedAmount.toString()}`);
+    }
+
     return true;
   }
 
-  const expectedAmount = parseEther(invoice.amount);
-
-  if (receipt.to?.toLowerCase() !== invoice.recipient.toLowerCase()) {
-    throw new Error('Transaction recipient does not match invoice recipient');
+  if (!invoice.tokenAddress) {
+    throw new Error('ERC20 invoice must include tokenAddress');
   }
 
-  const tx = await publicClient.getTransaction({ hash: paymentProof.txHash as `0x${string}` });
+  const expectedAmount = parseEther(invoice.amount);
+  const transferLogs = receipt.logs.filter(
+    (log) =>
+      log.address.toLowerCase() === invoice.tokenAddress?.toLowerCase() &&
+      log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+  );
 
-  if (tx.value !== expectedAmount) {
-    throw new Error(`Transaction amount ${tx.value.toString()} does not match invoice amount ${expectedAmount.toString()}`);
+  if (transferLogs.length === 0) {
+    throw new Error('No ERC20 Transfer event found from the specified token contract');
+  }
+
+  const validTransfer = transferLogs.some((log) => {
+    const toAddress = log.topics[2];
+    if (!toAddress) return false;
+    const decodedTo = `0x${toAddress.slice(26).toLowerCase()}`;
+    if (decodedTo !== invoice.recipient.toLowerCase()) return false;
+    const transferValue = BigInt(log.data);
+    return transferValue === expectedAmount;
+  });
+
+  if (!validTransfer) {
+    throw new Error('No matching ERC20 Transfer event found with correct recipient and amount');
   }
 
   return true;

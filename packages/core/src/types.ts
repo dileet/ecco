@@ -190,6 +190,7 @@ export interface Invoice {
   chainId: number;
   amount: string;
   token: string;
+  tokenAddress?: `0x${string}`;
   recipient: string;
   validUntil: number;
   signature?: string;
