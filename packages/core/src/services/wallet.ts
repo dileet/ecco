@@ -95,6 +95,11 @@ export function getAddress(state: WalletState): `0x${string}` {
   return state.account.address;
 }
 
+export async function getBalance(state: WalletState, chainId: number): Promise<bigint> {
+  const publicClient = getPublicClient(state, chainId);
+  return publicClient.getBalance({ address: state.account.address });
+}
+
 export async function pay(state: WalletState, invoice: Invoice): Promise<PaymentProof> {
   if (invoice.token !== 'ETH' && invoice.token !== 'ETHEREUM') {
     throw new Error(`Token ${invoice.token} not supported yet`);
@@ -107,9 +112,16 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
 
   const amount = parseEther(amountStr);
   const walletClient = getWalletClient(state, invoice.chainId);
-  
+
   if (!walletClient.account) {
     throw new Error('Wallet client account not available');
+  }
+
+  const balance = await getBalance(state, invoice.chainId);
+  if (balance < amount) {
+    throw new Error(
+      `Insufficient balance: have ${balance.toString()} wei, need ${amount.toString()} wei`
+    );
   }
 
   const chains = state.config.chains ?? DEFAULT_CHAINS;
