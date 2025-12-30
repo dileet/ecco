@@ -4,6 +4,7 @@ import type { WalletState } from './wallet';
 import { getPublicClient, getWalletClient } from './wallet';
 import { REPUTATION_REGISTRY_ABI, FEE_COLLECTOR_ABI, getContractAddresses } from '@ecco/contracts';
 import { approveEcco, getEccoAllowance } from './token';
+import { validateAddress } from '../utils';
 
 export interface PeerReputation {
   score: bigint;
@@ -28,6 +29,7 @@ export interface PendingRewards {
 
 function getReputationContract(state: WalletState, chainId: number) {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const publicClient = getPublicClient(state, chainId);
 
   return getContract({
@@ -39,6 +41,7 @@ function getReputationContract(state: WalletState, chainId: number) {
 
 function getFeeCollectorContract(state: WalletState, chainId: number) {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.feeCollector, 'feeCollector');
   const publicClient = getPublicClient(state, chainId);
 
   return getContract({
@@ -55,6 +58,7 @@ export async function stake(
   peerIdHash: `0x${string}`
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const walletClient = getWalletClient(state, chainId);
   const publicClient = getPublicClient(state, chainId);
 
@@ -86,6 +90,7 @@ export async function requestUnstake(
   amount: bigint
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -106,6 +111,7 @@ export async function requestUnstake(
 
 export async function completeUnstake(state: WalletState, chainId: number): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -138,6 +144,8 @@ export async function recordPayment(
   amount: bigint
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
+  validateAddress(payee, 'payee');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -167,6 +175,7 @@ export async function rateAfterPayment(
   }
 
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -191,6 +200,7 @@ export async function batchRate(
   ratings: Array<{ paymentId: `0x${string}`; delta: number }>
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.reputationRegistry, 'reputationRegistry');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -218,21 +228,25 @@ export async function batchRate(
 }
 
 export async function canWork(state: WalletState, chainId: number, peer: `0x${string}`): Promise<boolean> {
+  validateAddress(peer, 'peer');
   const contract = getReputationContract(state, chainId);
   return await contract.read.canWork([peer]);
 }
 
 export async function canRate(state: WalletState, chainId: number, rater: `0x${string}`): Promise<boolean> {
+  validateAddress(rater, 'rater');
   const contract = getReputationContract(state, chainId);
   return await contract.read.canRate([rater]);
 }
 
 export async function getEffectiveScore(state: WalletState, chainId: number, peer: `0x${string}`): Promise<bigint> {
+  validateAddress(peer, 'peer');
   const contract = getReputationContract(state, chainId);
   return await contract.read.getEffectiveScore([peer]);
 }
 
 export async function getStakeInfo(state: WalletState, chainId: number, peer: `0x${string}`): Promise<StakeInfo> {
+  validateAddress(peer, 'peer');
   const contract = getReputationContract(state, chainId);
   const [stakeAmount, canWorkStatus, effectiveScore] = await contract.read.getStakeInfo([peer]);
 
@@ -244,6 +258,7 @@ export async function getStakeInfo(state: WalletState, chainId: number, peer: `0
 }
 
 export async function getReputation(state: WalletState, chainId: number, peer: `0x${string}`): Promise<PeerReputation> {
+  validateAddress(peer, 'peer');
   const contract = getReputationContract(state, chainId);
   const result = await contract.read.getReputation([peer]);
 
@@ -265,6 +280,7 @@ export async function getRatingWeight(
   rater: `0x${string}`,
   paymentAmount: bigint
 ): Promise<bigint> {
+  validateAddress(rater, 'rater');
   const contract = getReputationContract(state, chainId);
   return await contract.read.getRatingWeight([rater, paymentAmount]);
 }
@@ -297,12 +313,14 @@ export async function calculateFee(
 }
 
 export async function getPendingRewards(state: WalletState, chainId: number, staker: `0x${string}`): Promise<bigint> {
+  validateAddress(staker, 'staker');
   const contract = getFeeCollectorContract(state, chainId);
   return await contract.read.pendingRewards([staker]);
 }
 
 export async function claimRewards(state: WalletState, chainId: number): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.feeCollector, 'feeCollector');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
@@ -323,6 +341,7 @@ export async function claimRewards(state: WalletState, chainId: number): Promise
 
 export async function distributeFees(state: WalletState, chainId: number): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
+  validateAddress(addresses.feeCollector, 'feeCollector');
   const walletClient = getWalletClient(state, chainId);
 
   if (!walletClient.account) {
