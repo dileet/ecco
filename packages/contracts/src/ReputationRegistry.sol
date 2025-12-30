@@ -48,6 +48,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     uint256 public minStakeToRate = 10 * 10 ** 18;
 
     uint256 public unstakeCooldown = 7 days;
+    uint256 public activityCooldown = 1 days;
     int8 public constant MAX_RATING_DELTA = 5;
     uint256 public constant MAX_SLASH_PERCENT = 30;
 
@@ -85,7 +86,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
         reputations[msg.sender].stake += amount;
-        reputations[msg.sender].lastActive = block.timestamp;
+        if (block.timestamp >= reputations[msg.sender].lastActive + activityCooldown) {
+            reputations[msg.sender].lastActive = block.timestamp;
+        }
         totalStaked += amount;
         emit Staked(msg.sender, amount);
     }
@@ -146,7 +149,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         });
 
         reputations[payee].totalJobs += 1;
-        reputations[payee].lastActive = block.timestamp;
+        if (block.timestamp >= reputations[payee].lastActive + activityCooldown) {
+            reputations[payee].lastActive = block.timestamp;
+        }
 
         emit PaymentRecorded(paymentId, msg.sender, payee, amount);
         emit JobCompleted(payee);
@@ -305,6 +310,11 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
         unstakeCooldown = _cooldown;
+    }
+
+    function setActivityCooldown(uint256 _cooldown) external onlyOwner {
+        require(_cooldown > 0, "Cooldown must be positive");
+        activityCooldown = _cooldown;
     }
 
     function setRateLimits(uint256 _period, uint256 _maxRatings) external onlyOwner {
