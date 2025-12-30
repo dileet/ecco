@@ -85,7 +85,11 @@ async function main() {
   console.log("Transaction hash:", hash);
 
   console.log("Waiting for confirmation...");
-  await publicClient.waitForTransactionReceipt({ hash });
+  const voteReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+  if (voteReceipt.status !== "success") {
+    throw new Error(`Vote transaction failed: ${hash}`);
+  }
 
   const hasVoted = await eccoGovernor.read.hasVoted([proposalId, voter.account.address]);
   console.log("\n--- Vote Cast ---");

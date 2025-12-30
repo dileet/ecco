@@ -78,7 +78,11 @@ async function main() {
     console.log("Transaction hash:", hash);
 
     console.log("Waiting for confirmation...");
-    await publicClient.waitForTransactionReceipt({ hash });
+    const queueReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    if (queueReceipt.status !== "success") {
+      throw new Error(`Queue transaction failed: ${hash}`);
+    }
 
     const newState = await eccoGovernor.read.state([proposalId]);
     console.log("\n--- Proposal Queued ---");
@@ -102,7 +106,11 @@ async function main() {
     console.log("Transaction hash:", hash);
 
     console.log("Waiting for confirmation...");
-    await publicClient.waitForTransactionReceipt({ hash });
+    const executeReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    if (executeReceipt.status !== "success") {
+      throw new Error(`Execute transaction failed: ${hash}`);
+    }
 
     const newState = await eccoGovernor.read.state([proposalId]);
     console.log("\n--- Proposal Executed ---");

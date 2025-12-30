@@ -122,6 +122,13 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
     value: amount,
   });
 
+  const publicClient = getPublicClient(state, invoice.chainId);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+  if (receipt.status !== 'success') {
+    throw new Error(`Transaction failed: ${txHash}`);
+  }
+
   return { invoiceId: invoice.id, txHash, chainId: invoice.chainId };
 }
 

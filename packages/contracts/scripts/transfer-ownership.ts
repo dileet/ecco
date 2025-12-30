@@ -53,7 +53,11 @@ async function main() {
   console.log("Transaction hash:", hash);
 
   console.log("Waiting for confirmation...");
-  await publicClient.waitForTransactionReceipt({ hash });
+  const transferReceipt = await publicClient.waitForTransactionReceipt({ hash });
+
+  if (transferReceipt.status !== "success") {
+    throw new Error(`Transfer ownership transaction failed: ${hash}`);
+  }
 
   const newOwner = await eccoToken.read.owner();
   console.log("\n--- Transfer Complete ---");

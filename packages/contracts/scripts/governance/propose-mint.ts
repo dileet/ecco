@@ -75,6 +75,10 @@ async function main() {
   console.log("Waiting for confirmation...");
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
+  if (receipt.status !== "success") {
+    throw new Error(`Transaction failed: ${hash}`);
+  }
+
   const proposalCreatedLog = receipt.logs.find((log) => {
     return log.topics[0] === "0x7d84a6263ae0d98d3329bd7b46bb4e8d6f98cd35a7adb45c274c8b7fd5ebd5e0";
   });
