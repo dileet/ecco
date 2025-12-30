@@ -9,6 +9,8 @@ import {
   updateEscrowAgreement,
   writeStreamingChannel,
   updateStreamingChannel,
+  isPaymentProofProcessed,
+  markPaymentProofProcessed,
 } from '../storage'
 import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from './types'
 import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
@@ -120,6 +122,11 @@ export function createPaymentHelpers(
       throw new Error('Wallet not configured for payments')
     }
 
+    const alreadyProcessed = await isPaymentProofProcessed(proof.txHash, proof.chainId)
+    if (alreadyProcessed) {
+      return false
+    }
+
     const pending = paymentState.pendingPayments.get(proof.invoiceId)
     if (!pending) {
       return false
@@ -128,11 +135,14 @@ export function createPaymentHelpers(
     try {
       const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
       if (valid) {
+        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+        paymentState.pendingPayments.delete(proof.invoiceId)
         pending.resolve(proof)
       }
       return valid
     } catch (error) {
       pending.reject(error instanceof Error ? error : new Error(String(error)))
+      paymentState.pendingPayments.delete(proof.invoiceId)
       return false
     }
   }
@@ -420,6 +430,11 @@ export async function handlePaymentProof(
   proof: PaymentProof,
   wallet: WalletState | null
 ): Promise<boolean> {
+  const alreadyProcessed = await isPaymentProofProcessed(proof.txHash, proof.chainId)
+  if (alreadyProcessed) {
+    return false
+  }
+
   const pending = paymentState.pendingPayments.get(proof.invoiceId)
   if (!pending) {
     return false
@@ -434,6 +449,8 @@ export async function handlePaymentProof(
   try {
     const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
     if (valid) {
+      await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+      paymentState.pendingPayments.delete(proof.invoiceId)
       pending.resolve(proof)
       return true
     } else {

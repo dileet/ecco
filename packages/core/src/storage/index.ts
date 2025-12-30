@@ -11,6 +11,7 @@ import {
   stakePositions,
   swarmSplits,
   pendingSettlements,
+  processedPaymentProofs,
 } from './schema';
 import type {
   EscrowAgreement,
@@ -629,5 +630,46 @@ export const updateSettlement = async (settlement: SettlementIntent): Promise<vo
       maxRetries: settlement.maxRetries,
     })
     .where(eq(pendingSettlements.id, settlement.id))
+    .run();
+};
+
+export const isPaymentProofProcessed = async (txHash: string, chainId: number): Promise<boolean> => {
+  const db = getDb();
+  if (!db) {
+    return false;
+  }
+  try {
+    const rows = db
+      .select()
+      .from(processedPaymentProofs)
+      .where(eq(processedPaymentProofs.txHash, txHash))
+      .all();
+    return rows.length > 0 && rows[0].chainId === chainId;
+  } catch (error) {
+    if (isNoSuchTableError(error)) {
+      return false;
+    }
+    throw error;
+  }
+};
+
+export const markPaymentProofProcessed = async (
+  txHash: string,
+  chainId: number,
+  invoiceId: string
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.insert(processedPaymentProofs)
+    .values({
+      txHash,
+      chainId,
+      invoiceId,
+      processedAt: Date.now(),
+    })
+    .onConflictDoNothing()
     .run();
 };

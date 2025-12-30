@@ -98,3 +98,10 @@ export const pendingSettlements = sqliteTable('pending_settlements', {
   maxRetries: integer('max_retries').notNull(),
 });
 
+export const processedPaymentProofs = sqliteTable('processed_payment_proofs', {
+  txHash: text('tx_hash').primaryKey(),
+  chainId: integer('chain_id').notNull(),
+  invoiceId: text('invoice_id').notNull(),
+  processedAt: integer('processed_at').notNull(),
+});
+
