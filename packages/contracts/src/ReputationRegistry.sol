@@ -43,8 +43,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     uint256 public unstakeCooldown = 7 days;
     int8 public constant MAX_RATING_DELTA = 5;
+    uint256 public constant MAX_SLASH_PERCENT = 30;
 
     uint256 public totalStaked;
+    address public treasury;
 
     event Staked(address indexed peer, uint256 amount);
     event UnstakeRequested(address indexed peer, uint256 amount);
@@ -196,13 +198,18 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function slash(address peer, uint256 percent, string calldata reason) external onlyOwner {
-        require(percent <= 100, "Invalid percentage");
+        require(percent > 0 && percent <= MAX_SLASH_PERCENT, "Invalid slash percentage");
+        require(treasury != address(0), "Treasury not set");
 
         PeerReputation storage rep = reputations[peer];
+        require(rep.stake > 0, "No stake to slash");
+
         uint256 slashAmount = (rep.stake * percent) / 100;
 
         rep.stake -= slashAmount;
         totalStaked -= slashAmount;
+
+        eccoToken.safeTransfer(treasury, slashAmount);
 
         emit Slashed(peer, slashAmount, reason);
     }
@@ -258,6 +265,11 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
         unstakeCooldown = _cooldown;
+    }
+
+    function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "Invalid treasury address");
+        treasury = _treasury;
     }
 
     function sqrt(uint256 x) internal pure returns (uint256) {

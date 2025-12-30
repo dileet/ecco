@@ -439,59 +439,74 @@ describe("ReputationRegistry", () => {
   });
 
   describe("Slashing", () => {
-    it("should allow owner to slash peer stake", async () => {
-      const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+    it("should allow owner to slash peer stake and transfer to treasury", async () => {
+      const { reputationRegistry, eccoToken, owner, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
 
       const stakeAmount = MIN_STAKE_TO_WORK;
       const peerId = generatePeerId(user1.account.address);
+      const treasury = user2.account.address;
+
+      await reputationRegistry.write.setTreasury([treasury], { account: owner.account });
 
       await eccoToken.write.mint([user1.account.address, stakeAmount]);
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
       await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
 
-      await reputationRegistry.write.slash([user1.account.address, 50n, "Misbehavior"], { account: owner.account });
+      const treasuryBalanceBefore = await eccoToken.read.balanceOf([treasury]);
+      await reputationRegistry.write.slash([user1.account.address, 30n, "Misbehavior"], { account: owner.account });
 
       const reputation = await reputationRegistry.read.reputations([user1.account.address]);
-      expect(reputation[4]).to.equal(stakeAmount / 2n);
+      const expectedRemaining = (stakeAmount * 70n) / 100n;
+      expect(reputation[4]).to.equal(expectedRemaining);
+
+      const treasuryBalanceAfter = await eccoToken.read.balanceOf([treasury]);
+      const expectedSlashed = (stakeAmount * 30n) / 100n;
+      expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(expectedSlashed);
     });
 
-    it("should reject slashing more than 100%", async () => {
-      const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+    it("should reject slashing more than 30%", async () => {
+      const { reputationRegistry, eccoToken, owner, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
 
       const stakeAmount = MIN_STAKE_TO_WORK;
       const peerId = generatePeerId(user1.account.address);
+      const treasury = user2.account.address;
+
+      await reputationRegistry.write.setTreasury([treasury], { account: owner.account });
 
       await eccoToken.write.mint([user1.account.address, stakeAmount]);
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
       await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
 
       try {
-        await reputationRegistry.write.slash([user1.account.address, 101n, "Invalid slash"], { account: owner.account });
+        await reputationRegistry.write.slash([user1.account.address, 31n, "Invalid slash"], { account: owner.account });
         expect.fail("Expected transaction to revert");
       } catch (error) {
-        expect(String(error)).to.match(/Invalid percentage/);
+        expect(String(error)).to.match(/Invalid slash percentage/);
       }
     });
 
     it("should reject slashing from non-owner", async () => {
-      const { reputationRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const { reputationRegistry, eccoToken, owner, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
 
       const stakeAmount = MIN_STAKE_TO_WORK;
       const peerId = generatePeerId(user1.account.address);
+      const treasury = user2.account.address;
+
+      await reputationRegistry.write.setTreasury([treasury], { account: owner.account });
 
       await eccoToken.write.mint([user1.account.address, stakeAmount]);
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
       await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
 
       try {
-        await reputationRegistry.write.slash([user1.account.address, 50n, "Unauthorized"], { account: user2.account });
+        await reputationRegistry.write.slash([user1.account.address, 30n, "Unauthorized"], { account: user2.account });
         expect.fail("Expected transaction to revert");
       } catch (error) {
         expect(String(error)).to.match(/OwnableUnauthorizedAccount/);
       }
     });
 
-    it("should allow 100% slash", async () => {
+    it("should reject slashing without treasury set", async () => {
       const { reputationRegistry, eccoToken, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
 
       const stakeAmount = MIN_STAKE_TO_WORK;
@@ -501,10 +516,47 @@ describe("ReputationRegistry", () => {
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
       await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
 
-      await reputationRegistry.write.slash([user1.account.address, 100n, "Total slash"], { account: owner.account });
+      try {
+        await reputationRegistry.write.slash([user1.account.address, 30n, "No treasury"], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Treasury not set/);
+      }
+    });
 
-      const reputation = await reputationRegistry.read.reputations([user1.account.address]);
-      expect(reputation[4]).to.equal(0n);
+    it("should reject slashing zero stake", async () => {
+      const { reputationRegistry, owner, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const treasury = user2.account.address;
+      await reputationRegistry.write.setTreasury([treasury], { account: owner.account });
+
+      try {
+        await reputationRegistry.write.slash([user1.account.address, 30n, "No stake"], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/No stake to slash/);
+      }
+    });
+
+    it("should reject slashing 0 percent", async () => {
+      const { reputationRegistry, eccoToken, owner, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+      const treasury = user2.account.address;
+
+      await reputationRegistry.write.setTreasury([treasury], { account: owner.account });
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount, peerId], { account: user1.account });
+
+      try {
+        await reputationRegistry.write.slash([user1.account.address, 0n, "Zero percent"], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid slash percentage/);
+      }
     });
   });
 
