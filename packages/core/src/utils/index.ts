@@ -12,5 +12,6 @@ export {
   type MessageDeduplicator,
 } from './bloom-filter';
 export { debug } from './debug';
-export { secureRandom } from './crypto';
+export { secureRandom, isValidBase64, decodeBase64 } from './crypto';
 export { canonicalJsonStringify } from './canonical-json';
+export { signInvoice, verifyInvoice, isSignedInvoice } from './invoice-signing';

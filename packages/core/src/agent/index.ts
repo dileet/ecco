@@ -35,6 +35,7 @@ import {
 } from '../orchestrator'
 import type { MultiAgentConfig, AgentResponse } from '../orchestrator/types'
 import { delay, debug } from '../utils'
+import { isSignedInvoice, verifyInvoice } from '../utils/invoice-signing'
 import type {
   AgentConfig,
   Agent,
@@ -96,6 +97,8 @@ const InvoiceSchema = z.object({
   token: z.string(),
   recipient: z.string(),
   validUntil: z.number(),
+  signature: z.string().optional(),
+  publicKey: z.string().optional(),
 })
 
 const StreamingTickSchema = z.object({
@@ -179,7 +182,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     : null
 
   const paymentState = createPaymentState()
-  const payments = createPaymentHelpers(walletState, paymentState)
+  const payments = createPaymentHelpers(walletState, paymentState, identity.libp2pPrivateKey)
   const fees = createFeeHelpers(walletState)
 
   let modelState: LocalModelState | null = isLocalModelState(config.model) ? config.model : null
@@ -311,7 +314,15 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           const invoiceData = payload?.invoice ?? (payload?.response as { invoice?: unknown })?.invoice ?? payload?.response ?? msg.payload
           const invoiceResult = InvoiceSchema.safeParse(invoiceData)
           if (invoiceResult.success) {
-            payments.queueInvoice(invoiceResult.data)
+            const invoice = invoiceResult.data
+            if (isSignedInvoice(invoice)) {
+              const { valid } = await verifyInvoice(invoice)
+              if (!valid) {
+                debug('invoice', `Rejected invoice ${invoice.id}: invalid signature`)
+                return
+              }
+            }
+            payments.queueInvoice(invoice)
           }
         }
 

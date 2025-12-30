@@ -1,4 +1,5 @@
-import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement } from '../types'
+import type { PrivateKey } from '@libp2p/interface'
+import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement, SignedInvoice } from '../types'
 import type { WalletState } from '../services/wallet'
 import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from '../services/wallet'
 import type { BatchSettlementResult, WorkRewardOptions, WorkRewardResult, FeeHelpers, FeeCalculation, PayWithFeeResult } from './types'
@@ -19,6 +20,7 @@ import {
   claimRewards as claimRewardsOnChain,
   getPendingRewards as getPendingRewardsOnChain,
 } from '../services/fee-collector'
+import { signInvoice } from '../utils/invoice-signing'
 
 interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
@@ -48,12 +50,13 @@ function toWei(value: string | bigint): bigint {
 
 export function createPaymentHelpers(
   wallet: WalletState | null,
-  paymentState: PaymentState
+  paymentState: PaymentState,
+  signingKey?: PrivateKey
 ): PaymentHelpers {
   const createInvoice = async (
     ctx: MessageContext,
     pricing: PricingConfig
-  ): Promise<Invoice> => {
+  ): Promise<Invoice | SignedInvoice> => {
     if (!wallet) {
       throw new Error('Wallet not configured for payments')
     }
@@ -61,7 +64,7 @@ export function createPaymentHelpers(
     const amount = pricing.amount ? toWei(pricing.amount) : 0n
     const jobId = ctx.message.id
 
-    return {
+    const invoice: Invoice = {
       id: crypto.randomUUID(),
       jobId,
       chainId: pricing.chainId,
@@ -70,6 +73,12 @@ export function createPaymentHelpers(
       recipient: getAddress(wallet),
       validUntil: Date.now() + 3600000,
     }
+
+    if (signingKey) {
+      return signInvoice(signingKey, invoice)
+    }
+
+    return invoice
   }
 
   const requirePayment = async (
@@ -156,7 +165,8 @@ export function createPaymentHelpers(
         recipient: getAddress(wallet),
         validUntil: Date.now() + 3600000,
       }
-      await ctx.reply(invoice, 'invoice')
+      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+      await ctx.reply(signedInvoice, 'invoice')
     }
   }
 
@@ -184,7 +194,8 @@ export function createPaymentHelpers(
       recipient: getAddress(wallet),
       validUntil: Date.now() + 3600000,
     }
-    await ctx.reply(invoice, 'invoice')
+    const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+    await ctx.reply(signedInvoice, 'invoice')
   }
 
   const recordTokens = async (
@@ -236,7 +247,8 @@ export function createPaymentHelpers(
         recipient: updatedAgreement.recipient,
         validUntil: Date.now() + 3600000,
       }
-      await ctx.reply(invoice, 'invoice')
+      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+      await ctx.reply(signedInvoice, 'invoice')
       invoiceSent = true
     }
 
@@ -275,7 +287,8 @@ export function createPaymentHelpers(
       recipient: agreement.recipient,
       validUntil: Date.now() + 3600000,
     }
-    await ctx.reply({ invoice }, 'invoice')
+    const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+    await ctx.reply({ invoice: signedInvoice }, 'invoice')
   }
 
   const distributeToSwarm = async (
@@ -299,7 +312,8 @@ export function createPaymentHelpers(
     await updateSwarmSplit(distribution.split)
 
     for (const invoice of distribution.invoices) {
-      paymentState.invoiceQueue.push(invoice)
+      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+      paymentState.invoiceQueue.push(signedInvoice)
     }
 
     return {

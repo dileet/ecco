@@ -192,6 +192,13 @@ export interface Invoice {
   token: string;
   recipient: string;
   validUntil: number;
+  signature?: string;
+  publicKey?: string;
+}
+
+export interface SignedInvoice extends Invoice {
+  signature: string;
+  publicKey: string;
 }
 
 export interface PaymentProof {

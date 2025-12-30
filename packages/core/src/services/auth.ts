@@ -3,6 +3,7 @@ import { publicKeyFromRaw } from '@libp2p/crypto/keys';
 import { peerIdFromPublicKey } from '@libp2p/peer-id';
 import type { Message } from '../types';
 import { canonicalJsonStringify } from '../utils/canonical-json';
+import { decodeBase64 } from '../utils/crypto';
 
 export interface AuthConfig {
   enabled: boolean;
@@ -19,25 +20,7 @@ export interface AuthState {
   keyCache: Map<string, PublicKey>;
 }
 
-const BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
 const ED25519_SIGNATURE_LENGTH = 64;
-
-function isValidBase64(str: string): boolean {
-  if (typeof str !== 'string' || str.length === 0) {
-    return false;
-  }
-  if (str.length % 4 !== 0) {
-    return false;
-  }
-  return BASE64_REGEX.test(str);
-}
-
-function decodeBase64(str: string): Uint8Array {
-  if (!isValidBase64(str)) {
-    throw new Error('Invalid Base64 format');
-  }
-  return Buffer.from(str, 'base64');
-}
 
 function createSignaturePayload(message: Message | SignedMessage): Uint8Array {
   const payload = canonicalJsonStringify({
