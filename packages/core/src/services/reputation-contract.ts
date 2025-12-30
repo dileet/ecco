@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { getContract, keccak256, toHex } from 'viem';
 import type { WalletState } from './wallet';
 import { getPublicClient, getWalletClient } from './wallet';
@@ -124,7 +125,8 @@ export async function completeUnstake(state: WalletState, chainId: number): Prom
 }
 
 export function generatePaymentId(txHash: string, payer: string, payee: string, timestamp: number): `0x${string}` {
-  const data = `${txHash}:${payer}:${payee}:${timestamp}`;
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const data = `${txHash}:${payer}:${payee}:${timestamp}:${nonce}`;
   return keccak256(toHex(data));
 }
 
