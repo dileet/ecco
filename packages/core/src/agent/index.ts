@@ -106,6 +106,11 @@ const StreamingTickSchema = z.object({
   tokensGenerated: z.number(),
 })
 
+const EscrowApprovalSchema = z.object({
+  jobId: z.string(),
+  milestoneId: z.string(),
+})
+
 function getExplicitTokens(payload: unknown): number | null {
   if (payload && typeof payload === 'object') {
     const obj = payload as Record<string, unknown>
@@ -351,6 +356,24 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
             getAddress(walletState),
             config.pricing
           )
+        }
+
+        if (msg.type === 'escrow-approval') {
+          const approvalResult = EscrowApprovalSchema.safeParse(msg.payload)
+          if (approvalResult.success) {
+            const { jobId, milestoneId } = approvalResult.data
+            const agreement = paymentState.escrowAgreements.get(jobId)
+            if (agreement) {
+              const approvalCtx: MessageContext = {
+                agent: agentInstance!,
+                message: msg,
+                reply: baseCtx.reply,
+                streamResponse: async () => {},
+              }
+              await payments.releaseMilestone(approvalCtx, milestoneId)
+            }
+          }
+          return
         }
 
         if (messageHandler && msg.type === 'agent-request') {

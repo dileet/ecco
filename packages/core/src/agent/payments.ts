@@ -180,6 +180,15 @@ export function createPaymentHelpers(
       throw new Error(`No escrow agreement found for job ${jobId}`)
     }
 
+    if (currentAgreement.requiresApproval) {
+      if (!currentAgreement.approver) {
+        throw new Error(`Escrow agreement requires approval but no approver is set`)
+      }
+      if (ctx.message.from !== currentAgreement.approver) {
+        throw new Error(`Unauthorized: only the designated approver can release milestones`)
+      }
+    }
+
     const updatedAgreement = releaseEscrowMilestone(currentAgreement, milestoneId)
 
     await updateEscrowAgreement(updatedAgreement)
@@ -525,7 +534,8 @@ export async function setupEscrowAgreement(
     })),
     status: 'locked',
     createdAt: Date.now(),
-    requiresApproval: false,
+    requiresApproval: pricing.requiresApproval ?? true,
+    approver: pricing.approver ?? payer,
   }
 
   await writeEscrowAgreement(agreement)

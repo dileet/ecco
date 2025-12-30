@@ -67,6 +67,8 @@ export interface PricingConfig {
   ratePerToken?: string | bigint
   milestones?: Array<{ id: string; description: string; amount: string | bigint }>
   participants?: Array<{ agentId: string; share: number }>
+  requiresApproval?: boolean
+  approver?: string
 }
 
 export interface RecordTokensOptions {
