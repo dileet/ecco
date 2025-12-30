@@ -32,7 +32,13 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         bool rated;
     }
 
+    struct RateLimitInfo {
+        uint256 periodStart;
+        uint256 ratingsInPeriod;
+    }
+
     mapping(address => PeerReputation) public reputations;
+    mapping(address => RateLimitInfo) public raterLimits;
     mapping(bytes32 => PaymentRecord) public payments;
 
     mapping(address => bytes32) public peerIdOf;
@@ -44,6 +50,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     uint256 public unstakeCooldown = 7 days;
     int8 public constant MAX_RATING_DELTA = 5;
     uint256 public constant MAX_SLASH_PERCENT = 30;
+
+    uint256 public rateLimitPeriod = 1 days;
+    uint256 public maxRatingsPerPeriod = 50;
 
     uint256 public totalStaked;
     address public treasury;
@@ -151,6 +160,8 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         require(delta >= -MAX_RATING_DELTA && delta <= MAX_RATING_DELTA, "Invalid rating delta");
         require(canRate(msg.sender), "Insufficient stake to rate");
 
+        _checkAndUpdateRateLimit(msg.sender, 1);
+
         payment.rated = true;
 
         uint256 weight = getRatingWeight(msg.sender, payment.amount);
@@ -169,7 +180,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function batchRate(bytes32[] calldata paymentIds, int8[] calldata deltas) external nonReentrant {
         require(paymentIds.length == deltas.length, "Length mismatch");
+        require(paymentIds.length > 0, "Empty batch");
         require(canRate(msg.sender), "Insufficient stake to rate");
+
+        _checkAndUpdateRateLimit(msg.sender, paymentIds.length);
 
         for (uint256 i = 0; i < paymentIds.length; i++) {
             PaymentRecord storage payment = payments[paymentIds[i]];
@@ -222,6 +236,18 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         return reputations[rater].stake >= minStakeToRate;
     }
 
+    function _checkAndUpdateRateLimit(address rater, uint256 count) internal {
+        RateLimitInfo storage limitInfo = raterLimits[rater];
+
+        if (block.timestamp >= limitInfo.periodStart + rateLimitPeriod) {
+            limitInfo.periodStart = block.timestamp;
+            limitInfo.ratingsInPeriod = count;
+        } else {
+            require(limitInfo.ratingsInPeriod + count <= maxRatingsPerPeriod, "Rate limit exceeded");
+            limitInfo.ratingsInPeriod += count;
+        }
+    }
+
     function getRatingWeight(address rater, uint256 paymentAmount) public view returns (uint256) {
         PeerReputation storage rep = reputations[rater];
         uint256 stakeWeight;
@@ -258,6 +284,20 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         return reputations[peer];
     }
 
+    function getRemainingRatings(address rater) external view returns (uint256) {
+        RateLimitInfo storage limitInfo = raterLimits[rater];
+
+        if (block.timestamp >= limitInfo.periodStart + rateLimitPeriod) {
+            return maxRatingsPerPeriod;
+        }
+
+        if (limitInfo.ratingsInPeriod >= maxRatingsPerPeriod) {
+            return 0;
+        }
+
+        return maxRatingsPerPeriod - limitInfo.ratingsInPeriod;
+    }
+
     function setMinStakes(uint256 _minStakeToWork, uint256 _minStakeToRate) external onlyOwner {
         minStakeToWork = _minStakeToWork;
         minStakeToRate = _minStakeToRate;
@@ -265,6 +305,13 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
         unstakeCooldown = _cooldown;
+    }
+
+    function setRateLimits(uint256 _period, uint256 _maxRatings) external onlyOwner {
+        require(_period > 0, "Period must be positive");
+        require(_maxRatings > 0, "Max ratings must be positive");
+        rateLimitPeriod = _period;
+        maxRatingsPerPeriod = _maxRatings;
     }
 
     function setTreasury(address _treasury) external onlyOwner {
