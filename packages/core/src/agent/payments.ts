@@ -174,15 +174,16 @@ export function createPaymentHelpers(
     options?: ReleaseMilestoneOptions
   ): Promise<void> => {
     const jobId = ctx.message.id
-    const agreement = paymentState.escrowAgreements.get(jobId)
+    const currentAgreement = paymentState.escrowAgreements.get(jobId)
 
-    if (!agreement) {
+    if (!currentAgreement) {
       throw new Error(`No escrow agreement found for job ${jobId}`)
     }
 
-    const updatedAgreement = releaseEscrowMilestone(agreement, milestoneId)
-    paymentState.escrowAgreements.set(jobId, updatedAgreement)
+    const updatedAgreement = releaseEscrowMilestone(currentAgreement, milestoneId)
+
     await updateEscrowAgreement(updatedAgreement)
+    paymentState.escrowAgreements.set(jobId, updatedAgreement)
 
     const shouldSendInvoice = options?.sendInvoice !== false
     const milestone = updatedAgreement.milestones.find((m) => m.id === milestoneId)
@@ -259,13 +260,14 @@ export function createPaymentHelpers(
         status: 'active',
         createdAt: Date.now(),
       }
-      paymentState.streamingAgreements.set(channelId, agreement)
       await writeStreamingChannel(agreement)
+      paymentState.streamingAgreements.set(channelId, agreement)
     }
 
     const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
-    paymentState.streamingAgreements.set(channelId, updatedAgreement)
+
     await updateStreamingChannel(updatedAgreement)
+    paymentState.streamingAgreements.set(channelId, updatedAgreement)
 
     let invoiceSent = false
     if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
@@ -460,37 +462,42 @@ export async function handlePaymentProof(
 
   const pending = paymentState.pendingPayments.get(proof.invoiceId)
   if (pending) {
+    let valid = false
     try {
-      const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
-      if (valid) {
-        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-        paymentState.pendingPayments.delete(proof.invoiceId)
-        pending.resolve(proof)
-        return true
-      } else {
-        pending.reject(new Error('Payment verification failed: transaction invalid'))
-        paymentState.pendingPayments.delete(proof.invoiceId)
-        return false
-      }
+      valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
     } catch (error) {
       pending.reject(error instanceof Error ? error : new Error(String(error)))
       paymentState.pendingPayments.delete(proof.invoiceId)
       return false
     }
+
+    if (!valid) {
+      pending.reject(new Error('Payment verification failed: transaction invalid'))
+      paymentState.pendingPayments.delete(proof.invoiceId)
+      return false
+    }
+
+    await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+    paymentState.pendingPayments.delete(proof.invoiceId)
+    pending.resolve(proof)
+    return true
   }
 
   const timedOut = await getTimedOutPayment(proof.invoiceId)
   if (timedOut && timedOut.status === 'pending') {
+    let valid = false
     try {
-      const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
-      if (valid) {
-        await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
-        return true
-      }
-      return false
+      valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
     } catch {
       return false
     }
+
+    if (!valid) {
+      return false
+    }
+
+    await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
+    return true
   }
 
   return false
@@ -521,8 +528,9 @@ export async function setupEscrowAgreement(
     requiresApproval: false,
   }
 
-  paymentState.escrowAgreements.set(jobId, agreement)
   await writeEscrowAgreement(agreement)
+  paymentState.escrowAgreements.set(jobId, agreement)
+
   return agreement
 }
 
@@ -547,8 +555,9 @@ export async function setupStreamingAgreement(
     createdAt: Date.now(),
   }
 
-  paymentState.streamingAgreements.set(jobId, agreement)
   await writeStreamingChannel(agreement)
+  paymentState.streamingAgreements.set(jobId, agreement)
+
   return agreement
 }
 
