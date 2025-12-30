@@ -39,6 +39,7 @@
     "@noble/ciphers": "^2.0.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "decimal.js": "^10.6.0",
     "drizzle-orm": "^0.44.7",
     "it-length-prefixed": "^10.0.1",
     "it-pipe": "^3.0.1",

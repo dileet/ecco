@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import type {
   Invoice,
   StreamingAgreement,
@@ -107,7 +108,8 @@ function safeContributionToBigInt(contribution: number): bigint {
   if (!Number.isFinite(contribution)) {
     throw new Error('Contribution must be a finite number');
   }
-  return BigInt(Math.round(contribution * 1e9));
+  const decimal = new Decimal(contribution).times(1e9).floor();
+  return BigInt(decimal.toFixed(0));
 }
 
 export function createSwarmSplit(
