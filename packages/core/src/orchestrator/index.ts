@@ -278,12 +278,27 @@ export const executeOrchestration = async (
     string,
     { resolve: (data: unknown) => void; reject: (error: Error) => void }
   >();
+  const timeoutIds = new Map<string, ReturnType<typeof setTimeout>>();
 
   const streamBuffers = new Map<string, string>();
+
+  const responseTimeout = config.timeout ?? 120000;
 
   for (const req of requests) {
     const promise = new Promise<unknown>((resolve, reject) => {
       responseResolvers.set(req.message.id, { resolve, reject });
+
+      const timeoutId = setTimeout(() => {
+        const resolver = responseResolvers.get(req.message.id);
+        if (resolver) {
+          resolver.reject(new Error(`Response timeout after ${responseTimeout}ms`));
+          responseResolvers.delete(req.message.id);
+          streamBuffers.delete(req.message.id);
+          timeoutIds.delete(req.message.id);
+        }
+      }, responseTimeout);
+
+      timeoutIds.set(req.message.id, timeoutId);
     });
     responsePromises.set(req.message.id, promise);
     streamBuffers.set(req.message.id, '');
@@ -308,6 +323,11 @@ export const executeOrchestration = async (
       if (parsed.success) {
         const resolver = responseResolvers.get(parsed.data.requestId);
         if (resolver) {
+          const timeoutId = timeoutIds.get(parsed.data.requestId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutIds.delete(parsed.data.requestId);
+          }
           const bufferedText = streamBuffers.get(parsed.data.requestId) ?? parsed.data.text;
           resolver.resolve({ text: bufferedText });
           responseResolvers.delete(parsed.data.requestId);
@@ -322,6 +342,11 @@ export const executeOrchestration = async (
 
       const resolver = responseResolvers.get(msgRequestId);
       if (resolver) {
+        const timeoutId = timeoutIds.get(msgRequestId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutIds.delete(msgRequestId);
+        }
         resolver.resolve(responsePayload?.response ?? message.payload);
         responseResolvers.delete(msgRequestId);
         streamBuffers.delete(msgRequestId);
@@ -337,6 +362,11 @@ export const executeOrchestration = async (
   }
 
   const cleanup = () => {
+    for (const timeoutId of timeoutIds.values()) {
+      clearTimeout(timeoutId);
+    }
+    timeoutIds.clear();
+
     if (updatedBridge) {
       const latestNodeState = getState(nodeRef);
       if (latestNodeState.messageBridge) {
