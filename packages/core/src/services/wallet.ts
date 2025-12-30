@@ -4,6 +4,99 @@ import { parseEther } from 'viem';
 import type { Invoice, PaymentProof } from '../types';
 import { aggregateInvoices, type AggregatedInvoice } from './payment';
 
+interface NonceState {
+  currentNonce: number;
+  pendingCount: number;
+  lastSyncBlock: bigint;
+  mutex: Promise<void>;
+  resolveMutex: (() => void) | null;
+}
+
+interface NonceManager {
+  nonceStates: Map<number, NonceState>;
+}
+
+function createNonceManager(): NonceManager {
+  return { nonceStates: new Map() };
+}
+
+async function syncNonceFromChain(
+  publicClient: PublicClient,
+  address: `0x${string}`,
+  chainId: number,
+  manager: NonceManager
+): Promise<NonceState> {
+  const [pendingNonce, blockNumber] = await Promise.all([
+    publicClient.getTransactionCount({ address, blockTag: 'pending' }),
+    publicClient.getBlockNumber()
+  ]);
+  
+  const state: NonceState = {
+    currentNonce: pendingNonce,
+    pendingCount: 0,
+    lastSyncBlock: blockNumber,
+    mutex: Promise.resolve(),
+    resolveMutex: null
+  };
+  
+  manager.nonceStates.set(chainId, state);
+  return state;
+}
+
+async function acquireNonce(
+  publicClient: PublicClient,
+  address: `0x${string}`,
+  chainId: number,
+  manager: NonceManager
+): Promise<{ nonce: number; release: (success: boolean) => void }> {
+  let state = manager.nonceStates.get(chainId);
+  
+  if (!state) {
+    state = await syncNonceFromChain(publicClient, address, chainId, manager);
+  }
+  
+  await state.mutex;
+  
+  let resolveNext: (() => void) | null = null;
+  state.mutex = new Promise<void>((resolve) => {
+    resolveNext = resolve;
+  });
+  state.resolveMutex = resolveNext;
+  
+  const currentBlock = await publicClient.getBlockNumber();
+  const RESYNC_THRESHOLD = 10n;
+  
+  if (currentBlock - state.lastSyncBlock > RESYNC_THRESHOLD) {
+    const freshNonce = await publicClient.getTransactionCount({ address, blockTag: 'pending' });
+    if (freshNonce > state.currentNonce) {
+      state.currentNonce = freshNonce;
+      state.pendingCount = 0;
+    }
+    state.lastSyncBlock = currentBlock;
+  }
+  
+  const nonce = state.currentNonce + state.pendingCount;
+  state.pendingCount++;
+  
+  const release = (success: boolean) => {
+    if (success) {
+      state!.currentNonce++;
+    }
+    state!.pendingCount--;
+    
+    if (state!.pendingCount < 0) {
+      state!.pendingCount = 0;
+    }
+    
+    if (state!.resolveMutex) {
+      state!.resolveMutex();
+      state!.resolveMutex = null;
+    }
+  };
+  
+  return { nonce, release };
+}
+
 const monadMainnet = defineChain({
   id: 143,
   name: 'Monad',
@@ -42,6 +135,7 @@ export interface WalletState {
   account: ReturnType<typeof privateKeyToAccount>;
   publicClients: Map<number, PublicClient>;
   walletClients: Map<number, WalletClient>;
+  nonceManager: NonceManager;
 }
 
 function getChainById(chainId: number, chains: Chain[]): Chain {
@@ -57,6 +151,7 @@ export function createWalletState(config: WalletConfig): WalletState {
   const chains = config.chains ?? DEFAULT_CHAINS;
   const publicClients = new Map<number, PublicClient>();
   const walletClients = new Map<number, WalletClient>();
+  const nonceManager = createNonceManager();
 
   for (const chain of chains) {
     const rpcUrl = config.rpcUrls?.[chain.id];
@@ -64,7 +159,7 @@ export function createWalletState(config: WalletConfig): WalletState {
     walletClients.set(chain.id, createWalletClient({ chain, account, transport: http(rpcUrl) }) as WalletClient);
   }
 
-  return { config, account, publicClients, walletClients };
+  return { config, account, publicClients, walletClients, nonceManager };
 }
 
 export function getPublicClient(state: WalletState, chainId: number): PublicClient {
@@ -112,6 +207,7 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
 
   const amount = parseEther(amountStr);
   const walletClient = getWalletClient(state, invoice.chainId);
+  const publicClient = getPublicClient(state, invoice.chainId);
 
   if (!walletClient.account) {
     throw new Error('Wallet client account not available');
@@ -127,21 +223,41 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
   const chains = state.config.chains ?? DEFAULT_CHAINS;
   const chain = getChainById(invoice.chainId, chains);
 
-  const txHash = await walletClient.sendTransaction({
-    account: walletClient.account,
-    chain,
-    to: invoice.recipient as `0x${string}`,
-    value: amount,
-  });
+  const { nonce, release } = await acquireNonce(
+    publicClient,
+    state.account.address,
+    invoice.chainId,
+    state.nonceManager
+  );
 
-  const publicClient = getPublicClient(state, invoice.chainId);
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-
-  if (receipt.status !== 'success') {
-    throw new Error(`Transaction failed: ${txHash}`);
+  let txHash: `0x${string}`;
+  try {
+    txHash = await walletClient.sendTransaction({
+      account: walletClient.account,
+      chain,
+      to: invoice.recipient as `0x${string}`,
+      value: amount,
+      nonce,
+    });
+  } catch (err) {
+    release(false);
+    throw err;
   }
 
-  return { invoiceId: invoice.id, txHash, chainId: invoice.chainId };
+  try {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+    if (receipt.status !== 'success') {
+      release(false);
+      throw new Error(`Transaction failed: ${txHash}`);
+    }
+
+    release(true);
+    return { invoiceId: invoice.id, txHash, chainId: invoice.chainId };
+  } catch (err) {
+    release(false);
+    throw err;
+  }
 }
 
 export async function verifyPayment(
