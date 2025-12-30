@@ -60,6 +60,14 @@ export function releaseEscrowMilestone(
   milestoneId: string,
   txHash?: string
 ): EscrowAgreement {
+  const existingMilestone = agreement.milestones.find((m) => m.id === milestoneId);
+  if (!existingMilestone) {
+    throw new Error(`Milestone ${milestoneId} not found in agreement ${agreement.id}`);
+  }
+  if (existingMilestone.released) {
+    throw new Error(`Milestone ${milestoneId} has already been released`);
+  }
+
   const milestones = agreement.milestones.map((m) =>
     m.id === milestoneId
       ? {
