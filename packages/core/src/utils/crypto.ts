@@ -23,3 +23,9 @@ export function decodeBase64(str: string): Uint8Array {
   }
   return Buffer.from(str, 'base64');
 }
+
+export function toHexAddress(value: string | null | undefined): `0x${string}` | undefined {
+  if (!value) return undefined;
+  if (value.startsWith('0x')) return value as `0x${string}`;
+  return undefined;
+}

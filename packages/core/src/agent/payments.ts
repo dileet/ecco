@@ -13,11 +13,11 @@ import {
   markPaymentProofProcessed,
   writeTimedOutPayment,
   getTimedOutPayment,
-  markTimedOutPaymentRecovered,
+  processPaymentRecovery,
+  createAndDistributeSwarmSplit,
 } from '../storage'
 import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from './types'
 import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
-import { writeSwarmSplit, updateSwarmSplit } from '../storage'
 import { distributeReward, estimateReward, generateJobId } from '../services/work-rewards'
 import {
   calculateFee as calculateFeeOnChain,
@@ -156,8 +156,7 @@ export function createPaymentHelpers(
       try {
         const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
         if (valid) {
-          await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-          await markTimedOutPaymentRecovered(proof.invoiceId, proof.txHash)
+          await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
           return true
         }
         return false
@@ -338,10 +337,8 @@ export function createPaymentHelpers(
       options.participants
     )
 
-    await writeSwarmSplit(swarmSplit)
-
     const distribution = distributeSwarmSplit(swarmSplit)
-    await updateSwarmSplit(distribution.split)
+    await createAndDistributeSwarmSplit(swarmSplit, distribution.split)
 
     for (const invoice of distribution.invoices) {
       const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
@@ -487,8 +484,7 @@ export async function handlePaymentProof(
     try {
       const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
       if (valid) {
-        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-        await markTimedOutPaymentRecovered(proof.invoiceId, proof.txHash)
+        await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
         return true
       }
       return false

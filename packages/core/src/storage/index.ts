@@ -23,6 +23,7 @@ import type {
   SettlementIntent,
   Invoice,
 } from '../types';
+import { toHexAddress } from '../utils';
 
 export interface TimedOutPaymentRecord {
   invoice: Invoice;
@@ -35,6 +36,24 @@ export interface TimedOutPaymentRecord {
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 let sqliteDb: Database | null = null;
 let currentNodeId: string | null = null;
+
+const getSqliteDb = (): Database | null => sqliteDb;
+
+export const runTransaction = <T>(operation: () => T): T => {
+  const db = getSqliteDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  db.run('BEGIN IMMEDIATE');
+  try {
+    const result = operation();
+    db.run('COMMIT');
+    return result;
+  } catch (error) {
+    db.run('ROLLBACK');
+    throw error;
+  }
+};
 
 const getEccoDir = (): string => path.resolve(homedir(), '.ecco');
 const getDbPath = (nodeId: string): string => path.join(getEccoDir(), `${nodeId}.sqlite`);
@@ -749,7 +768,7 @@ export const getTimedOutPayment = async (
         token: row.token,
         recipient: row.recipient,
         validUntil: row.validUntil,
-        tokenAddress: row.tokenAddress ?? undefined,
+        tokenAddress: toHexAddress(row.tokenAddress),
       },
       timedOutAt: row.timedOutAt,
       status: row.status as TimedOutPaymentRecord['status'],
@@ -784,7 +803,7 @@ export const loadPendingTimedOutPayments = async (): Promise<TimedOutPaymentReco
         token: row.token,
         recipient: row.recipient,
         validUntil: row.validUntil,
-        tokenAddress: row.tokenAddress ?? undefined,
+        tokenAddress: toHexAddress(row.tokenAddress),
       },
       timedOutAt: row.timedOutAt,
       status: row.status as TimedOutPaymentRecord['status'],
@@ -839,4 +858,88 @@ export const deleteTimedOutPayment = async (invoiceId: string): Promise<void> =>
   db.delete(timedOutPayments)
     .where(eq(timedOutPayments.invoiceId, invoiceId))
     .run();
+};
+
+export const processPaymentRecovery = async (
+  txHash: string,
+  chainId: number,
+  invoiceId: string
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  runTransaction(() => {
+    db.insert(processedPaymentProofs)
+      .values({
+        txHash,
+        chainId,
+        invoiceId,
+        processedAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+    db.update(timedOutPayments)
+      .set({
+        status: 'recovered',
+        recoveredAt: Date.now(),
+        txHash,
+      })
+      .where(eq(timedOutPayments.invoiceId, invoiceId))
+      .run();
+  });
+};
+
+export const createAndDistributeSwarmSplit = async (
+  initialSplit: SwarmSplit,
+  updatedSplit: SwarmSplit
+): Promise<void> => {
+  ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  runTransaction(() => {
+    db.insert(swarmSplits)
+      .values({
+        id: initialSplit.id,
+        jobId: initialSplit.jobId,
+        payer: initialSplit.payer,
+        totalAmount: initialSplit.totalAmount,
+        chainId: initialSplit.chainId,
+        token: initialSplit.token,
+        participants: JSON.stringify(initialSplit.participants),
+        status: initialSplit.status,
+        createdAt: initialSplit.createdAt,
+        distributedAt: initialSplit.distributedAt || null,
+      })
+      .onConflictDoUpdate({
+        target: swarmSplits.id,
+        set: {
+          jobId: initialSplit.jobId,
+          payer: initialSplit.payer,
+          totalAmount: initialSplit.totalAmount,
+          chainId: initialSplit.chainId,
+          token: initialSplit.token,
+          participants: JSON.stringify(initialSplit.participants),
+          status: initialSplit.status,
+          distributedAt: initialSplit.distributedAt || null,
+        },
+      })
+      .run();
+    db.update(swarmSplits)
+      .set({
+        jobId: updatedSplit.jobId,
+        payer: updatedSplit.payer,
+        totalAmount: updatedSplit.totalAmount,
+        chainId: updatedSplit.chainId,
+        token: updatedSplit.token,
+        participants: JSON.stringify(updatedSplit.participants),
+        status: updatedSplit.status,
+        distributedAt: updatedSplit.distributedAt || null,
+      })
+      .where(eq(swarmSplits.id, updatedSplit.id))
+      .run();
+  });
 };
