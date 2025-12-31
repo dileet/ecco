@@ -47,7 +47,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     mapping(address => RateLimitInfo) public raterLimits;
     mapping(bytes32 => PaymentRecord) public payments;
 
-    mapping(address => bytes32) public peerIdOf;
+    mapping(address => string) public peerIdOf;
     mapping(bytes32 => address) public walletOf;
 
     uint256 public minStakeToWork = 100 * 10 ** 18;
@@ -77,7 +77,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     event Rated(address indexed rater, address indexed ratee, int8 delta, uint256 weight);
     event Slashed(address indexed peer, uint256 amount, string reason);
     event JobCompleted(address indexed peer);
-    event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash);
+    event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash, string peerId);
     event PeerIdCommitted(address indexed wallet, bytes32 commitHash);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
@@ -86,7 +86,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "Must stake positive amount");
-        require(peerIdOf[msg.sender] != bytes32(0), "Must register peerId first");
+        require(bytes(peerIdOf[msg.sender]).length > 0, "Must register peerId first");
 
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
         reputations[msg.sender].stake += amount;
@@ -99,7 +99,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     function commitPeerId(bytes32 commitHash) external {
         require(commitHash != bytes32(0), "Invalid commit hash");
-        require(peerIdOf[msg.sender] == bytes32(0), "Already registered");
+        require(bytes(peerIdOf[msg.sender]).length == 0, "Already registered");
 
         peerIdCommitments[msg.sender] = PeerIdCommitment({
             commitHash: commitHash,
@@ -109,9 +109,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         emit PeerIdCommitted(msg.sender, commitHash);
     }
 
-    function revealPeerId(bytes32 peerIdHash, bytes32 salt) external {
-        require(peerIdHash != bytes32(0), "Invalid peerId hash");
-        require(peerIdOf[msg.sender] == bytes32(0), "Already registered");
+    function revealPeerId(string calldata peerId, bytes32 salt) external {
+        require(bytes(peerId).length > 0, "Invalid peerId");
+        require(bytes(peerIdOf[msg.sender]).length == 0, "Already registered");
+        bytes32 peerIdHash = keccak256(bytes(peerId));
         require(walletOf[peerIdHash] == address(0), "PeerId already taken");
 
         PeerIdCommitment storage commitment = peerIdCommitments[msg.sender];
@@ -124,16 +125,22 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
         delete peerIdCommitments[msg.sender];
 
-        peerIdOf[msg.sender] = peerIdHash;
+        peerIdOf[msg.sender] = peerId;
         walletOf[peerIdHash] = msg.sender;
-        emit PeerIdRegistered(msg.sender, peerIdHash);
+        emit PeerIdRegistered(msg.sender, peerIdHash, peerId);
     }
 
-    function getCommitHash(bytes32 peerIdHash, bytes32 salt, address wallet) external pure returns (bytes32) {
+    function getCommitHash(string calldata peerId, bytes32 salt, address wallet) external pure returns (bytes32) {
+        bytes32 peerIdHash = keccak256(bytes(peerId));
         return keccak256(abi.encodePacked(peerIdHash, salt, wallet));
     }
 
-    function getWalletForPeerId(bytes32 peerIdHash) external view returns (address) {
+    function getPeerIdHash(string calldata peerId) external pure returns (bytes32) {
+        return keccak256(bytes(peerId));
+    }
+
+    function getWalletByPeerId(string calldata peerId) external view returns (address) {
+        bytes32 peerIdHash = keccak256(bytes(peerId));
         return walletOf[peerIdHash];
     }
 

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther, keccak256, encodePacked } from "viem";
+import { parseEther, keccak256, encodePacked, stringToBytes } from "viem";
 import { deployWorkRewardsFixture, getNetworkHelpers, increaseTime } from "./helpers/fixtures";
 import { MIN_STAKE_TO_WORK, generateJobId, generatePeerId, generateSalt, REWARD_PER_EPOCH, COMMIT_REVEAL_DELAY } from "./helpers/constants";
 
@@ -14,17 +14,22 @@ type ReputationRegistry = WorkRewardsFixture["reputationRegistry"];
 type WalletClient = WorkRewardsFixture["user1"];
 type PublicClient = WorkRewardsFixture["publicClient"];
 
+function getPeerIdHash(peerId: string): `0x${string}` {
+  return keccak256(stringToBytes(peerId));
+}
+
 async function registerPeerIdWithCommitReveal(
   reputationRegistry: ReputationRegistry,
   publicClient: PublicClient,
   user: WalletClient,
-  peerIdHash: `0x${string}`,
+  peerId: string,
   salt: `0x${string}`
 ) {
+  const peerIdHash = getPeerIdHash(peerId);
   const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user.account.address]));
   await reputationRegistry.write.commitPeerId([commitHash], { account: user.account });
   await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
-  await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: user.account });
+  await reputationRegistry.write.revealPeerId([peerId, salt], { account: user.account });
 }
 
 describe("WorkRewards", () => {

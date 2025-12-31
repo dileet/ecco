@@ -33,8 +33,8 @@ export const generateJobId = (index: number): `0x${string}` =>
 export const generatePaymentId = (index: number): `0x${string}` =>
   keccak256(toBytes(`payment-${index}`));
 
-export const generatePeerId = (address: string): `0x${string}` =>
-  keccak256(toBytes(address));
+export const generatePeerId = (address: string): string =>
+  `QmPeer${address.slice(2, 42)}`;
 
 export const generateSalt = (index: number): `0x${string}` =>
   keccak256(toBytes(`salt-${index}`));

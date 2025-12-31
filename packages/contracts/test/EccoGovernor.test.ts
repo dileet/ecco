@@ -368,7 +368,8 @@ describe("EccoGovernor", () => {
       const stakeAmount = parseEther("300000");
       await eccoToken.write.mint([staker.account.address, stakeAmount]);
 
-      const peerIdHash = keccak256(toBytes("test-peer-id"));
+      const peerId = "test-peer-id";
+      const peerIdHash = keccak256(toBytes(peerId));
       const salt = keccak256(toBytes("test-salt"));
       const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, staker.account.address]));
 
@@ -378,7 +379,7 @@ describe("EccoGovernor", () => {
       await networkHelpers.time.setNextBlockTimestamp(block.timestamp + COMMIT_REVEAL_DELAY + 10n);
       await networkHelpers.mine();
 
-      await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: staker.account });
+      await reputationRegistry.write.revealPeerId([peerId, salt], { account: staker.account });
 
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: staker.account });
       await reputationRegistry.write.stake([stakeAmount], { account: staker.account });

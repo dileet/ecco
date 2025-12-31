@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther, keccak256, encodePacked } from "viem";
+import { parseEther, keccak256, encodePacked, stringToBytes } from "viem";
 import { deployReputationRegistryFixture, getNetworkHelpers, increaseTime } from "./helpers/fixtures";
 import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generatePaymentId, generateSalt, COMMIT_REVEAL_DELAY, MAX_BATCH_SIZE } from "./helpers/constants";
 
@@ -13,17 +13,22 @@ type ReputationRegistry = Awaited<ReturnType<typeof deployReputationRegistryFixt
 type WalletClient = Awaited<ReturnType<typeof deployReputationRegistryFixture>>["user1"];
 type PublicClient = Awaited<ReturnType<typeof deployReputationRegistryFixture>>["publicClient"];
 
+function getPeerIdHash(peerId: string): `0x${string}` {
+  return keccak256(stringToBytes(peerId));
+}
+
 async function registerPeerIdWithCommitReveal(
   reputationRegistry: ReputationRegistry,
   publicClient: PublicClient,
   user: WalletClient,
-  peerIdHash: `0x${string}`,
+  peerId: string,
   salt: `0x${string}`
 ) {
+  const peerIdHash = getPeerIdHash(peerId);
   const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user.account.address]));
   await reputationRegistry.write.commitPeerId([commitHash], { account: user.account });
   await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
-  await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: user.account });
+  await reputationRegistry.write.revealPeerId([peerId, salt], { account: user.account });
 }
 
 function getNamespacedPaymentId(payer: `0x${string}`, paymentId: `0x${string}`): `0x${string}` {
@@ -239,8 +244,9 @@ describe("ReputationRegistry", () => {
     it("should reject reveal before delay", async () => {
       const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
       const peerId = generatePeerId(user1.account.address);
+      const peerIdHash = getPeerIdHash(peerId);
       const salt = generateSalt(9);
-      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerId, salt, user1.account.address]));
+      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user1.account.address]));
 
       await reputationRegistry.write.commitPeerId([commitHash], { account: user1.account });
 
@@ -255,9 +261,10 @@ describe("ReputationRegistry", () => {
     it("should reject invalid reveal (wrong salt)", async () => {
       const { reputationRegistry, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
       const peerId = generatePeerId(user1.account.address);
+      const peerIdHash = getPeerIdHash(peerId);
       const salt = generateSalt(10);
       const wrongSalt = generateSalt(999);
-      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerId, salt, user1.account.address]));
+      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user1.account.address]));
 
       await reputationRegistry.write.commitPeerId([commitHash], { account: user1.account });
       await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
@@ -286,12 +293,13 @@ describe("ReputationRegistry", () => {
     it("should reject duplicate peer ID registration from different wallet", async () => {
       const { reputationRegistry, user1, user2, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
       const peerId = generatePeerId(user1.account.address);
+      const peerIdHash = getPeerIdHash(peerId);
       const salt1 = generateSalt(12);
       const salt2 = generateSalt(13);
 
       await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt1);
 
-      const commitHash2 = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerId, salt2, user2.account.address]));
+      const commitHash2 = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt2, user2.account.address]));
       await reputationRegistry.write.commitPeerId([commitHash2], { account: user2.account });
       await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
 
@@ -317,6 +325,38 @@ describe("ReputationRegistry", () => {
 
       const reputation = await reputationRegistry.read.reputations([user1.account.address]);
       expect(reputation[4]).to.equal(MIN_STAKE_TO_WORK * 2n);
+    });
+
+    it("should store full peerId string and allow lookup", async () => {
+      const { reputationRegistry, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(40);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      const storedPeerId = await reputationRegistry.read.peerIdOf([user1.account.address]);
+      expect(storedPeerId).to.equal(peerId);
+
+      const wallet = await reputationRegistry.read.getWalletByPeerId([peerId]);
+      expect(wallet.toLowerCase()).to.equal(user1.account.address.toLowerCase());
+    });
+
+    it("should reject empty peerId string", async () => {
+      const { reputationRegistry, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const emptyPeerId = "";
+      const peerIdHash = getPeerIdHash("somePeerId");
+      const salt = generateSalt(41);
+      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user1.account.address]));
+
+      await reputationRegistry.write.commitPeerId([commitHash], { account: user1.account });
+      await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
+
+      try {
+        await reputationRegistry.write.revealPeerId([emptyPeerId, salt], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid peerId/);
+      }
     });
   });
 
