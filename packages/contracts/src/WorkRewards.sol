@@ -177,7 +177,11 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         if (!halvingEnabled) {
             return baseRewardPerJob;
         }
-        return rewardPerEpoch[getCurrentEpoch()];
+        uint256 epoch = getCurrentEpoch();
+        if (epoch >= rewardPerEpoch.length) {
+            epoch = rewardPerEpoch.length - 1;
+        }
+        return rewardPerEpoch[epoch];
     }
 
     function calculateReward(
