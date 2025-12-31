@@ -44,6 +44,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
 
     uint256 public accPerShare;
     uint256 private constant PRECISION = 1e18;
+    uint256 private constant MAX_SAFE_MULTIPLIER = type(uint256).max / PRECISION;
 
     mapping(address => uint256) public rewardDebt;
 
@@ -80,7 +81,10 @@ contract FeeCollector is ReentrancyGuard, Ownable {
 
         uint256 totalStakedAmount = reputationRegistry.totalStaked();
         if (totalStakedAmount > 0) {
-            accPerShare += (toStakers * PRECISION) / totalStakedAmount;
+            require(toStakers <= MAX_SAFE_MULTIPLIER, "toStakers overflow");
+            uint256 increment = (toStakers * PRECISION) / totalStakedAmount;
+            require(accPerShare <= type(uint256).max - increment, "accPerShare overflow");
+            accPerShare += increment;
         }
 
         if (toTreasury > 0) {
@@ -98,6 +102,12 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     function pendingRewards(address staker) public view returns (uint256) {
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(staker);
 
+        if (stake == 0 || accPerShare == 0) {
+            return 0;
+        }
+        if (stake > type(uint256).max / accPerShare) {
+            return 0;
+        }
         uint256 currentReward = (stake * accPerShare) / PRECISION;
         uint256 debt = rewardDebt[staker];
         if (currentReward <= debt) {
@@ -109,6 +119,11 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     function claimRewards() external nonReentrant {
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(msg.sender);
 
+        if (stake == 0 || accPerShare == 0) {
+            emit RewardsClaimed(msg.sender, 0);
+            return;
+        }
+        require(stake <= type(uint256).max / accPerShare, "stake*accPerShare overflow");
         uint256 currentReward = (stake * accPerShare) / PRECISION;
         uint256 debt = rewardDebt[msg.sender];
         rewardDebt[msg.sender] = currentReward;
@@ -128,6 +143,11 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     function updateRewardDebt(address staker) external {
         require(msg.sender == address(reputationRegistry), "Only ReputationRegistry");
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(staker);
+        if (stake == 0 || accPerShare == 0) {
+            rewardDebt[staker] = 0;
+            return;
+        }
+        require(stake <= type(uint256).max / accPerShare, "stake*accPerShare overflow");
         rewardDebt[staker] = (stake * accPerShare) / PRECISION;
     }
 
