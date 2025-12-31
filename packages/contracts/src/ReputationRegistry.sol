@@ -52,6 +52,8 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     int8 public constant MAX_RATING_DELTA = 5;
     uint256 public constant MAX_SLASH_PERCENT = 30;
     uint256 public constant MIN_UNSTAKE_COOLDOWN = 1 days;
+    int256 public constant MIN_SCORE = -10 ** 50;
+    int256 public constant MAX_SCORE = 10 ** 50;
 
     uint256 public rateLimitPeriod = 1 days;
     uint256 public maxRatingsPerPeriod = 50;
@@ -173,13 +175,13 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         uint256 weight = getRatingWeight(msg.sender, payment.amount);
         PeerReputation storage rateeRep = reputations[payment.payee];
 
+        int256 scoreDelta = int256(delta) * int256(weight);
         if (delta > 0) {
             rateeRep.rawPositive += uint256(int256(delta));
-            rateeRep.score += int256(delta) * int256(weight);
         } else if (delta < 0) {
             rateeRep.rawNegative += uint256(int256(-delta));
-            rateeRep.score += int256(delta) * int256(weight);
         }
+        rateeRep.score = _applyScoreDelta(rateeRep.score, scoreDelta);
 
         emit Rated(msg.sender, payment.payee, delta, weight);
     }
@@ -204,14 +206,14 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
             uint256 weight = getRatingWeight(msg.sender, payment.amount);
             PeerReputation storage rateeRep = reputations[payment.payee];
+            int256 scoreDelta = int256(deltas[i]) * int256(weight);
 
             if (deltas[i] > 0) {
                 rateeRep.rawPositive += uint256(int256(deltas[i]));
-                rateeRep.score += int256(deltas[i]) * int256(weight);
             } else if (deltas[i] < 0) {
                 rateeRep.rawNegative += uint256(int256(-deltas[i]));
-                rateeRep.score += int256(deltas[i]) * int256(weight);
             }
+            rateeRep.score = _applyScoreDelta(rateeRep.score, scoreDelta);
 
             emit Rated(msg.sender, payment.payee, deltas[i], weight);
         }
@@ -329,6 +331,17 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     function setTreasury(address _treasury) external onlyOwner {
         require(_treasury != address(0), "Invalid treasury address");
         treasury = _treasury;
+    }
+
+    function _applyScoreDelta(int256 currentScore, int256 delta) internal pure returns (int256) {
+        int256 newScore = currentScore + delta;
+        if (newScore > MAX_SCORE) {
+            return MAX_SCORE;
+        }
+        if (newScore < MIN_SCORE) {
+            return MIN_SCORE;
+        }
+        return newScore;
     }
 
     function sqrt(uint256 x) internal pure returns (uint256) {
