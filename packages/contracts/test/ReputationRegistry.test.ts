@@ -579,4 +579,50 @@ describe("ReputationRegistry", () => {
       expect(weight > 0n).to.equal(true);
     });
   });
+
+  describe("Unstake Cooldown Configuration", () => {
+    it("should reject setting cooldown below minimum", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const halfDay = 12n * 60n * 60n;
+
+      try {
+        await reputationRegistry.write.setUnstakeCooldown([halfDay], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Cooldown below minimum/);
+      }
+    });
+
+    it("should reject setting cooldown to zero", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      try {
+        await reputationRegistry.write.setUnstakeCooldown([0n], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Cooldown below minimum/);
+      }
+    });
+
+    it("should allow setting cooldown at minimum (1 day)", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const oneDay = 24n * 60n * 60n;
+      await reputationRegistry.write.setUnstakeCooldown([oneDay], { account: owner.account });
+
+      const cooldown = await reputationRegistry.read.unstakeCooldown();
+      expect(cooldown).to.equal(oneDay);
+    });
+
+    it("should allow setting cooldown above minimum", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const fourteenDays = 14n * 24n * 60n * 60n;
+      await reputationRegistry.write.setUnstakeCooldown([fourteenDays], { account: owner.account });
+
+      const cooldown = await reputationRegistry.read.unstakeCooldown();
+      expect(cooldown).to.equal(fourteenDays);
+    });
+  });
 });

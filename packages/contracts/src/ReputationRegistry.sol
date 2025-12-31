@@ -51,6 +51,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     uint256 public activityCooldown = 1 days;
     int8 public constant MAX_RATING_DELTA = 5;
     uint256 public constant MAX_SLASH_PERCENT = 30;
+    uint256 public constant MIN_UNSTAKE_COOLDOWN = 1 days;
 
     uint256 public rateLimitPeriod = 1 days;
     uint256 public maxRatingsPerPeriod = 50;
@@ -309,6 +310,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
+        require(_cooldown >= MIN_UNSTAKE_COOLDOWN, "Cooldown below minimum");
         unstakeCooldown = _cooldown;
     }
 
