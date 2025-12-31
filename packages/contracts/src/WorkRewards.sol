@@ -123,25 +123,36 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     function distributeBatchRewards(
         BatchRewardInput[] calldata inputs
     ) external onlyAuthorized nonReentrant returns (uint256 totalDistributed) {
+        uint256[] memory rewards = new uint256[](inputs.length);
+        bool[] memory eligible = new bool[](inputs.length);
+        uint256 totalRequired = 0;
+
         for (uint256 i = 0; i < inputs.length; i++) {
             BatchRewardInput calldata input = inputs[i];
 
             if (rewardedJobs[input.jobId]) continue;
             if (!reputationRegistry.canWork(input.peer)) continue;
 
-            rewardedJobs[input.jobId] = true;
-
-            uint256 reward = calculateReward(
+            eligible[i] = true;
+            rewards[i] = calculateReward(
                 input.peer,
                 input.difficulty,
                 input.consensusAchieved,
                 input.fastResponse
             );
+            totalRequired += rewards[i];
+        }
 
-            uint256 balance = eccoToken.balanceOf(address(this));
-            if (reward > balance) {
-                reward = balance;
-            }
+        uint256 balance = eccoToken.balanceOf(address(this));
+        require(balance >= totalRequired, "Insufficient balance for batch");
+
+        for (uint256 i = 0; i < inputs.length; i++) {
+            if (!eligible[i]) continue;
+
+            BatchRewardInput calldata input = inputs[i];
+            uint256 reward = rewards[i];
+
+            rewardedJobs[input.jobId] = true;
 
             if (reward > 0) {
                 eccoToken.safeTransfer(input.peer, reward);
