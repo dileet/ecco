@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther, encodeFunctionData, keccak256, toBytes } from "viem";
+import { parseEther, encodeFunctionData, keccak256, toBytes, encodePacked } from "viem";
 import hre from "hardhat";
 import { deployGovernorFixture, getNetworkHelpers } from "./helpers/fixtures";
 import { mineBlocks } from "./helpers/time";
-import { VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT, TIMELOCK_MIN_DELAY } from "./helpers/constants";
+import { VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT, TIMELOCK_MIN_DELAY, COMMIT_REVEAL_DELAY } from "./helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();
@@ -337,8 +337,9 @@ describe("EccoGovernor", () => {
 
   describe("Quorum Excludes Staked Tokens", () => {
     it("should exclude staked tokens from quorum calculation", async () => {
-      const { viem } = await hre.network.connect();
+      const { viem, networkHelpers } = await hre.network.connect();
       const [owner, staker] = await viem.getWalletClients();
+      const publicClient = await viem.getPublicClient();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
       const reputationRegistry = await viem.deployContract("ReputationRegistry", [
@@ -368,8 +369,19 @@ describe("EccoGovernor", () => {
       await eccoToken.write.mint([staker.account.address, stakeAmount]);
 
       const peerIdHash = keccak256(toBytes("test-peer-id"));
+      const salt = keccak256(toBytes("test-salt"));
+      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, staker.account.address]));
+
+      await reputationRegistry.write.commitPeerId([commitHash], { account: staker.account });
+
+      const block = await publicClient.getBlock();
+      await networkHelpers.time.setNextBlockTimestamp(block.timestamp + COMMIT_REVEAL_DELAY + 10n);
+      await networkHelpers.mine();
+
+      await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: staker.account });
+
       await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: staker.account });
-      await reputationRegistry.write.stake([stakeAmount, peerIdHash], { account: staker.account });
+      await reputationRegistry.write.stake([stakeAmount], { account: staker.account });
 
       const totalStakedAfter = await reputationRegistry.read.totalStaked();
       expect(totalStakedAfter).to.equal(stakeAmount);

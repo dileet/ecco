@@ -1,5 +1,6 @@
 import hre from "hardhat";
 import { parseEther, getAddress } from "viem";
+import type { PublicClient } from "viem";
 import {
   VOTING_DELAY,
   VOTING_PERIOD,
@@ -17,6 +18,20 @@ async function getViem() {
 export async function getNetworkHelpers() {
   const { networkHelpers } = await hre.network.connect();
   return networkHelpers;
+}
+
+type TestRpcSchema = [
+  { Method: "evm_increaseTime"; Parameters: [number]; ReturnType: void },
+  { Method: "evm_mine"; Parameters: []; ReturnType: void }
+];
+
+export async function increaseTime(publicClient: PublicClient, seconds: number | bigint) {
+  const transport = publicClient.transport;
+  const request = transport.request.bind(transport) as <T extends TestRpcSchema[number]>(
+    args: { method: T["Method"]; params: T["Parameters"] }
+  ) => Promise<T["ReturnType"]>;
+  await request({ method: "evm_increaseTime", params: [Number(seconds)] });
+  await request({ method: "evm_mine", params: [] });
 }
 
 export async function deployEccoTokenFixture() {

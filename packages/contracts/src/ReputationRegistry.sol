@@ -37,7 +37,13 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         uint256 ratingsInPeriod;
     }
 
+    struct PeerIdCommitment {
+        bytes32 commitHash;
+        uint256 commitTime;
+    }
+
     mapping(address => PeerReputation) public reputations;
+    mapping(address => PeerIdCommitment) public peerIdCommitments;
     mapping(address => RateLimitInfo) public raterLimits;
     mapping(bytes32 => PaymentRecord) public payments;
 
@@ -54,6 +60,8 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     uint256 public constant MIN_UNSTAKE_COOLDOWN = 1 days;
     int256 public constant MIN_SCORE = -10 ** 50;
     int256 public constant MAX_SCORE = 10 ** 50;
+    uint256 public constant COMMIT_REVEAL_DELAY = 1 minutes;
+    uint256 public constant COMMIT_EXPIRY = 1 days;
 
     uint256 public rateLimitPeriod = 1 days;
     uint256 public maxRatingsPerPeriod = 50;
@@ -69,23 +77,15 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     event Slashed(address indexed peer, uint256 amount, string reason);
     event JobCompleted(address indexed peer);
     event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash);
+    event PeerIdCommitted(address indexed wallet, bytes32 commitHash);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
     }
 
-    function stake(uint256 amount, bytes32 peerIdHash) external nonReentrant {
+    function stake(uint256 amount) external nonReentrant {
         require(amount > 0, "Must stake positive amount");
-        require(peerIdHash != bytes32(0), "Invalid peerId hash");
-
-        if (peerIdOf[msg.sender] == bytes32(0)) {
-            require(walletOf[peerIdHash] == address(0), "PeerId already registered");
-            peerIdOf[msg.sender] = peerIdHash;
-            walletOf[peerIdHash] = msg.sender;
-            emit PeerIdRegistered(msg.sender, peerIdHash);
-        } else {
-            require(peerIdOf[msg.sender] == peerIdHash, "PeerId mismatch");
-        }
+        require(peerIdOf[msg.sender] != bytes32(0), "Must register peerId first");
 
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
         reputations[msg.sender].stake += amount;
@@ -96,14 +96,40 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         emit Staked(msg.sender, amount);
     }
 
-    function registerPeerId(bytes32 peerIdHash) external {
+    function commitPeerId(bytes32 commitHash) external {
+        require(commitHash != bytes32(0), "Invalid commit hash");
+        require(peerIdOf[msg.sender] == bytes32(0), "Already registered");
+
+        peerIdCommitments[msg.sender] = PeerIdCommitment({
+            commitHash: commitHash,
+            commitTime: block.timestamp
+        });
+
+        emit PeerIdCommitted(msg.sender, commitHash);
+    }
+
+    function revealPeerId(bytes32 peerIdHash, bytes32 salt) external {
         require(peerIdHash != bytes32(0), "Invalid peerId hash");
         require(peerIdOf[msg.sender] == bytes32(0), "Already registered");
         require(walletOf[peerIdHash] == address(0), "PeerId already taken");
 
+        PeerIdCommitment storage commitment = peerIdCommitments[msg.sender];
+        require(commitment.commitTime > 0, "No commitment found");
+        require(block.timestamp >= commitment.commitTime + COMMIT_REVEAL_DELAY, "Reveal too early");
+        require(block.timestamp <= commitment.commitTime + COMMIT_EXPIRY, "Commitment expired");
+
+        bytes32 expectedHash = keccak256(abi.encodePacked(peerIdHash, salt, msg.sender));
+        require(commitment.commitHash == expectedHash, "Invalid reveal");
+
+        delete peerIdCommitments[msg.sender];
+
         peerIdOf[msg.sender] = peerIdHash;
         walletOf[peerIdHash] = msg.sender;
         emit PeerIdRegistered(msg.sender, peerIdHash);
+    }
+
+    function getCommitHash(bytes32 peerIdHash, bytes32 salt, address wallet) external pure returns (bytes32) {
+        return keccak256(abi.encodePacked(peerIdHash, salt, wallet));
     }
 
     function getWalletForPeerId(bytes32 peerIdHash) external view returns (address) {

@@ -4,6 +4,7 @@ export const MAX_SUPPLY = parseEther("1000000000");
 export const MIN_STAKE_TO_WORK = parseEther("100");
 export const MIN_STAKE_TO_RATE = parseEther("10");
 export const UNSTAKE_COOLDOWN = 7n * 24n * 60n * 60n;
+export const COMMIT_REVEAL_DELAY = 60n;
 
 export const HALVING_THRESHOLDS = [5_000_000n, 15_000_000n, 35_000_000n, 75_000_000n];
 export const REWARD_PER_EPOCH = [
@@ -33,6 +34,9 @@ export const generatePaymentId = (index: number): `0x${string}` =>
 
 export const generatePeerId = (address: string): `0x${string}` =>
   keccak256(toBytes(address));
+
+export const generateSalt = (index: number): `0x${string}` =>
+  keccak256(toBytes(`salt-${index}`));
 
 export const INITIAL_CONSTITUTION_ITEMS = [
   "Agents must provide honest and accurate responses to the best of their ability",
