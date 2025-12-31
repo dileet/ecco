@@ -263,6 +263,64 @@ describe("WorkRewards", () => {
     });
   });
 
+  describe("Quality Multiplier Cap", () => {
+    it("should have default maxQualityMultiplier of 300", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      expect(await workRewards.read.maxQualityMultiplier()).to.equal(300n);
+    });
+
+    it("should cap quality multiplier at maxQualityMultiplier", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      await workRewards.write.setRewardParameters([parseEther("1"), 200n, 200n, 200n]);
+
+      const rewardCapped = await workRewards.read.calculateReward(["0x0000000000000000000000000000000000000001", 1000n, true, true]);
+      const baseReward = await workRewards.read.getCurrentBaseReward();
+      const expectedCapped = (baseReward * 1n * 300n) / 100n;
+      expect(rewardCapped).to.equal(expectedCapped);
+    });
+
+    it("should allow owner to set maxQualityMultiplier", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      await workRewards.write.setMaxQualityMultiplier([400n]);
+      expect(await workRewards.read.maxQualityMultiplier()).to.equal(400n);
+    });
+
+    it("should reject maxQualityMultiplier below 100", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setMaxQualityMultiplier([99n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Max quality multiplier must be at least 100/);
+      }
+    });
+
+    it("should reject maxQualityMultiplier above 1000", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setMaxQualityMultiplier([1001n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Max quality multiplier exceeds 1000%/);
+      }
+    });
+
+    it("should reject non-owner from setting maxQualityMultiplier", async () => {
+      const { workRewards, user1 } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setMaxQualityMultiplier([400n], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/OwnableUnauthorizedAccount/);
+      }
+    });
+  });
+
   describe("Distributor Management", () => {
     it("should allow owner to remove distributor", async () => {
       const { workRewards, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);

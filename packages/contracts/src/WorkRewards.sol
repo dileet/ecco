@@ -23,6 +23,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
 
     uint256 public maxDifficultyMultiplier = 10;
     uint256 public difficultyDivisor = 1000;
+    uint256 public maxQualityMultiplier = 300;
 
     uint256[4] public halvingThresholds = [5_000_000, 15_000_000, 35_000_000, 75_000_000];
     uint256[5] public rewardPerEpoch = [1 ether, 0.5 ether, 0.25 ether, 0.125 ether, 0.0625 ether];
@@ -207,6 +208,10 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         }
         qualityMultiplier += stakerBonus;
 
+        if (qualityMultiplier > maxQualityMultiplier) {
+            qualityMultiplier = maxQualityMultiplier;
+        }
+
         uint256 currentBaseReward = getCurrentBaseReward();
         return (currentBaseReward * difficultyMultiplier * qualityMultiplier) / 100;
     }
@@ -274,6 +279,12 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         require(_difficultyDivisor > 0, "Divisor cannot be zero");
         maxDifficultyMultiplier = _maxDifficultyMultiplier;
         difficultyDivisor = _difficultyDivisor;
+    }
+
+    function setMaxQualityMultiplier(uint256 _maxQualityMultiplier) external onlyOwner {
+        require(_maxQualityMultiplier >= 100, "Max quality multiplier must be at least 100");
+        require(_maxQualityMultiplier <= 1000, "Max quality multiplier exceeds 1000%");
+        maxQualityMultiplier = _maxQualityMultiplier;
     }
 
     function setHalvingEnabled(bool _enabled) external onlyOwner {
