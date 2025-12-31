@@ -284,6 +284,15 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         uint256[4] calldata _thresholds,
         uint256[5] calldata _rewards
     ) external onlyOwner {
+        for (uint256 i = 0; i < _thresholds.length; i++) {
+            require(_thresholds[i] > 0, "Threshold must be positive");
+            if (i > 0) {
+                require(_thresholds[i] > _thresholds[i - 1], "Thresholds must be ascending");
+            }
+        }
+        for (uint256 i = 0; i < _rewards.length; i++) {
+            require(_rewards[i] > 0, "Reward must be positive");
+        }
         halvingThresholds = _thresholds;
         rewardPerEpoch = _rewards;
     }
