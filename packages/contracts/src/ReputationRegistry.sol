@@ -7,6 +7,10 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+interface IFeeCollector {
+    function updateRewardDebt(address staker) external;
+}
+
 contract ReputationRegistry is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -70,6 +74,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     uint256 public totalStaked;
     address public treasury;
+    IFeeCollector public feeCollector;
 
     event Staked(address indexed peer, uint256 amount);
     event UnstakeRequested(address indexed peer, uint256 amount);
@@ -81,6 +86,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash, string peerId);
     event PeerIdCommitted(address indexed wallet, bytes32 commitHash);
     event TrustedPaymentRecorderSet(address indexed recorder, bool trusted);
+    event FeeCollectorSet(address indexed feeCollector);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
@@ -96,6 +102,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
             reputations[msg.sender].lastActive = block.timestamp;
         }
         totalStaked += amount;
+        if (address(feeCollector) != address(0)) {
+            feeCollector.updateRewardDebt(msg.sender);
+        }
         emit Staked(msg.sender, amount);
     }
 
@@ -172,6 +181,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         rep.unstakeAmount = 0;
 
         totalStaked -= amount;
+        if (address(feeCollector) != address(0)) {
+            feeCollector.updateRewardDebt(msg.sender);
+        }
 
         eccoToken.safeTransfer(msg.sender, amount);
 
@@ -275,6 +287,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
         rep.stake -= slashAmount;
         totalStaked -= slashAmount;
+        if (address(feeCollector) != address(0)) {
+            feeCollector.updateRewardDebt(peer);
+        }
 
         eccoToken.safeTransfer(treasury, slashAmount);
 
@@ -395,6 +410,12 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         require(recorder != address(0), "Invalid recorder address");
         trustedPaymentRecorders[recorder] = trusted;
         emit TrustedPaymentRecorderSet(recorder, trusted);
+    }
+
+    function setFeeCollector(address _feeCollector) external onlyOwner {
+        require(_feeCollector != address(0), "Invalid fee collector address");
+        feeCollector = IFeeCollector(_feeCollector);
+        emit FeeCollectorSet(_feeCollector);
     }
 
     function _applyScoreDelta(int256 currentScore, int256 delta) internal pure returns (int256) {
