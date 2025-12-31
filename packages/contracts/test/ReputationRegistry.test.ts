@@ -26,6 +26,10 @@ async function registerPeerIdWithCommitReveal(
   await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: user.account });
 }
 
+function getNamespacedPaymentId(payer: `0x${string}`, paymentId: `0x${string}`): `0x${string}` {
+  return keccak256(encodePacked(["address", "bytes32"], [payer, paymentId]));
+}
+
 describe("ReputationRegistry", () => {
   describe("Deployment", () => {
     it("should set correct minStakeToWork", async () => {
@@ -171,7 +175,8 @@ describe("ReputationRegistry", () => {
       await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
       await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
 
-      const payment = await reputationRegistry.read.payments([paymentId]);
+      const namespacedId = getNamespacedPaymentId(user1.account.address, paymentId);
+      const payment = await reputationRegistry.read.payments([namespacedId]);
       expect(payment[4]).to.equal(true);
     });
   });
@@ -435,7 +440,7 @@ describe("ReputationRegistry", () => {
         await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user2.account });
         expect.fail("Expected transaction to revert");
       } catch (error) {
-        expect(String(error)).to.match(/Only payer can rate/);
+        expect(String(error)).to.match(/Payment not found/);
       }
     });
 
@@ -552,9 +557,9 @@ describe("ReputationRegistry", () => {
 
       await reputationRegistry.write.batchRate([[paymentId1, paymentId2, paymentId3], [5, 3, -2]], { account: user1.account });
 
-      const payment1 = await reputationRegistry.read.payments([paymentId1]);
-      const payment2 = await reputationRegistry.read.payments([paymentId2]);
-      const payment3 = await reputationRegistry.read.payments([paymentId3]);
+      const payment1 = await reputationRegistry.read.payments([getNamespacedPaymentId(user1.account.address, paymentId1)]);
+      const payment2 = await reputationRegistry.read.payments([getNamespacedPaymentId(user1.account.address, paymentId2)]);
+      const payment3 = await reputationRegistry.read.payments([getNamespacedPaymentId(user1.account.address, paymentId3)]);
 
       expect(payment1[4]).to.equal(true);
       expect(payment2[4]).to.equal(true);

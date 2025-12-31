@@ -136,6 +136,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         return walletOf[peerIdHash];
     }
 
+    function getNamespacedPaymentId(address payer, bytes32 paymentId) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(payer, paymentId));
+    }
+
     function requestUnstake(uint256 amount) external nonReentrant {
         PeerReputation storage rep = reputations[msg.sender];
         require(amount <= rep.stake, "Insufficient stake");
@@ -165,11 +169,12 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function recordPayment(bytes32 paymentId, address payee, uint256 amount) external {
-        require(payments[paymentId].timestamp == 0, "Payment already recorded");
+        bytes32 namespacedId = getNamespacedPaymentId(msg.sender, paymentId);
+        require(payments[namespacedId].timestamp == 0, "Payment already recorded");
         require(payee != address(0), "Invalid payee");
         require(amount > 0, "Invalid amount");
 
-        payments[paymentId] = PaymentRecord({
+        payments[namespacedId] = PaymentRecord({
             payer: msg.sender,
             payee: payee,
             amount: amount,
@@ -182,12 +187,13 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
             reputations[payee].lastActive = block.timestamp;
         }
 
-        emit PaymentRecorded(paymentId, msg.sender, payee, amount);
+        emit PaymentRecorded(namespacedId, msg.sender, payee, amount);
         emit JobCompleted(payee);
     }
 
     function rateAfterPayment(bytes32 paymentId, int8 delta) external nonReentrant {
-        PaymentRecord storage payment = payments[paymentId];
+        bytes32 namespacedId = getNamespacedPaymentId(msg.sender, paymentId);
+        PaymentRecord storage payment = payments[namespacedId];
         require(payment.timestamp > 0, "Payment not found");
         require(payment.payer == msg.sender, "Only payer can rate");
         require(!payment.rated, "Already rated");
@@ -220,7 +226,8 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         _checkAndUpdateRateLimit(msg.sender, paymentIds.length);
 
         for (uint256 i = 0; i < paymentIds.length; i++) {
-            PaymentRecord storage payment = payments[paymentIds[i]];
+            bytes32 namespacedId = getNamespacedPaymentId(msg.sender, paymentIds[i]);
+            PaymentRecord storage payment = payments[namespacedId];
             require(payment.timestamp > 0, "Payment not found");
             require(payment.payer == msg.sender, "Only payer can rate");
             require(!payment.rated, "Already rated");
