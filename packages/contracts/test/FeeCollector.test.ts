@@ -152,6 +152,17 @@ describe("FeeCollector", () => {
       await feeCollector.write.setTreasury([user1.account.address]);
       expect((await feeCollector.read.treasury()).toLowerCase()).to.equal(user1.account.address.toLowerCase());
     });
+
+    it("should reject zero address for treasury", async () => {
+      const { feeCollector } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+
+      try {
+        await feeCollector.write.setTreasury(["0x0000000000000000000000000000000000000000"]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Treasury cannot be zero address/);
+      }
+    });
   });
 
   describe("Zero Stakers Edge Case", () => {

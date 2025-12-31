@@ -54,6 +54,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     event FeesDistributed(uint256 toStakers, uint256 toTreasury, uint256 burned);
 
     constructor(address _eccoToken, address _reputationRegistry, address _treasury, address _owner) Ownable(_owner) {
+        require(_treasury != address(0), "Treasury cannot be zero address");
         eccoToken = IERC20(_eccoToken);
         eccoTokenBurnable = ERC20Burnable(_eccoToken);
         reputationRegistry = IReputationRegistry(_reputationRegistry);
@@ -152,6 +153,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "Treasury cannot be zero address");
         emit TreasuryUpdated(treasury, _treasury);
         treasury = _treasury;
     }
