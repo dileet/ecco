@@ -1,28 +1,54 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther } from "viem";
-import { deployFullEcosystemFixture, getNetworkHelpers } from "../helpers/fixtures";
-import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generateJobId, generatePaymentId } from "../helpers/constants";
+import { parseEther, keccak256, encodePacked } from "viem";
+import { deployFullEcosystemFixture, getNetworkHelpers, increaseTime } from "../helpers/fixtures";
+import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generateJobId, generatePaymentId, generateSalt, COMMIT_REVEAL_DELAY } from "../helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();
   return networkHelpers.loadFixture(fixture);
 }
 
+type FullEcosystemFixture = Awaited<ReturnType<typeof deployFullEcosystemFixture>>;
+type ReputationRegistry = FullEcosystemFixture["reputationRegistry"];
+type WalletClient = FullEcosystemFixture["user1"];
+type PublicClient = FullEcosystemFixture["publicClient"];
+
+async function registerPeerIdWithCommitReveal(
+  reputationRegistry: ReputationRegistry,
+  publicClient: PublicClient,
+  user: WalletClient,
+  peerIdHash: `0x${string}`,
+  salt: `0x${string}`
+) {
+  const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, user.account.address]));
+  await reputationRegistry.write.commitPeerId([commitHash], { account: user.account });
+  await increaseTime(publicClient, COMMIT_REVEAL_DELAY + 10n);
+  await reputationRegistry.write.revealPeerId([peerIdHash, salt], { account: user.account });
+}
+
 describe("Work Rewards Ecosystem Integration", () => {
   describe("Complete Work Cycle", () => {
     it("should complete stake -> work -> reward -> payment -> rate flow", async () => {
-      const { eccoToken, reputationRegistry, workRewards, user1, user2, distributor } = await loadFixtureWithHelpers(deployFullEcosystemFixture);
+      const { eccoToken, reputationRegistry, workRewards, user1, user2, distributor, publicClient } = await loadFixtureWithHelpers(deployFullEcosystemFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
+      const peerId1 = generatePeerId(user1.account.address);
+      const salt1 = generateSalt(500);
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId1, salt1);
+
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
       await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, generatePeerId(user1.account.address)], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK], { account: user1.account });
+
+      const peerId2 = generatePeerId(user2.account.address);
+      const salt2 = generateSalt(501);
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user2, peerId2, salt2);
 
       await eccoToken.write.mint([user2.account.address, MIN_STAKE_TO_RATE]);
       await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user2.account });
-      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user2.account.address)], { account: user2.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user2.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("100000")]);
 
@@ -57,11 +83,15 @@ describe("Work Rewards Ecosystem Integration", () => {
 
   describe("Fee Collection and Distribution", () => {
     it("should distribute fees proportionally to stakers", async () => {
-      const { eccoToken, reputationRegistry, feeCollector, treasury, user1, user2, user3 } = await loadFixtureWithHelpers(deployFullEcosystemFixture);
+      const { eccoToken, reputationRegistry, feeCollector, treasury, user1, user3, publicClient } = await loadFixtureWithHelpers(deployFullEcosystemFixture);
+
+      const peerId1 = generatePeerId(user1.account.address);
+      const salt1 = generateSalt(502);
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId1, salt1);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
       await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK, generatePeerId(user1.account.address)], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_WORK], { account: user1.account });
 
       const paymentAmount = parseEther("100000");
       const feePercent = await feeCollector.read.feePercent();
