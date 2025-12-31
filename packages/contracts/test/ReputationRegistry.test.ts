@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import { expect } from "chai";
 import { parseEther, keccak256, encodePacked } from "viem";
 import { deployReputationRegistryFixture, getNetworkHelpers, increaseTime } from "./helpers/fixtures";
-import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generatePaymentId, generateSalt, COMMIT_REVEAL_DELAY } from "./helpers/constants";
+import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generatePaymentId, generateSalt, COMMIT_REVEAL_DELAY, MAX_BATCH_SIZE } from "./helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();
@@ -590,6 +590,72 @@ describe("ReputationRegistry", () => {
       } catch (error) {
         expect(String(error)).to.match(/Length mismatch/);
       }
+    });
+
+    it("should reject batch rating exceeding MAX_BATCH_SIZE", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, owner, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(100);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user1.account });
+
+      await reputationRegistry.write.setRateLimits([86400n, 100n], { account: owner.account });
+
+      const batchSize = Number(MAX_BATCH_SIZE) + 1;
+      const paymentIds: `0x${string}`[] = [];
+      const deltas: number[] = [];
+
+      for (let i = 0; i < batchSize; i++) {
+        const paymentId = generatePaymentId(1000 + i);
+        paymentIds.push(paymentId);
+        deltas.push(1);
+        await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("10")], { account: user1.account });
+      }
+
+      try {
+        await reputationRegistry.write.batchRate([paymentIds, deltas], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Batch size exceeds limit/);
+      }
+    });
+
+    it("should allow batch rating at exactly MAX_BATCH_SIZE", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, owner, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(101);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user1.account });
+
+      await reputationRegistry.write.setRateLimits([86400n, 100n], { account: owner.account });
+
+      const batchSize = Number(MAX_BATCH_SIZE);
+      const paymentIds: `0x${string}`[] = [];
+      const deltas: number[] = [];
+
+      for (let i = 0; i < batchSize; i++) {
+        const paymentId = generatePaymentId(2000 + i);
+        paymentIds.push(paymentId);
+        deltas.push(1);
+        await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("10")], { account: user1.account });
+      }
+
+      await reputationRegistry.write.batchRate([paymentIds, deltas], { account: user1.account });
+
+      const firstPayment = await reputationRegistry.read.payments([getNamespacedPaymentId(user1.account.address, paymentIds[0])]);
+      const lastPayment = await reputationRegistry.read.payments([getNamespacedPaymentId(user1.account.address, paymentIds[batchSize - 1])]);
+      expect(firstPayment[4]).to.equal(true);
+      expect(lastPayment[4]).to.equal(true);
     });
   });
 

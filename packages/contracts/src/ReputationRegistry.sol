@@ -62,6 +62,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     int256 public constant MAX_SCORE = 10 ** 50;
     uint256 public constant COMMIT_REVEAL_DELAY = 1 minutes;
     uint256 public constant COMMIT_EXPIRY = 1 days;
+    uint256 public constant MAX_BATCH_SIZE = 50;
 
     uint256 public rateLimitPeriod = 1 days;
     uint256 public maxRatingsPerPeriod = 50;
@@ -221,6 +222,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     function batchRate(bytes32[] calldata paymentIds, int8[] calldata deltas) external nonReentrant {
         require(paymentIds.length == deltas.length, "Length mismatch");
         require(paymentIds.length > 0, "Empty batch");
+        require(paymentIds.length <= MAX_BATCH_SIZE, "Batch size exceeds limit");
         require(canRate(msg.sender), "Insufficient stake to rate");
 
         _checkAndUpdateRateLimit(msg.sender, paymentIds.length);
