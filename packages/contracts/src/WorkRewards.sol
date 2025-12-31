@@ -244,6 +244,12 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         uint256 _fastResponseBonus,
         uint256 _stakerBonus
     ) external onlyOwner {
+        require(_baseRewardPerJob > 0, "Base reward must be positive");
+        require(_baseRewardPerJob <= 1000 ether, "Base reward too high");
+        require(_consensusBonus <= 200, "Consensus bonus exceeds 200%");
+        require(_fastResponseBonus <= 200, "Fast response bonus exceeds 200%");
+        require(_stakerBonus <= 200, "Staker bonus exceeds 200%");
+
         baseRewardPerJob = _baseRewardPerJob;
         consensusBonus = _consensusBonus;
         fastResponseBonus = _fastResponseBonus;

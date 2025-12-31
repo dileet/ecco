@@ -374,6 +374,74 @@ describe("WorkRewards", () => {
     });
   });
 
+  describe("Reward Parameter Validation", () => {
+    it("should accept valid reward parameters", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      await workRewards.write.setRewardParameters([parseEther("2"), 100n, 50n, 25n]);
+
+      expect(await workRewards.read.baseRewardPerJob()).to.equal(parseEther("2"));
+      expect(await workRewards.read.consensusBonus()).to.equal(100n);
+      expect(await workRewards.read.fastResponseBonus()).to.equal(50n);
+      expect(await workRewards.read.stakerBonus()).to.equal(25n);
+    });
+
+    it("should reject zero base reward", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setRewardParameters([0n, 50n, 25n, 10n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Base reward must be positive/);
+      }
+    });
+
+    it("should reject base reward exceeding maximum", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setRewardParameters([parseEther("1001"), 50n, 25n, 10n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Base reward too high/);
+      }
+    });
+
+    it("should reject consensus bonus exceeding 200%", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setRewardParameters([parseEther("1"), 201n, 25n, 10n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Consensus bonus exceeds 200%/);
+      }
+    });
+
+    it("should reject fast response bonus exceeding 200%", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setRewardParameters([parseEther("1"), 50n, 201n, 10n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Fast response bonus exceeds 200%/);
+      }
+    });
+
+    it("should reject staker bonus exceeding 200%", async () => {
+      const { workRewards } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+
+      try {
+        await workRewards.write.setRewardParameters([parseEther("1"), 50n, 25n, 201n]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Staker bonus exceeds 200%/);
+      }
+    });
+  });
+
   describe("Reward Pool", () => {
     it("should cap reward at available balance", async () => {
       const { workRewards, reputationRegistry, eccoToken, user1, distributor, publicClient } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
