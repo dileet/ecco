@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { getContract, formatEther, keccak256, toHex } from 'viem';
 import type { WalletState } from './wallet';
 import { getPublicClient, getWalletClient } from './wallet';
@@ -36,7 +37,10 @@ function getWorkRewardsContract(state: WalletState, chainId: number) {
 }
 
 export function generateJobId(jobData: string): `0x${string}` {
-  return keccak256(toHex(jobData));
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const timestamp = Date.now();
+  const data = `${jobData}:${timestamp}:${nonce}`;
+  return keccak256(toHex(data));
 }
 
 export async function distributeReward(
