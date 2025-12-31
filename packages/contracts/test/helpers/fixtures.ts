@@ -60,6 +60,9 @@ export async function deployReputationRegistryFixture() {
     [eccoToken.address, owner.account.address]
   );
 
+  await reputationRegistry.write.setTrustedPaymentRecorder([user1.account.address, true], { account: owner.account });
+  await reputationRegistry.write.setTrustedPaymentRecorder([user2.account.address, true], { account: owner.account });
+
   return {
     eccoToken,
     reputationRegistry,
@@ -295,6 +298,9 @@ export async function deployFullEcosystemFixture() {
   ]);
 
   await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
+
+  await reputationRegistry.write.setTrustedPaymentRecorder([user1.account.address, true], { account: owner.account });
+  await reputationRegistry.write.setTrustedPaymentRecorder([user2.account.address, true], { account: owner.account });
 
   return {
     eccoToken,

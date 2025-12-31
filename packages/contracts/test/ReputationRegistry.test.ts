@@ -967,6 +967,73 @@ describe("ReputationRegistry", () => {
     });
   });
 
+  describe("Trusted Payment Recorder", () => {
+    it("should reject recordPayment from non-trusted caller", async () => {
+      const { reputationRegistry, user3 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const paymentId = generatePaymentId(50);
+
+      try {
+        await reputationRegistry.write.recordPayment([paymentId, user3.account.address, parseEther("100")], { account: user3.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Caller not trusted payment recorder/);
+      }
+    });
+
+    it("should allow recordPayment from trusted caller", async () => {
+      const { reputationRegistry, user1, user2 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const paymentId = generatePaymentId(51);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+
+      const namespacedId = getNamespacedPaymentId(user1.account.address, paymentId);
+      const payment = await reputationRegistry.read.payments([namespacedId]);
+      expect(payment[2]).to.equal(parseEther("100"));
+    });
+
+    it("should allow owner to set trusted payment recorder", async () => {
+      const { reputationRegistry, owner, user3 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await reputationRegistry.write.setTrustedPaymentRecorder([user3.account.address, true], { account: owner.account });
+
+      const isTrusted = await reputationRegistry.read.trustedPaymentRecorders([user3.account.address]);
+      expect(isTrusted).to.equal(true);
+    });
+
+    it("should allow owner to remove trusted payment recorder", async () => {
+      const { reputationRegistry, owner, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await reputationRegistry.write.setTrustedPaymentRecorder([user1.account.address, false], { account: owner.account });
+
+      const isTrusted = await reputationRegistry.read.trustedPaymentRecorders([user1.account.address]);
+      expect(isTrusted).to.equal(false);
+    });
+
+    it("should reject non-owner from setting trusted payment recorder", async () => {
+      const { reputationRegistry, user1, user3 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      try {
+        await reputationRegistry.write.setTrustedPaymentRecorder([user3.account.address, true], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/OwnableUnauthorizedAccount/);
+      }
+    });
+
+    it("should reject setting zero address as trusted recorder", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+      const zeroAddress = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+
+      try {
+        await reputationRegistry.write.setTrustedPaymentRecorder([zeroAddress, true], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid recorder address/);
+      }
+    });
+  });
+
   describe("Rating Weight Edge Cases", () => {
     it("should return non-zero weight for staker at exact minimum stake", async () => {
       const { reputationRegistry, eccoToken, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);

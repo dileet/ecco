@@ -49,6 +49,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
     mapping(address => string) public peerIdOf;
     mapping(bytes32 => address) public walletOf;
+    mapping(address => bool) public trustedPaymentRecorders;
 
     uint256 public minStakeToWork = 100 * 10 ** 18;
     uint256 public minStakeToRate = 10 * 10 ** 18;
@@ -79,6 +80,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     event JobCompleted(address indexed peer);
     event PeerIdRegistered(address indexed wallet, bytes32 indexed peerIdHash, string peerId);
     event PeerIdCommitted(address indexed wallet, bytes32 commitHash);
+    event TrustedPaymentRecorderSet(address indexed recorder, bool trusted);
 
     constructor(address _eccoToken, address _owner) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
@@ -177,6 +179,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function recordPayment(bytes32 paymentId, address payee, uint256 amount) external {
+        require(trustedPaymentRecorders[msg.sender], "Caller not trusted payment recorder");
         bytes32 namespacedId = getNamespacedPaymentId(msg.sender, paymentId);
         require(payments[namespacedId].timestamp == 0, "Payment already recorded");
         require(payee != address(0), "Invalid payee");
@@ -386,6 +389,12 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     function setTreasury(address _treasury) external onlyOwner {
         require(_treasury != address(0), "Invalid treasury address");
         treasury = _treasury;
+    }
+
+    function setTrustedPaymentRecorder(address recorder, bool trusted) external onlyOwner {
+        require(recorder != address(0), "Invalid recorder address");
+        trustedPaymentRecorders[recorder] = trusted;
+        emit TrustedPaymentRecorderSet(recorder, trusted);
     }
 
     function _applyScoreDelta(int256 currentScore, int256 delta) internal pure returns (int256) {
