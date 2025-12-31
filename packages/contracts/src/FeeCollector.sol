@@ -102,10 +102,11 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function claimRewards() external nonReentrant {
-        uint256 pending = pendingRewards(msg.sender);
-
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(msg.sender);
-        rewardDebt[msg.sender] = (stake * accPerShare) / PRECISION;
+
+        uint256 currentReward = (stake * accPerShare) / PRECISION;
+        uint256 pending = currentReward - rewardDebt[msg.sender];
+        rewardDebt[msg.sender] = currentReward;
 
         if (pending > 0) {
             claimedRewards[msg.sender] += pending;
