@@ -272,7 +272,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         int256 baseScore = rep.score;
 
         uint256 daysSinceActive = (block.timestamp - rep.lastActive) / 1 days;
-        uint256 activityPenalty = daysSinceActive > 30 ? 50 : daysSinceActive * 2;
+        uint256 activityPenalty = Math.min(daysSinceActive * 2, 50);
 
         return (baseScore * int256(100 - activityPenalty)) / 100;
     }
