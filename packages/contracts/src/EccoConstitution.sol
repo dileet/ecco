@@ -9,6 +9,7 @@ contract EccoConstitution is Ownable {
 
     event ItemAdded(uint256 indexed index, string content);
     event ItemRemoved(uint256 indexed index, string content);
+    event ItemMoved(uint256 indexed fromIndex, uint256 indexed toIndex, string content);
 
     constructor(string[] memory initialItems, address initialOwner) Ownable(initialOwner) {
         for (uint256 i = 0; i < initialItems.length; i++) {
@@ -30,7 +31,9 @@ contract EccoConstitution is Ownable {
 
         uint256 lastIndex = _items.length - 1;
         if (index != lastIndex) {
-            _items[index] = _items[lastIndex];
+            string memory movedContent = _items[lastIndex];
+            _items[index] = movedContent;
+            emit ItemMoved(lastIndex, index, movedContent);
         }
         _items.pop();
 

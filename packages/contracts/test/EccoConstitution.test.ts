@@ -181,6 +181,25 @@ describe("EccoConstitution", () => {
       const logs = receipt.logs;
       expect(logs.length).to.be.greaterThan(0);
     });
+
+    it("should emit ItemMoved event when swapping during removal", async () => {
+      const { eccoConstitution, publicClient } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const hash = await eccoConstitution.write.removeItem([0n]);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+      expect(receipt.logs.length).to.equal(2);
+    });
+
+    it("should not emit ItemMoved event when removing last item", async () => {
+      const { eccoConstitution, publicClient } = await loadFixtureWithHelpers(deployConstitutionFixture);
+      const lastIndex = BigInt(INITIAL_CONSTITUTION_ITEMS.length - 1);
+
+      const hash = await eccoConstitution.write.removeItem([lastIndex]);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+      expect(receipt.logs.length).to.equal(1);
+    });
   });
 
   describe("View Functions", () => {
