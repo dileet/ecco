@@ -261,7 +261,8 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         uint256 stakeWeight;
 
         if (rep.stake >= minStakeToRate) {
-            stakeWeight = sqrt(rep.stake / minStakeToRate);
+            uint256 sqrtResult = sqrt(rep.stake / minStakeToRate);
+            stakeWeight = sqrtResult > 0 ? sqrtResult : 1;
         } else {
             stakeWeight = 1;
         }
@@ -307,6 +308,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function setMinStakes(uint256 _minStakeToWork, uint256 _minStakeToRate) external onlyOwner {
+        require(_minStakeToRate > 0, "Min stake to rate must be positive");
         minStakeToWork = _minStakeToWork;
         minStakeToRate = _minStakeToRate;
     }

@@ -625,4 +625,51 @@ describe("ReputationRegistry", () => {
       expect(cooldown).to.equal(fourteenDays);
     });
   });
+
+  describe("Min Stake Configuration", () => {
+    it("should reject setting minStakeToRate to zero", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      try {
+        await reputationRegistry.write.setMinStakes([MIN_STAKE_TO_WORK, 0n], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Min stake to rate must be positive/);
+      }
+    });
+
+    it("should allow setting valid minStakeToRate", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const newMinStakeToRate = parseEther("20");
+      await reputationRegistry.write.setMinStakes([MIN_STAKE_TO_WORK, newMinStakeToRate], { account: owner.account });
+
+      const minStake = await reputationRegistry.read.minStakeToRate();
+      expect(minStake).to.equal(newMinStakeToRate);
+    });
+  });
+
+  describe("Rating Weight Edge Cases", () => {
+    it("should return non-zero weight for staker at exact minimum stake", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, parseEther("100")]);
+      expect(weight > 0n).to.equal(true);
+    });
+
+    it("should ensure stakeWeight is at least 1 for any valid staker", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, parseEther("1")]);
+      expect(weight).to.equal(parseEther("1") / BigInt(1e18));
+    });
+  });
 });
