@@ -98,20 +98,29 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     function pendingRewards(address staker) public view returns (uint256) {
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(staker);
 
-        return ((stake * accPerShare) / PRECISION) - rewardDebt[staker];
+        uint256 currentReward = (stake * accPerShare) / PRECISION;
+        uint256 debt = rewardDebt[staker];
+        if (currentReward <= debt) {
+            return 0;
+        }
+        return currentReward - debt;
     }
 
     function claimRewards() external nonReentrant {
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(msg.sender);
 
         uint256 currentReward = (stake * accPerShare) / PRECISION;
-        uint256 pending = currentReward - rewardDebt[msg.sender];
+        uint256 debt = rewardDebt[msg.sender];
         rewardDebt[msg.sender] = currentReward;
 
-        if (pending > 0) {
-            claimedRewards[msg.sender] += pending;
-            eccoToken.safeTransfer(msg.sender, pending);
+        if (currentReward <= debt) {
+            emit RewardsClaimed(msg.sender, 0);
+            return;
         }
+
+        uint256 pending = currentReward - debt;
+        claimedRewards[msg.sender] += pending;
+        eccoToken.safeTransfer(msg.sender, pending);
 
         emit RewardsClaimed(msg.sender, pending);
     }
