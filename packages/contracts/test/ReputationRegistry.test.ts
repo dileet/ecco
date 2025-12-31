@@ -671,5 +671,21 @@ describe("ReputationRegistry", () => {
       const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, parseEther("1")]);
       expect(weight).to.equal(parseEther("1") / BigInt(1e18));
     });
+
+    it("should cap rating weight at int256 max to prevent overflow on cast", async () => {
+      const { reputationRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const largeStake = parseEther("1000000000");
+      await eccoToken.write.mint([user1.account.address, largeStake]);
+      await eccoToken.write.approve([reputationRegistry.address, largeStake], { account: user1.account });
+      await reputationRegistry.write.stake([largeStake, generatePeerId(user1.account.address)], { account: user1.account });
+
+      const maxInt256 = (2n ** 255n) - 1n;
+      const extremePayment = maxInt256 * 2n;
+
+      const weight = await reputationRegistry.read.getRatingWeight([user1.account.address, extremePayment]);
+
+      expect(weight).to.equal(maxInt256);
+    });
   });
 });

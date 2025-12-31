@@ -267,7 +267,16 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
             stakeWeight = 1;
         }
 
-        return (paymentAmount * stakeWeight) / 1e18;
+        uint256 maxWeight = uint256(type(int256).max);
+        if (stakeWeight > 0 && paymentAmount > (type(uint256).max / stakeWeight)) {
+            return maxWeight;
+        }
+
+        uint256 weight = (paymentAmount * stakeWeight) / 1e18;
+        if (weight > maxWeight) {
+            weight = maxWeight;
+        }
+        return weight;
     }
 
     function getEffectiveScore(address peer) public view returns (int256) {
