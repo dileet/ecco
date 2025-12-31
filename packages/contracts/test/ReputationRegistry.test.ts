@@ -1034,6 +1034,91 @@ describe("ReputationRegistry", () => {
     });
   });
 
+  describe("Effective Score Calculation", () => {
+    it("should not penalize new peers with lastActive = 0", async () => {
+      const { reputationRegistry, user1 } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const effectiveScore = await reputationRegistry.read.getEffectiveScore([user1.account.address]);
+      expect(effectiveScore).to.equal(0n);
+    });
+
+    it("should return full baseScore for newly staked peer", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(200);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user1.account });
+
+      const paymentId = generatePaymentId(200);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+
+      const reputation = await reputationRegistry.read.reputations([user2.account.address]);
+      const baseScore = reputation[0];
+
+      const effectiveScore = await reputationRegistry.read.getEffectiveScore([user2.account.address]);
+
+      expect(effectiveScore).to.equal(baseScore);
+    });
+
+    it("should apply penalty after inactivity period", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(201);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user1.account });
+
+      const paymentId = generatePaymentId(201);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+
+      await increaseTime(publicClient, 5n * 24n * 60n * 60n);
+
+      const reputation = await reputationRegistry.read.reputations([user2.account.address]);
+      const baseScore = reputation[0];
+
+      const effectiveScore = await reputationRegistry.read.getEffectiveScore([user2.account.address]);
+
+      expect(effectiveScore).to.equal((baseScore * 90n) / 100n);
+    });
+
+    it("should cap activity penalty at 50%", async () => {
+      const { reputationRegistry, eccoToken, user1, user2, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(202);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_RATE]);
+      await eccoToken.write.approve([reputationRegistry.address, MIN_STAKE_TO_RATE], { account: user1.account });
+      await reputationRegistry.write.stake([MIN_STAKE_TO_RATE], { account: user1.account });
+
+      const paymentId = generatePaymentId(202);
+      await reputationRegistry.write.recordPayment([paymentId, user2.account.address, parseEther("100")], { account: user1.account });
+      await reputationRegistry.write.rateAfterPayment([paymentId, 5], { account: user1.account });
+
+      await increaseTime(publicClient, 100n * 24n * 60n * 60n);
+
+      const reputation = await reputationRegistry.read.reputations([user2.account.address]);
+      const baseScore = reputation[0];
+
+      const effectiveScore = await reputationRegistry.read.getEffectiveScore([user2.account.address]);
+
+      expect(effectiveScore).to.equal((baseScore * 50n) / 100n);
+    });
+  });
+
   describe("Rating Weight Edge Cases", () => {
     it("should return non-zero weight for staker at exact minimum stake", async () => {
       const { reputationRegistry, eccoToken, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);

@@ -343,6 +343,10 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         PeerReputation storage rep = reputations[peer];
         int256 baseScore = rep.score;
 
+        if (rep.lastActive == 0) {
+            return baseScore;
+        }
+
         uint256 daysSinceActive = (block.timestamp - rep.lastActive) / 1 days;
         uint256 activityPenalty = Math.min(daysSinceActive * 2, 50);
 
