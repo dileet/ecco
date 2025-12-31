@@ -359,7 +359,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     }
 
     function setMinStakes(uint256 _minStakeToWork, uint256 _minStakeToRate) external onlyOwner {
+        require(_minStakeToWork > 0, "Min stake to work must be positive");
         require(_minStakeToRate > 0, "Min stake to rate must be positive");
+        require(_minStakeToWork >= _minStakeToRate, "Work stake must be >= rate stake");
         minStakeToWork = _minStakeToWork;
         minStakeToRate = _minStakeToRate;
     }

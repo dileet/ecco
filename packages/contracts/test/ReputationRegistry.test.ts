@@ -919,6 +919,43 @@ describe("ReputationRegistry", () => {
       }
     });
 
+    it("should reject setting minStakeToWork to zero", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      try {
+        await reputationRegistry.write.setMinStakes([0n, MIN_STAKE_TO_RATE], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Min stake to work must be positive/);
+      }
+    });
+
+    it("should reject setting minStakeToWork less than minStakeToRate", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const lowWorkStake = parseEther("5");
+      const highRateStake = parseEther("10");
+
+      try {
+        await reputationRegistry.write.setMinStakes([lowWorkStake, highRateStake], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Work stake must be >= rate stake/);
+      }
+    });
+
+    it("should allow setting minStakeToWork equal to minStakeToRate", async () => {
+      const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const equalStake = parseEther("50");
+      await reputationRegistry.write.setMinStakes([equalStake, equalStake], { account: owner.account });
+
+      const minStakeToWork = await reputationRegistry.read.minStakeToWork();
+      const minStakeToRate = await reputationRegistry.read.minStakeToRate();
+      expect(minStakeToWork).to.equal(equalStake);
+      expect(minStakeToRate).to.equal(equalStake);
+    });
+
     it("should allow setting valid minStakeToRate", async () => {
       const { reputationRegistry, owner } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
 
