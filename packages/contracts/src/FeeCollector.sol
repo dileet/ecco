@@ -116,6 +116,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function updateRewardDebt(address staker) external {
+        require(msg.sender == address(reputationRegistry), "Only ReputationRegistry");
         (,,,, uint256 stake,,,) = reputationRegistry.reputations(staker);
         rewardDebt[staker] = (stake * accPerShare) / PRECISION;
     }

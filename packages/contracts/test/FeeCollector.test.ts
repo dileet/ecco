@@ -279,4 +279,28 @@ describe("FeeCollector", () => {
       }
     });
   });
+
+  describe("updateRewardDebt Access Control", () => {
+    it("should reject updateRewardDebt calls from non-ReputationRegistry", async () => {
+      const { feeCollector, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+
+      try {
+        await feeCollector.write.updateRewardDebt([user2.account.address], { account: user1.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Only ReputationRegistry/);
+      }
+    });
+
+    it("should reject updateRewardDebt even from owner", async () => {
+      const { feeCollector, owner, user1 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+
+      try {
+        await feeCollector.write.updateRewardDebt([user1.account.address], { account: owner.account });
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Only ReputationRegistry/);
+      }
+    });
+  });
 });
