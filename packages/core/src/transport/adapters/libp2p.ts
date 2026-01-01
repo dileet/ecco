@@ -43,6 +43,7 @@ export interface Libp2pAdapterState {
 }
 
 const ECCO_TRANSPORT_TOPIC = 'ecco/transport/v1';
+const MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
 
 export function createLibp2pAdapter(
   config: Libp2pAdapterConfig
@@ -238,17 +239,21 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
       }
       
       const chunks: Uint8Array[] = [];
-      
+      let totalLength = 0;
+
       for await (const chunk of stream) {
         const data = chunk instanceof Uint8Array ? chunk : chunk.subarray();
+        totalLength += data.length;
+        if (totalLength > MAX_MESSAGE_SIZE) {
+          stream.abort(new Error('Message size exceeds maximum allowed'));
+          return;
+        }
         chunks.push(data);
       }
-      
+
       if (chunks.length === 0) {
         return;
       }
-      
-      const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
       const combined = new Uint8Array(totalLength);
       let offset = 0;
       for (const chunk of chunks) {
