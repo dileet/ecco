@@ -39,6 +39,7 @@ export interface BLEAdapterState {
   connectionHandlers: Set<(event: TransportConnectionEvent) => void>;
   messageHandlers: Set<(peerId: string, message: TransportMessage) => void>;
   nativeBridge?: BLENativeBridge;
+  eventCleanups: Array<() => void>;
 }
 
 export interface BLENativeBridge {
@@ -97,6 +98,7 @@ export function createBLEAdapter(
     discoveryHandlers: new Set(),
     connectionHandlers: new Set(),
     messageHandlers: new Set(),
+    eventCleanups: [],
   };
 }
 
@@ -125,17 +127,22 @@ export async function initialize(state: BLEAdapterState): Promise<BLEAdapterStat
 }
 
 export async function shutdown(state: BLEAdapterState): Promise<BLEAdapterState> {
+  for (const cleanup of state.eventCleanups) {
+    cleanup();
+  }
+
   if (state.nativeBridge) {
     await state.nativeBridge.stopScanning();
     await state.nativeBridge.stopAdvertising();
     await state.nativeBridge.shutdown();
   }
-  
+
   return {
     ...state,
     state: 'disconnected',
     discoveredPeers: new Map(),
     connectedPeers: new Map(),
+    eventCleanups: [],
   };
 }
 
@@ -144,15 +151,16 @@ export async function startDiscovery(state: BLEAdapterState): Promise<BLEAdapter
   
   if (state.config.scan) {
     await state.nativeBridge.startScanning([state.config.serviceUUID]);
-    
-    state.nativeBridge.onPeripheralDiscovered((peripheral) => {
+
+    const cleanup = state.nativeBridge.onPeripheralDiscovered((peripheral) => {
       const peer = peripheralToPeer(peripheral);
       state.discoveredPeers.set(peer.id, peer);
-      
+
       for (const handler of state.discoveryHandlers) {
         handler({ type: 'discovered', peer });
       }
     });
+    state.eventCleanups.push(cleanup);
   }
   
   if (state.config.advertise) {
@@ -170,10 +178,15 @@ export async function startDiscovery(state: BLEAdapterState): Promise<BLEAdapter
 
 export async function stopDiscovery(state: BLEAdapterState): Promise<BLEAdapterState> {
   if (!state.nativeBridge) return state;
-  
+
+  for (const cleanup of state.eventCleanups) {
+    cleanup();
+  }
+  state.eventCleanups.length = 0;
+
   await state.nativeBridge.stopScanning();
   await state.nativeBridge.stopAdvertising();
-  
+
   return state;
 }
 
