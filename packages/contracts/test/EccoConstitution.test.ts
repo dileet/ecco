@@ -341,6 +341,63 @@ describe("EccoConstitution", () => {
       expect(await eccoConstitution.read.contentExists([INITIAL_CONSTITUTION_ITEMS[0]])).to.equal(true);
       expect(await eccoConstitution.read.contentExists(["Non-existent content"])).to.equal(false);
     });
+
+    it("should get items paginated", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const items = await eccoConstitution.read.getItemsPaginated([0n, 2n]);
+      expect(items.length).to.equal(2);
+      expect(items[0]).to.equal(INITIAL_CONSTITUTION_ITEMS[0]);
+      expect(items[1]).to.equal(INITIAL_CONSTITUTION_ITEMS[1]);
+    });
+
+    it("should get items paginated with offset", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const items = await eccoConstitution.read.getItemsPaginated([1n, 2n]);
+      expect(items.length).to.equal(2);
+      expect(items[0]).to.equal(INITIAL_CONSTITUTION_ITEMS[1]);
+      expect(items[1]).to.equal(INITIAL_CONSTITUTION_ITEMS[2]);
+    });
+
+    it("should return empty array when offset exceeds length", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const items = await eccoConstitution.read.getItemsPaginated([100n, 10n]);
+      expect(items.length).to.equal(0);
+    });
+
+    it("should return remaining items when limit exceeds available", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const items = await eccoConstitution.read.getItemsPaginated([0n, 100n]);
+      expect(items.length).to.equal(INITIAL_CONSTITUTION_ITEMS.length);
+    });
+
+    it("should get item IDs paginated", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const itemIds = await eccoConstitution.read.getItemIdsPaginated([0n, 2n]);
+      expect(itemIds.length).to.equal(2);
+      expect(itemIds[0]).to.equal(0n);
+      expect(itemIds[1]).to.equal(1n);
+    });
+
+    it("should get item IDs paginated with offset", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const itemIds = await eccoConstitution.read.getItemIdsPaginated([1n, 2n]);
+      expect(itemIds.length).to.equal(2);
+      expect(itemIds[0]).to.equal(1n);
+      expect(itemIds[1]).to.equal(2n);
+    });
+
+    it("should return empty array for item IDs when offset exceeds length", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const itemIds = await eccoConstitution.read.getItemIdsPaginated([100n, 10n]);
+      expect(itemIds.length).to.equal(0);
+    });
   });
 
   describe("Ownership", () => {

@@ -66,6 +66,32 @@ contract EccoConstitution is Ownable {
         return _itemIds;
     }
 
+    function getItemsPaginated(uint256 offset, uint256 limit) external view returns (string[] memory) {
+        if (offset >= _items.length) {
+            return new string[](0);
+        }
+        uint256 remaining = _items.length - offset;
+        uint256 count = limit < remaining ? limit : remaining;
+        string[] memory result = new string[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = _items[offset + i];
+        }
+        return result;
+    }
+
+    function getItemIdsPaginated(uint256 offset, uint256 limit) external view returns (uint256[] memory) {
+        if (offset >= _itemIds.length) {
+            return new uint256[](0);
+        }
+        uint256 remaining = _itemIds.length - offset;
+        uint256 count = limit < remaining ? limit : remaining;
+        uint256[] memory result = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = _itemIds[offset + i];
+        }
+        return result;
+    }
+
     function contentExists(string calldata content) external view returns (bool) {
         return _contentExists[keccak256(bytes(content))];
     }
