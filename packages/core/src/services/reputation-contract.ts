@@ -54,8 +54,7 @@ function getFeeCollectorContract(state: WalletState, chainId: number) {
 export async function stake(
   state: WalletState,
   chainId: number,
-  amount: bigint,
-  peerIdHash: `0x${string}`
+  amount: bigint
 ): Promise<`0x${string}`> {
   const addresses = getContractAddresses(chainId);
   validateAddress(addresses.reputationRegistry, 'reputationRegistry');
@@ -76,7 +75,7 @@ export async function stake(
     address: addresses.reputationRegistry,
     abi: REPUTATION_REGISTRY_ABI,
     functionName: 'stake',
-    args: [amount, peerIdHash],
+    args: [amount],
     account: walletClient.account,
     chain: walletClient.chain,
   });

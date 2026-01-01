@@ -27,7 +27,6 @@ import {
   requestUnstake as requestUnstakeContract,
   getStakeInfo as getStakeInfoContract,
 } from '../services/reputation-contract'
-import { computePeerIdHash } from '../services/peer-binding'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -878,8 +877,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
     if (!walletState) {
       throw new Error('Wallet required for staking. Configure wallet in createAgent options.')
     }
-    const peerIdHash = computePeerIdHash(baseAgent.id)
-    return stakeContract(walletState, chainId, amount, peerIdHash)
+    return stakeContract(walletState, chainId, amount)
   }
 
   const unstake = async (amount: bigint): Promise<string> => {
