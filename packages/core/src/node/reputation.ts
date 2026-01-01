@@ -54,6 +54,7 @@ export interface ReputationConfig {
 const DEFAULT_COMMIT_THRESHOLD = 10;
 const DEFAULT_COMMIT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_PENDING_RATINGS = 1000;
 
 export function createReputationState(config: ReputationConfig): ReputationState {
   return {
@@ -159,6 +160,10 @@ export async function queueRating(
   amount: bigint,
   delta: number
 ): Promise<void> {
+  if (state.pendingCommits.length >= MAX_PENDING_RATINGS) {
+    return;
+  }
+
   const paymentId = generatePaymentId(txHash, wallet.account.address, payeeAddress, Date.now());
 
   const rating: PendingRating = {
@@ -173,6 +178,9 @@ export async function queueRating(
 
   const peer = state.peers.get(peerId);
   if (peer) {
+    if (peer.pendingRatings.length >= MAX_PENDING_RATINGS) {
+      peer.pendingRatings.shift();
+    }
     peer.pendingRatings.push(rating);
   }
 
@@ -218,6 +226,10 @@ export async function commitPendingRatings(
       committed = recorded.length;
 
       state.pendingCommits = state.pendingCommits.filter((r) => !r.recorded);
+
+      for (const peer of state.peers.values()) {
+        peer.pendingRatings = peer.pendingRatings.filter((r) => !r.recorded);
+      }
     } catch {
       failed += recorded.length;
     }
