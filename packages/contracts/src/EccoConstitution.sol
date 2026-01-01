@@ -71,7 +71,7 @@ contract EccoConstitution is Ownable {
     }
 
     function _addItem(string memory content) private returns (uint256) {
-        require(bytes(content).length > 0, "Empty content");
+        require(_hasVisibleContent(bytes(content)), "Empty content");
         bytes32 contentHash = keccak256(bytes(content));
         require(!_contentExists[contentHash], "Duplicate content");
 
@@ -82,5 +82,42 @@ contract EccoConstitution is Ownable {
 
         emit ItemAdded(itemId, content);
         return itemId;
+    }
+
+    function _hasVisibleContent(bytes memory data) private pure returns (bool) {
+        if (data.length == 0) return false;
+        for (uint256 i = 0; i < data.length; i++) {
+            bytes1 b = data[i];
+            if (b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D || b == 0x0B || b == 0x0C) {
+                continue;
+            }
+            if (b == 0xC2 && i + 1 < data.length && data[i + 1] == 0xA0) {
+                i += 1;
+                continue;
+            }
+            if (b == 0xE2 && i + 2 < data.length) {
+                if (data[i + 1] == 0x80) {
+                    bytes1 third = data[i + 2];
+                    if (
+                        third == 0x8B || third == 0x8C || third == 0x8D ||
+                        third == 0x8E || third == 0x8F || third == 0xAA ||
+                        third == 0xAB || third == 0xAC || third == 0xAD || third == 0xAE
+                    ) {
+                        i += 2;
+                        continue;
+                    }
+                }
+                if (data[i + 1] == 0x81 && data[i + 2] == 0xA0) {
+                    i += 2;
+                    continue;
+                }
+            }
+            if (b == 0xEF && i + 2 < data.length && data[i + 1] == 0xBB && data[i + 2] == 0xBF) {
+                i += 2;
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 }

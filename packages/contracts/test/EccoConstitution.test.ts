@@ -85,6 +85,71 @@ describe("EccoConstitution", () => {
       }
     });
 
+    it("should reject whitespace-only content", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.addItem(["   "]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Empty content/);
+      }
+    });
+
+    it("should reject tabs and newlines only", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.addItem(["\t\n\r"]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Empty content/);
+      }
+    });
+
+    it("should reject zero-width space unicode", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.addItem(["\u200B"]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Empty content/);
+      }
+    });
+
+    it("should reject non-breaking space unicode", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.addItem(["\u00A0"]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Empty content/);
+      }
+    });
+
+    it("should reject BOM character", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.addItem(["\uFEFF"]);
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Empty content/);
+      }
+    });
+
+    it("should accept content with leading/trailing whitespace", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+      const content = "  Valid content with spaces  ";
+
+      await eccoConstitution.write.addItem([content]);
+
+      const items = await eccoConstitution.read.getAllItems();
+      expect(items[items.length - 1]).to.equal(content);
+    });
+
     it("should reject duplicate content", async () => {
       const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
 
