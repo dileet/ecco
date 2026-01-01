@@ -32,6 +32,26 @@ function getBootstrapPeerIds(config: NodeState['config']): Set<string> {
   return peerIds;
 }
 
+const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_DISCOVERED_PEERS = 1000;
+
+function cleanupStaleEntries(discoveredPeers: Map<string, number>): void {
+  const now = Date.now();
+  for (const [peerId, timestamp] of discoveredPeers) {
+    if (now - timestamp > DISCOVERY_CACHE_TTL_MS) {
+      discoveredPeers.delete(peerId);
+    }
+  }
+  if (discoveredPeers.size > MAX_DISCOVERED_PEERS) {
+    const entries = Array.from(discoveredPeers.entries())
+      .sort((a, b) => a[1] - b[1]);
+    const toRemove = entries.slice(0, discoveredPeers.size - MAX_DISCOVERED_PEERS);
+    for (const [peerId] of toRemove) {
+      discoveredPeers.delete(peerId);
+    }
+  }
+}
+
 export function setupEventListeners(
   state: NodeState,
   stateRef: StateRef<NodeState>
@@ -41,18 +61,20 @@ export function setupEventListeners(
   }
 
   const node = state.node;
-  const discoveredPeers = new Set<string>();
+  const discoveredPeers = new Map<string, number>();
   const bootstrapPeerIds = getBootstrapPeerIds(state.config);
 
   node.addEventListener('peer:discovery', async (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
     const { id: peerId } = evt.detail;
     const peerIdStr = peerId.toString();
 
+    cleanupStaleEntries(discoveredPeers);
+
     if (discoveredPeers.has(peerIdStr)) {
       return;
     }
 
-    discoveredPeers.add(peerIdStr);
+    discoveredPeers.set(peerIdStr, Date.now());
 
     if (bootstrapPeerIds.has(peerIdStr)) {
       return;
@@ -98,6 +120,7 @@ export function setupEventListeners(
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
+    discoveredPeers.delete(peerId);
     const currentState = getState(stateRef);
     if (currentState.messageBridge) {
       const updatedBridge = removePeerValidation(currentState.messageBridge, peerId);
