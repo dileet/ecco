@@ -223,12 +223,43 @@ describe("EccoConstitution", () => {
       }
     });
 
+    it("should get item ID by index", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      for (let i = 0; i < INITIAL_CONSTITUTION_ITEMS.length; i++) {
+        const itemId = await eccoConstitution.read.getItemId([BigInt(i)]);
+        expect(itemId).to.equal(BigInt(i));
+      }
+    });
+
+    it("should reject getItemId with invalid index", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.read.getItemId([100n]);
+        expect.fail("Expected read to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Invalid index/);
+      }
+    });
+
     it("should get all items", async () => {
       const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
 
       const items = await eccoConstitution.read.getAllItems();
 
       expect(items.length).to.equal(INITIAL_CONSTITUTION_ITEMS.length);
+    });
+
+    it("should get all item IDs", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      const itemIds = await eccoConstitution.read.getAllItemIds();
+
+      expect(itemIds.length).to.equal(INITIAL_CONSTITUTION_ITEMS.length);
+      for (let i = 0; i < itemIds.length; i++) {
+        expect(itemIds[i]).to.equal(BigInt(i));
+      }
     });
 
     it("should get item count", async () => {

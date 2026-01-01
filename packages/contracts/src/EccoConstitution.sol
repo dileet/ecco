@@ -5,11 +5,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract EccoConstitution is Ownable {
     string[] private _items;
+    uint256[] private _itemIds;
+    uint256 private _nextItemId;
     mapping(bytes32 => bool) private _contentExists;
 
-    event ItemAdded(uint256 indexed index, string content);
-    event ItemRemoved(uint256 indexed index, string content);
-    event ItemMoved(uint256 indexed fromIndex, uint256 indexed toIndex, string content);
+    event ItemAdded(uint256 indexed itemId, string content);
+    event ItemRemoved(uint256 indexed itemId, string content);
+    event ItemMoved(uint256 indexed itemId, uint256 indexed toIndex);
 
     constructor(string[] memory initialItems, address initialOwner) Ownable(initialOwner) {
         for (uint256 i = 0; i < initialItems.length; i++) {
@@ -25,24 +27,31 @@ contract EccoConstitution is Ownable {
         require(index < _items.length, "Invalid index");
 
         string memory content = _items[index];
+        uint256 removedItemId = _itemIds[index];
         bytes32 contentHash = keccak256(bytes(content));
 
         _contentExists[contentHash] = false;
 
         uint256 lastIndex = _items.length - 1;
         if (index != lastIndex) {
-            string memory movedContent = _items[lastIndex];
-            _items[index] = movedContent;
-            emit ItemMoved(lastIndex, index, movedContent);
+            _items[index] = _items[lastIndex];
+            _itemIds[index] = _itemIds[lastIndex];
+            emit ItemMoved(_itemIds[index], index);
         }
         _items.pop();
+        _itemIds.pop();
 
-        emit ItemRemoved(index, content);
+        emit ItemRemoved(removedItemId, content);
     }
 
     function getItem(uint256 index) external view returns (string memory) {
         require(index < _items.length, "Invalid index");
         return _items[index];
+    }
+
+    function getItemId(uint256 index) external view returns (uint256) {
+        require(index < _items.length, "Invalid index");
+        return _itemIds[index];
     }
 
     function getItemCount() external view returns (uint256) {
@@ -51,6 +60,10 @@ contract EccoConstitution is Ownable {
 
     function getAllItems() external view returns (string[] memory) {
         return _items;
+    }
+
+    function getAllItemIds() external view returns (uint256[] memory) {
+        return _itemIds;
     }
 
     function contentExists(string calldata content) external view returns (bool) {
@@ -62,11 +75,12 @@ contract EccoConstitution is Ownable {
         bytes32 contentHash = keccak256(bytes(content));
         require(!_contentExists[contentHash], "Duplicate content");
 
-        uint256 index = _items.length;
+        uint256 itemId = _nextItemId++;
         _items.push(content);
+        _itemIds.push(itemId);
         _contentExists[contentHash] = true;
 
-        emit ItemAdded(index, content);
-        return index;
+        emit ItemAdded(itemId, content);
+        return itemId;
     }
 }
