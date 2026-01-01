@@ -401,6 +401,17 @@ describe("EccoConstitution", () => {
   });
 
   describe("Ownership", () => {
+    it("should reject renounceOwnership to prevent locking", async () => {
+      const { eccoConstitution } = await loadFixtureWithHelpers(deployConstitutionFixture);
+
+      try {
+        await eccoConstitution.write.renounceOwnership();
+        expect.fail("Expected transaction to revert");
+      } catch (error) {
+        expect(String(error)).to.match(/Renunciation disabled/);
+      }
+    });
+
     it("should allow owner to transfer ownership", async () => {
       const { eccoConstitution, user1 } = await loadFixtureWithHelpers(deployConstitutionFixture);
 

@@ -96,6 +96,10 @@ contract EccoConstitution is Ownable {
         return _contentExists[keccak256(bytes(content))];
     }
 
+    function renounceOwnership() public pure override {
+        revert("Renunciation disabled");
+    }
+
     function _addItem(string memory content) private returns (uint256) {
         require(_hasVisibleContent(bytes(content)), "Empty content");
         bytes32 contentHash = keccak256(bytes(content));
