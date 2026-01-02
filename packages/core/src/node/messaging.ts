@@ -132,6 +132,30 @@ function removeTopicSubscriber(stateRef: StateRef<NodeState>, topic: string, pee
   });
 }
 
+export function removeAllTopicSubscriptionsForPeer(stateRef: StateRef<NodeState>, peerId: string): void {
+  updateState(stateRef, (s) => {
+    const newTopicSubscribers = new Map<string, Set<string>>();
+    for (const [topic, subscribers] of s.floodProtection.topicSubscribers) {
+      if (subscribers.has(peerId)) {
+        const newSubscribers = new Set(subscribers);
+        newSubscribers.delete(peerId);
+        if (newSubscribers.size > 0) {
+          newTopicSubscribers.set(topic, newSubscribers);
+        }
+      } else {
+        newTopicSubscribers.set(topic, subscribers);
+      }
+    }
+    return {
+      ...s,
+      floodProtection: {
+        ...s.floodProtection,
+        topicSubscribers: newTopicSubscribers,
+      },
+    };
+  });
+}
+
 export async function publish(state: NodeState, topic: string, event: EccoEvent): Promise<void> {
   let validatedEvent = validateEvent(event);
 

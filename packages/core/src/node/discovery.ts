@@ -14,6 +14,7 @@ import { findCandidates, type FilterTier } from './bloom-filter';
 import { getLocalReputation, getEffectiveScore } from './reputation';
 import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
 import { initiateHandshake, isHandshakeRequired, removePeerValidation } from '../transport/message-bridge';
+import { removeAllTopicSubscriptionsForPeer } from './messaging';
 
 
 function extractPeerIdFromAddr(addr: string): string | null {
@@ -121,6 +122,7 @@ export function setupEventListeners(
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
     discoveredPeers.delete(peerId);
+    removeAllTopicSubscriptionsForPeer(stateRef, peerId);
     const currentState = getState(stateRef);
     if (currentState.messageBridge) {
       const updatedBridge = removePeerValidation(currentState.messageBridge, peerId);
