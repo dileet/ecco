@@ -6,6 +6,11 @@ import type { EccoLibp2p } from './types';
 import type { Capability, PeerInfo, CapabilityQuery } from '../types';
 import { SDK_PROTOCOL_VERSION, formatProtocolVersion } from '../networks';
 
+const MAX_PROVIDERS_DEFAULT = 100;
+const MAX_PROVIDERS_WITH_SCORER = 500;
+
+export type ReputationScorer = (peerId: string) => number;
+
 type DHTCapableNode = {
   contentRouting: EccoLibp2p['contentRouting'];
   services: { dht?: KadDHT };
@@ -57,12 +62,19 @@ const queryProviders = async (
   node: DHTCapableNode,
   cid: CID,
   capability: Partial<Capability>,
-  discoveredPeers: Map<string, PeerInfo>
+  discoveredPeers: Map<string, PeerInfo>,
+  limit: number
 ): Promise<void> => {
+  let providerCount = 0;
   for await (const provider of node.contentRouting.findProviders(cid)) {
+    if (providerCount >= limit) {
+      break;
+    }
+    providerCount++;
+
     const peerId = provider.id.toString();
     const existing = discoveredPeers.get(peerId);
-    
+
     const capabilityEntry: Capability = {
       type: capability.type ?? 'service',
       name: capability.name ?? 'unknown',
@@ -90,16 +102,24 @@ const queryProviders = async (
 
 export const queryCapabilities = async (
   node: DHTCapableNode,
-  query: CapabilityQuery
+  query: CapabilityQuery,
+  getReputationScore?: ReputationScorer
 ): Promise<PeerInfo[]> => {
   const discoveredPeers = new Map<string, PeerInfo>();
+  const limit = getReputationScore ? MAX_PROVIDERS_WITH_SCORER : MAX_PROVIDERS_DEFAULT;
 
   const queries = query.requiredCapabilities.map(async (requiredCap) => {
     const cid = await keyToCID(generateCapabilityKey(requiredCap));
-    await queryProviders(node, cid, requiredCap, discoveredPeers);
+    await queryProviders(node, cid, requiredCap, discoveredPeers, limit);
   });
 
   await Promise.allSettled(queries);
 
-  return Array.from(discoveredPeers.values());
+  const peers = Array.from(discoveredPeers.values());
+
+  if (getReputationScore) {
+    peers.sort((a, b) => getReputationScore(b.id) - getReputationScore(a.id));
+  }
+
+  return peers;
 };

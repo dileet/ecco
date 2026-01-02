@@ -407,3 +407,16 @@ export function clearStaleEntries(state: ReputationState, maxAgeMs: number): num
 
   return removed;
 }
+
+export function createReputationScorer(state: ReputationState | undefined): (peerId: string) => number {
+  return (peerId: string): number => {
+    if (!state) {
+      return 0;
+    }
+    const rep = state.peers.get(peerId);
+    if (!rep) {
+      return 0;
+    }
+    return getEffectiveScore(rep);
+  };
+}

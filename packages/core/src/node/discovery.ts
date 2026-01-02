@@ -11,7 +11,7 @@ import type { LRUCache } from '../utils/lru-cache';
 import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
 import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from '../transport/hybrid-discovery';
 import { findCandidates, type FilterTier } from './bloom-filter';
-import { getLocalReputation, getEffectiveScore } from './reputation';
+import { getLocalReputation, getEffectiveScore, createReputationScorer } from './reputation';
 import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
 import { initiateHandshake, isHandshakeRequired, removePeerValidation } from '../transport/message-bridge';
 import { removeAllTopicSubscriptionsForPeer } from './messaging';
@@ -336,7 +336,8 @@ export async function findPeers(
     }
 
     if (strategy === 'dht' && state.node?.services.dht) {
-      const dhtPeers = await queryCapabilities(state.node, query);
+      const scorer = createReputationScorer(state.reputationState);
+      const dhtPeers = await queryCapabilities(state.node, query, scorer);
       const newPeers = mergePeers(state.peers, dhtPeers);
 
       updateState(stateRef, (s) => addPeers(s, newPeers));
@@ -415,7 +416,8 @@ async function discoverInPhase(
       let matches: CapabilityMatch[] = [];
 
       if (state.node?.services.dht) {
-        const dhtPeers = await queryCapabilities(state.node, query);
+        const scorer = createReputationScorer(state.reputationState);
+        const dhtPeers = await queryCapabilities(state.node, query, scorer);
         const newPeers = mergePeers(state.peers, dhtPeers);
         updateState(stateRef, (s) => addPeers(s, newPeers));
 
