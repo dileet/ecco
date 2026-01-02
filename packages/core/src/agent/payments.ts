@@ -27,6 +27,8 @@ import {
 } from '../services/fee-collector'
 import { signInvoice } from '../utils/invoice-signing'
 
+const MAX_INVOICE_QUEUE = 1000
+
 interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
   streamingAgreements: Map<string, StreamingAgreement>
@@ -351,6 +353,12 @@ export function createPaymentHelpers(
     const distribution = distributeSwarmSplit(swarmSplit)
     await createAndDistributeSwarmSplit(swarmSplit, distribution.split)
 
+    const invoicesToAdd = distribution.invoices.length
+    const availableSlots = MAX_INVOICE_QUEUE - paymentState.invoiceQueue.length
+    if (invoicesToAdd > availableSlots) {
+      throw new Error(`Invoice queue limit would be exceeded. Available: ${availableSlots}, needed: ${invoicesToAdd}. Call settleAll() first.`)
+    }
+
     for (const invoice of distribution.invoices) {
       const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
       paymentState.invoiceQueue.push(signedInvoice)
@@ -364,6 +372,9 @@ export function createPaymentHelpers(
   }
 
   const queueInvoice = (invoice: Invoice): void => {
+    if (paymentState.invoiceQueue.length >= MAX_INVOICE_QUEUE) {
+      throw new Error(`Invoice queue limit reached (${MAX_INVOICE_QUEUE}). Call settleAll() to process pending invoices.`)
+    }
     paymentState.invoiceQueue.push(invoice)
   }
 
