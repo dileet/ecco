@@ -15,6 +15,12 @@ import {
 import { isHandshakeMessage } from '../protocol/handshake';
 import { debug } from '../utils';
 
+const pubsubAbortControllers = new Map<string, AbortController>();
+
+function getPubsubKey(nodeId: string, topic: string): string {
+  return `${nodeId}:${topic}`;
+}
+
 const PubSubMessageSchema = z.object({
   topic: z.string(),
   data: z.instanceof(Uint8Array),
@@ -307,6 +313,10 @@ export function subscribeWithRef(
       const pubsub = state.node.services.pubsub;
       pubsub.subscribe(topic);
 
+      const abortController = new AbortController();
+      const pubsubKey = getPubsubKey(state.id, topic);
+      pubsubAbortControllers.set(pubsubKey, abortController);
+
       pubsub.addEventListener('message', async (evt) => {
         const messageData = extractMessageData(evt.detail);
         if (!messageData || messageData.topic !== topic) {
@@ -368,7 +378,7 @@ export function subscribeWithRef(
           const currentState = getState(stateRef);
           console.error(`[${currentState.id}] Error processing pubsub message on topic ${topic}:`, error);
         }
-      });
+      }, { signal: abortController.signal });
     }
 
     if (hasTransportLayer(state)) {
@@ -440,6 +450,29 @@ export function subscribeWithRef(
   return () => {
     updateState(stateRef, (s) => removeSubscription(s, topic, handler));
     removeTopicSubscriber(stateRef, topic, state.id);
+
+    const currentState = getState(stateRef);
+    const remainingHandlers = currentState.subscriptions[topic];
+    const isLastSubscription = !remainingHandlers || remainingHandlers.length === 0;
+
+    if (isLastSubscription) {
+      const pubsubKey = getPubsubKey(currentState.id, topic);
+      const abortController = pubsubAbortControllers.get(pubsubKey);
+      if (abortController) {
+        abortController.abort();
+        pubsubAbortControllers.delete(pubsubKey);
+      }
+
+      if (currentState.node?.services.pubsub) {
+        currentState.node.services.pubsub.unsubscribe(topic);
+      }
+
+      updateState(stateRef, (s) => {
+        const newTopics = new Map(s.subscribedTopics);
+        newTopics.delete(topic);
+        return { ...s, subscribedTopics: newTopics };
+      });
+    }
   };
 }
 

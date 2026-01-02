@@ -4,7 +4,7 @@ import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
 import { matchPeers } from '../orchestrator/capability-matcher';
 import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
-import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers, setMessageBridge } from './state';
+import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers, setMessageBridge, registerCleanup } from './state';
 import { delay, debug } from '../utils';
 import { queryCapabilities } from './dht';
 import type { LRUCache } from '../utils/lru-cache';
@@ -64,6 +64,7 @@ export function setupEventListeners(
   const node = state.node;
   const discoveredPeers = new Map<string, number>();
   const bootstrapPeerIds = getBootstrapPeerIds(state.config);
+  const abortController = new AbortController();
 
   node.addEventListener('peer:discovery', async (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
     const { id: peerId } = evt.detail;
@@ -89,7 +90,7 @@ export function setupEventListeners(
         console.warn(`[${state.id}] Failed to dial peer: ${peerIdStr}`, errorMessage);
       }
     }
-  });
+  }, { signal: abortController.signal });
 
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
@@ -117,7 +118,7 @@ export function setupEventListeners(
     }
 
     handlePeerConnect(stateRef).catch(() => {});
-  });
+  }, { signal: abortController.signal });
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
@@ -130,6 +131,10 @@ export function setupEventListeners(
     } else {
       updateState(stateRef, (s) => removePeer(s, peerId));
     }
+  }, { signal: abortController.signal });
+
+  registerCleanup(stateRef, () => {
+    abortController.abort();
   });
 }
 
