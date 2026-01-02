@@ -17,6 +17,8 @@ import {
 import { formatVersion } from '../protocol/version';
 import { createConstitutionMismatchNotice, computeConstitutionHash } from '../protocol/constitution';
 
+const MAX_QUEUED_MESSAGES_PER_PEER = 100;
+
 const MessageSchema = z.object({
   id: z.string(),
   from: z.string(),
@@ -661,6 +663,10 @@ export function queueMessageForPeer(
 ): MessageBridgeState {
   const queuedMessages = new Map(state.queuedMessages);
   const queued = queuedMessages.get(peerId) ?? [];
+  if (queued.length >= MAX_QUEUED_MESSAGES_PER_PEER) {
+    debug('queueMessageForPeer', `Queue limit reached for peer ${peerId}, dropping message`);
+    return state;
+  }
   queued.push(message);
   queuedMessages.set(peerId, queued);
   return { ...state, queuedMessages };
