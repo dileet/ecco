@@ -9,7 +9,7 @@ import { ping } from '@libp2p/ping';
 import { mdns } from '@libp2p/mdns';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
-import { signMessage } from '../services/auth';
+import { signMessage, createPublicKeyCache } from '../services/auth';
 import { withTimeout, retryWithBackoff, debug } from '../utils';
 import * as storage from '../storage';
 import { closePool } from '../connection';
@@ -179,7 +179,7 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
       enabled: true,
       privateKey: identity.libp2pPrivateKey,
     },
-    keyCache: new Map(),
+    keyCache: createPublicKeyCache(),
   };
   updateState(stateRef, (s) => ({
     ...setMessageAuth(s, authState),

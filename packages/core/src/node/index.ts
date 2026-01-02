@@ -13,7 +13,7 @@ import type { NodeState, StateRef } from './types';
 import type { EccoEvent } from '../events';
 import { publish as publishFn, subscribeWithRef } from './messaging';
 import { announceCapabilities } from './capabilities';
-import { signMessage, verifyMessage, isMessageFresh, type AuthState, type SignedMessage } from '../services/auth';
+import { signMessage, verifyMessage, isMessageFresh, createPublicKeyCache, type AuthState, type SignedMessage } from '../services/auth';
 import { getAddress, type WalletState } from '../services/wallet';
 import { subscribeToAllDirectMessages } from '../transport/message-bridge';
 import { debug } from '../utils';
@@ -74,7 +74,7 @@ export async function createAgent(config: EccoConfig, callbacks?: AgentCallbacks
 
   const authState: AuthState = nodeState.messageAuth ?? {
     config: { enabled: false },
-    keyCache: new Map(),
+    keyCache: createPublicKeyCache(),
   };
 
   const walletState = nodeState.wallet ?? null;

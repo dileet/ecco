@@ -4,6 +4,8 @@ import { peerIdFromPublicKey } from '@libp2p/peer-id';
 import type { Message } from '../types';
 import { canonicalJsonStringify } from '../utils/canonical-json';
 import { decodeBase64 } from '../utils/crypto';
+import type { LRUCache } from '../utils/lru-cache';
+import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
 
 export interface AuthConfig {
   enabled: boolean;
@@ -17,10 +19,15 @@ export interface SignedMessage extends Message {
 
 export interface AuthState {
   config: AuthConfig;
-  keyCache: Map<string, PublicKey>;
+  keyCache: LRUCache<string, PublicKey>;
 }
 
 const ED25519_SIGNATURE_LENGTH = 64;
+const MAX_PUBLIC_KEY_CACHE_SIZE = 1000;
+
+export function createPublicKeyCache(): LRUCache<string, PublicKey> {
+  return createLRUCache<string, PublicKey>(MAX_PUBLIC_KEY_CACHE_SIZE);
+}
 
 function createSignaturePayload(message: Message | SignedMessage): Uint8Array {
   const payload = canonicalJsonStringify({
@@ -65,9 +72,11 @@ export async function verifyMessage(
     if (!publicKey) {
       const publicKeyBytes = decodeBase64(signedMessage.publicKey);
       publicKey = publicKeyFromRaw(publicKeyBytes);
+      const newCache = cloneLRUCache(state.keyCache);
+      newCache.set(signedMessage.publicKey, publicKey);
       newState = {
         ...state,
-        keyCache: new Map(state.keyCache).set(signedMessage.publicKey, publicKey),
+        keyCache: newCache,
       };
     }
 

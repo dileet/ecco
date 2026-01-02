@@ -42,6 +42,7 @@ export {
   signMessage,
   verifyMessage,
   isMessageFresh,
+  createPublicKeyCache,
   type AuthConfig,
   type SignedMessage,
   type AuthState,
