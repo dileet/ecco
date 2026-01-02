@@ -8,6 +8,7 @@ import { SDK_PROTOCOL_VERSION, formatProtocolVersion } from '../networks';
 
 const MAX_PROVIDERS_DEFAULT = 100;
 const MAX_PROVIDERS_WITH_SCORER = 500;
+const MAX_CAPABILITIES_PER_PEER = 50;
 
 export type ReputationScorer = (peerId: string) => number;
 
@@ -86,7 +87,7 @@ const queryProviders = async (
       const hasCapability = existing.capabilities.some(
         (c) => c.type === capabilityEntry.type && c.name === capabilityEntry.name
       );
-      if (!hasCapability) {
+      if (!hasCapability && existing.capabilities.length < MAX_CAPABILITIES_PER_PEER) {
         existing.capabilities.push(capabilityEntry);
       }
     } else {
