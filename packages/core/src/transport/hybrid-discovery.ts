@@ -9,6 +9,8 @@ import type {
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+const MAX_DISCOVERED_PEERS = 1000;
+
 export type DiscoveryPhase = 'proximity' | 'local' | 'internet' | 'fallback';
 
 export interface HybridDiscoveryConfig {
@@ -212,6 +214,23 @@ function schedulePhaseEscalation(state: HybridDiscoveryState): void {
   }
 }
 
+function evictOldestPeer(discoveredPeers: Map<string, DiscoveryResult>): void {
+  let oldestPeerId: string | null = null;
+  let oldestLastSeen = Infinity;
+
+  for (const [peerId, result] of discoveredPeers) {
+    const lastSeen = result.peer.lastSeen ?? 0;
+    if (lastSeen < oldestLastSeen) {
+      oldestLastSeen = lastSeen;
+      oldestPeerId = peerId;
+    }
+  }
+
+  if (oldestPeerId) {
+    discoveredPeers.delete(oldestPeerId);
+  }
+}
+
 function handleAdapterDiscovery(
   state: HybridDiscoveryState,
   transport: TransportType,
@@ -220,6 +239,12 @@ function handleAdapterDiscovery(
   const phase = getPhaseForTransport(state, transport);
 
   if (event.type === 'discovered' || event.type === 'updated') {
+    const isUpdate = state.discoveredPeers.has(event.peer.id);
+
+    if (!isUpdate && state.discoveredPeers.size >= MAX_DISCOVERED_PEERS) {
+      evictOldestPeer(state.discoveredPeers);
+    }
+
     const result: DiscoveryResult = {
       peer: event.peer,
       phase,
