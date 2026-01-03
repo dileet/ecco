@@ -13,6 +13,8 @@ interface IReputationRegistry {
 contract WorkRewards is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    uint256 public constant MAX_DISTRIBUTORS = 100;
+
     IERC20 public immutable eccoToken;
     IReputationRegistry public immutable reputationRegistry;
 
@@ -238,6 +240,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
 
     function addDistributor(address distributor) external onlyOwner {
         require(!isAuthorizedDistributor[distributor], "Already authorized");
+        require(authorizedDistributors.length < MAX_DISTRIBUTORS, "Max distributors reached");
         isAuthorizedDistributor[distributor] = true;
         authorizedDistributors.push(distributor);
         emit DistributorAdded(distributor);
