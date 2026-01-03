@@ -40,7 +40,7 @@ export interface HybridDiscoveryState {
     message: Set<(peerId: string, message: TransportMessage) => void>;
     phaseChange: Set<(phase: DiscoveryPhase) => void>;
   };
-  cleanups: Array<() => void>;
+  adapterCleanups: Map<TransportType, Array<() => void>>;
   escalationTimers: Array<ReturnType<typeof setTimeout>>;
 }
 
@@ -76,7 +76,7 @@ export function createHybridDiscovery(
       message: new Set(),
       phaseChange: new Set(),
     },
-    cleanups: [],
+    adapterCleanups: new Map(),
     escalationTimers: [],
   };
 }
@@ -88,6 +88,33 @@ export function registerAdapter(
   const adapters = new Map(state.adapters);
   adapters.set(adapter.type, adapter);
   return { ...state, adapters };
+}
+
+export function unregisterAdapter(
+  state: HybridDiscoveryState,
+  adapterType: TransportType
+): HybridDiscoveryState {
+  const cleanups = state.adapterCleanups.get(adapterType);
+  if (cleanups) {
+    for (const cleanup of cleanups) {
+      cleanup();
+    }
+  }
+
+  const adapters = new Map(state.adapters);
+  adapters.delete(adapterType);
+
+  const adapterCleanups = new Map(state.adapterCleanups);
+  adapterCleanups.delete(adapterType);
+
+  const discoveredPeers = new Map(state.discoveredPeers);
+  for (const [peerId, result] of discoveredPeers) {
+    if (result.transport === adapterType) {
+      discoveredPeers.delete(peerId);
+    }
+  }
+
+  return { ...state, adapters, adapterCleanups, discoveredPeers };
 }
 
 export function setPhaseMapping(
@@ -105,9 +132,11 @@ export async function startDiscovery(
 ): Promise<HybridDiscoveryState> {
   if (state.isDiscovering) return state;
 
-  const cleanups: Array<() => void> = [];
+  const adapterCleanups = new Map(state.adapterCleanups);
 
   for (const adapter of state.adapters.values()) {
+    const cleanups: Array<() => void> = [];
+
     const discoveryCleanup = adapter.onDiscovery((event) => {
       handleAdapterDiscovery(state, adapter.type, event);
     });
@@ -126,6 +155,9 @@ export async function startDiscovery(
       }
     });
     cleanups.push(messageCleanup);
+
+    const existingCleanups = adapterCleanups.get(adapter.type) ?? [];
+    adapterCleanups.set(adapter.type, [...existingCleanups, ...cleanups]);
   }
 
   await startPhase(state, state.currentPhase);
@@ -137,7 +169,7 @@ export async function startDiscovery(
   return {
     ...state,
     isDiscovering: true,
-    cleanups: [...state.cleanups, ...cleanups],
+    adapterCleanups,
   };
 }
 
@@ -223,8 +255,10 @@ export async function stopDiscovery(
     clearTimeout(timerId);
   }
 
-  for (const cleanup of state.cleanups) {
-    cleanup();
+  for (const cleanups of state.adapterCleanups.values()) {
+    for (const cleanup of cleanups) {
+      cleanup();
+    }
   }
 
   const stopPromises = Array.from(state.adapters.values()).map(
@@ -238,7 +272,7 @@ export async function stopDiscovery(
   return {
     ...state,
     isDiscovering: false,
-    cleanups: [],
+    adapterCleanups: new Map(),
     escalationTimers: [],
   };
 }
