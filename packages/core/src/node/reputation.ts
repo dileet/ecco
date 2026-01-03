@@ -55,6 +55,8 @@ const DEFAULT_COMMIT_THRESHOLD = 10;
 const DEFAULT_COMMIT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_PENDING_RATINGS = 1000;
+const MIN_LOCAL_SCORE = -1000;
+const MAX_LOCAL_SCORE = 1000;
 
 export function createReputationState(config: ReputationConfig): ReputationState {
   return {
@@ -76,7 +78,7 @@ export function getLocalReputation(state: ReputationState, peerId: string): Loca
 export function updateLocalScore(state: ReputationState, peerId: string, delta: number): void {
   const peer = state.peers.get(peerId);
   if (peer) {
-    peer.localScore += delta;
+    peer.localScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, peer.localScore + delta));
     peer.lastInteractionAt = Date.now();
     if (delta > 0) {
       peer.successfulJobs += 1;
@@ -109,7 +111,7 @@ export function recordLocalSuccess(state: ReputationState, peerId: string, walle
     state.peers.set(peerId, peer);
   }
 
-  peer.localScore += 1;
+  peer.localScore = Math.min(MAX_LOCAL_SCORE, peer.localScore + 1);
   peer.successfulJobs += 1;
   peer.totalJobs += 1;
   peer.lastInteractionAt = now;
@@ -141,7 +143,7 @@ export function recordLocalFailure(state: ReputationState, peerId: string, walle
     state.peers.set(peerId, peer);
   }
 
-  peer.localScore -= 1;
+  peer.localScore = Math.max(MIN_LOCAL_SCORE, peer.localScore - 1);
   peer.failedJobs += 1;
   peer.totalJobs += 1;
   peer.lastInteractionAt = now;
