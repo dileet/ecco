@@ -366,6 +366,8 @@ export const executeOrchestration = async (
       clearTimeout(timeoutId);
     }
     timeoutIds.clear();
+    streamBuffers.clear();
+    responseResolvers.clear();
 
     if (updatedBridge) {
       const latestNodeState = getState(nodeRef);
