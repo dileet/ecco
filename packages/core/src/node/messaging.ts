@@ -313,11 +313,14 @@ export function subscribeWithRef(
       const pubsub = state.node.services.pubsub;
       pubsub.subscribe(topic);
 
-      const abortController = new AbortController();
       const pubsubKey = getPubsubKey(state.id, topic);
-      pubsubAbortControllers.set(pubsubKey, abortController);
+      if (pubsubAbortControllers.has(pubsubKey)) {
+        debug('subscribeWithRef', `Listener already exists for ${topic}, skipping`);
+      } else {
+        const abortController = new AbortController();
+        pubsubAbortControllers.set(pubsubKey, abortController);
 
-      pubsub.addEventListener('message', async (evt) => {
+        pubsub.addEventListener('message', async (evt) => {
         const messageData = extractMessageData(evt.detail);
         if (!messageData || messageData.topic !== topic) {
           return;
@@ -379,6 +382,7 @@ export function subscribeWithRef(
           console.error(`[${currentState.id}] Error processing pubsub message on topic ${topic}:`, error);
         }
       }, { signal: abortController.signal });
+      }
     }
 
     if (hasTransportLayer(state)) {
