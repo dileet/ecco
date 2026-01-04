@@ -198,9 +198,18 @@ async function startPhase(
   await Promise.all(startPromises);
 }
 
+function clearEscalationTimers(state: HybridDiscoveryState): void {
+  for (const timerId of state.escalationTimers) {
+    clearTimeout(timerId);
+  }
+  state.escalationTimers.length = 0;
+}
+
 function schedulePhaseEscalation(state: HybridDiscoveryState): void {
   const { phases, phaseTimeout } = state.config;
   const currentIndex = phases.indexOf(state.currentPhase);
+
+  clearEscalationTimers(state);
 
   if (currentIndex < phases.length - 1) {
     const timerId = setTimeout(() => {
@@ -253,6 +262,10 @@ function handleAdapterDiscovery(
 
     state.discoveredPeers.set(event.peer.id, result);
 
+    if (!isUpdate) {
+      clearEscalationTimers(state);
+    }
+
     for (const handler of state.handlers.discovery) {
       handler(result);
     }
@@ -276,9 +289,7 @@ function getPhaseForTransport(
 export async function stopDiscovery(
   state: HybridDiscoveryState
 ): Promise<HybridDiscoveryState> {
-  for (const timerId of state.escalationTimers) {
-    clearTimeout(timerId);
-  }
+  clearEscalationTimers(state);
 
   for (const cleanups of state.adapterCleanups.values()) {
     for (const cleanup of cleanups) {
