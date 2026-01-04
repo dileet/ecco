@@ -15,3 +15,8 @@ export { debug } from './debug';
 export { secureRandom, isValidBase64, decodeBase64, toHexAddress, validateAddress } from './crypto';
 export { canonicalJsonStringify } from './canonical-json';
 export { signInvoice, verifyInvoice, isSignedInvoice } from './invoice-signing';
+
+export function normalizeMultiaddrs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((addr) => String(addr));
+}

@@ -13,6 +13,7 @@ import type {
 import type { ProtocolVersion } from '../../types';
 import type { NetworkConfig } from '../../networks';
 import { SDK_PROTOCOL_VERSION } from '../../networks';
+import { normalizeMultiaddrs } from '../../utils';
 const { multiaddr } = await import('@multiformats/multiaddr');
 
 interface EccoLibp2pServices extends Record<string, unknown> {
@@ -158,11 +159,12 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
   function handlePeerDiscovery(evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>): void {
     const { id: peerId } = evt.detail;
     const peerIdStr = peerId.toString();
+    const addresses = normalizeMultiaddrs(evt.detail.multiaddrs);
 
     const peer: TransportPeer = {
       id: peerIdStr,
       transport: 'libp2p',
-      addresses: node.getMultiaddrs().map(String),
+      addresses,
       lastSeen: Date.now(),
     };
 
