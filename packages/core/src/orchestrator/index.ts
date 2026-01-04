@@ -19,6 +19,8 @@ import { secureRandom } from '../utils';
 import { writeExpectedInvoice } from '../storage';
 
 const MAX_FANOUT = 33;
+const MAX_STREAM_BUFFER_BYTES = 10 * 1024 * 1024;
+const MAX_STREAM_CHUNKS = 4096;
 
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
@@ -31,6 +33,8 @@ const StreamCompletePayloadSchema = z.object({
   text: z.string(),
   complete: z.boolean().optional(),
 });
+
+const getByteLength = (value: string): number => Buffer.byteLength(value);
 
 export type OrchestratorState = {
   loadStates: Record<string, AgentLoadState>;
@@ -282,9 +286,17 @@ export const executeOrchestration = async (
   >();
   const timeoutIds = new Map<string, ReturnType<typeof setTimeout>>();
 
-  const streamBuffers = new Map<string, string>();
+  type StreamBufferState = {
+    text: string;
+    bytes: number;
+    chunks: number;
+  };
+
+  const streamBuffers = new Map<string, StreamBufferState>();
 
   const responseTimeout = config.timeout ?? 120000;
+  const maxStreamBufferBytes = config.maxStreamBufferBytes ?? MAX_STREAM_BUFFER_BYTES;
+  const maxStreamChunks = config.maxStreamChunks ?? MAX_STREAM_CHUNKS;
 
   for (const req of requests) {
     const promise = new Promise<unknown>((resolve, reject) => {
@@ -303,7 +315,7 @@ export const executeOrchestration = async (
       timeoutIds.set(req.message.id, timeoutId);
     });
     responsePromises.set(req.message.id, promise);
-    streamBuffers.set(req.message.id, '');
+    streamBuffers.set(req.message.id, { text: '', bytes: 0, chunks: 0 });
   }
 
   const directMessageHandler = (message: Message) => {
@@ -311,8 +323,29 @@ export const executeOrchestration = async (
       const parsed = StreamChunkPayloadSchema.safeParse(message.payload);
       if (parsed.success) {
         const buffer = streamBuffers.get(parsed.data.requestId);
-        if (buffer !== undefined) {
-          streamBuffers.set(parsed.data.requestId, buffer + parsed.data.chunk);
+        if (buffer) {
+          const chunkBytes = getByteLength(parsed.data.chunk);
+          const nextBytes = buffer.bytes + chunkBytes;
+          const nextChunks = buffer.chunks + 1;
+          if (nextBytes > maxStreamBufferBytes || nextChunks > maxStreamChunks) {
+            const resolver = responseResolvers.get(parsed.data.requestId);
+            if (resolver) {
+              resolver.reject(new Error('Stream exceeded maximum size'));
+              responseResolvers.delete(parsed.data.requestId);
+            }
+            const timeoutId = timeoutIds.get(parsed.data.requestId);
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutIds.delete(parsed.data.requestId);
+            }
+            streamBuffers.delete(parsed.data.requestId);
+            return;
+          }
+          streamBuffers.set(parsed.data.requestId, {
+            text: buffer.text + parsed.data.chunk,
+            bytes: nextBytes,
+            chunks: nextChunks,
+          });
         }
         if (config.onStream) {
           config.onStream({ text: parsed.data.chunk, peerId: message.from });
@@ -330,8 +363,15 @@ export const executeOrchestration = async (
             clearTimeout(timeoutId);
             timeoutIds.delete(parsed.data.requestId);
           }
-          const bufferedText = streamBuffers.get(parsed.data.requestId) ?? parsed.data.text;
-          resolver.resolve({ text: bufferedText });
+          const buffer = streamBuffers.get(parsed.data.requestId);
+          const bufferedText = buffer ? buffer.text : parsed.data.text;
+          const totalBytes = buffer ? buffer.bytes : getByteLength(parsed.data.text);
+          const totalChunks = buffer ? buffer.chunks : 1;
+          if (totalBytes > maxStreamBufferBytes || totalChunks > maxStreamChunks) {
+            resolver.reject(new Error('Stream exceeded maximum size'));
+          } else {
+            resolver.resolve({ text: bufferedText });
+          }
           responseResolvers.delete(parsed.data.requestId);
           streamBuffers.delete(parsed.data.requestId);
         }

@@ -40,6 +40,8 @@ export interface MultiAgentConfig {
   stakeRequirement?: StakeRequirementConfig;
   nodeRef?: StateRef<NodeState>;
   onStream?: (chunk: { text: string; peerId: string }) => void;
+  maxStreamBufferBytes?: number;
+  maxStreamChunks?: number;
   synthesizeFn?: SynthesizeFn;
   originalQuery?: string;
 }
