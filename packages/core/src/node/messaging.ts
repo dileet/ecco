@@ -194,13 +194,29 @@ export async function publish(state: NodeState, topic: string, event: EccoEvent)
     );
 
     const subscribers = getTopicSubscribers(state, topic);
-    
-    if (subscribers.size > 0) {
+    const localPeerIds = new Set<string>([state.id.toLowerCase()]);
+    if (state.libp2pPeerId) {
+      localPeerIds.add(state.libp2pPeerId.toLowerCase());
+    }
+    const nodePeerId = state.node?.peerId?.toString();
+    if (nodePeerId) {
+      localPeerIds.add(nodePeerId.toLowerCase());
+    }
+
+    const remoteSubscribers = new Set<string>();
+    for (const subscriber of subscribers) {
+      const normalized = subscriber.toLowerCase();
+      if (!localPeerIds.has(normalized)) {
+        remoteSubscribers.add(normalized);
+      }
+    }
+
+    if (remoteSubscribers.size > 0) {
       for (const adapter of state.transport!.adapters.values()) {
         if (adapter.state === 'connected') {
           const connectedPeers = adapter.getConnectedPeers();
           for (const peer of connectedPeers) {
-            if (subscribers.has(peer.id)) {
+            if (remoteSubscribers.has(peer.id.toLowerCase())) {
               await adapter.send(peer.id, transportMessage);
             }
           }
@@ -479,4 +495,3 @@ export function subscribeWithRef(
     }
   };
 }
-
