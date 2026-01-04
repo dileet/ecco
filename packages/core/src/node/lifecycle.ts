@@ -45,6 +45,7 @@ import {
 import { createLibp2pAdapter, toAdapter as toLibp2pAdapter, initialize as initLibp2pAdapter } from '../transport/adapters/libp2p';
 import {
   createBLEAdapter,
+  initialize as initBLEAdapter,
   toAdapter as toBLEAdapter,
   setLocalContext as setBLELocalContext,
 } from '../transport/adapters/bluetooth-le';
@@ -354,6 +355,7 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     });
 
     bleAdapterState = setBLELocalContext(bleAdapterState, localContext);
+    bleAdapterState = await initBLEAdapter(bleAdapterState);
     hybridDiscovery = registerHybridAdapter(hybridDiscovery, toBLEAdapter(bleAdapterState));
   }
 
