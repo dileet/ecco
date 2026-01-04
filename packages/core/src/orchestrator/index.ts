@@ -18,6 +18,8 @@ import { selectByZoneWithFallback, sortByZone } from '../node/latency-zones';
 import { secureRandom } from '../utils';
 import { writeExpectedInvoice } from '../storage';
 
+const MAX_FANOUT = 33;
+
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
   chunk: z.string(),
@@ -107,7 +109,7 @@ const selectAgents = (
 
   switch (config.selectionStrategy) {
     case 'all':
-      return candidates;
+      return candidates.slice(0, MAX_FANOUT);
 
     case 'top-n':
       return candidates.slice(0, n);
