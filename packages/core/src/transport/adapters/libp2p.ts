@@ -450,7 +450,7 @@ export async function send(
   const framedData = lengthPrefixEncode(data);
 
   try {
-    stream.send(framedData);
+    await stream.send(framedData);
     await stream.close();
   } catch (err) {
     stream.abort(err instanceof Error ? err : new Error(String(err)));
