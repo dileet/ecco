@@ -20,6 +20,7 @@ export interface HybridDiscoveryConfig {
   preferProximity: boolean;
   connectionRetries: number;
   retryDelay: number;
+  peerTtlMs: number;
 }
 
 export interface DiscoveryResult {
@@ -53,6 +54,7 @@ const DEFAULT_CONFIG: HybridDiscoveryConfig = {
   preferProximity: true,
   connectionRetries: 3,
   retryDelay: 1000,
+  peerTtlMs: 5000,
 };
 
 const DEFAULT_PHASE_MAPPING = new Map<DiscoveryPhase, TransportType[]>([
@@ -65,8 +67,10 @@ const DEFAULT_PHASE_MAPPING = new Map<DiscoveryPhase, TransportType[]>([
 export function createHybridDiscovery(
   config: Partial<HybridDiscoveryConfig> = {}
 ): HybridDiscoveryState {
+  const mergedConfig = { ...DEFAULT_CONFIG, ...config };
+  const peerTtlMs = config.peerTtlMs ?? mergedConfig.phaseTimeout;
   return {
-    config: { ...DEFAULT_CONFIG, ...config },
+    config: { ...mergedConfig, peerTtlMs },
     adapters: new Map(),
     phaseMapping: new Map(DEFAULT_PHASE_MAPPING),
     discoveredPeers: new Map(),
@@ -213,7 +217,13 @@ function schedulePhaseEscalation(state: HybridDiscoveryState): void {
 
   if (currentIndex < phases.length - 1) {
     const timerId = setTimeout(() => {
-      if (state.discoveredPeers.size === 0 && state.isDiscovering) {
+      if (!state.isDiscovering) {
+        return;
+      }
+
+      const hasFreshPeers = hasRecentPeers(state, Date.now());
+
+      if (!hasFreshPeers) {
         const nextPhase = phases[currentIndex + 1];
         startPhase(state, nextPhase);
         schedulePhaseEscalation(state);
@@ -221,6 +231,16 @@ function schedulePhaseEscalation(state: HybridDiscoveryState): void {
     }, phaseTimeout);
     state.escalationTimers.push(timerId);
   }
+}
+
+function hasRecentPeers(state: HybridDiscoveryState, now: number): boolean {
+  const cutoff = now - state.config.peerTtlMs;
+  for (const result of state.discoveredPeers.values()) {
+    if (result.peer.lastSeen >= cutoff) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function evictOldestPeer(discoveredPeers: Map<string, DiscoveryResult>): void {
@@ -489,4 +509,3 @@ export function getTransportStats(state: HybridDiscoveryState): {
     peersByPhase,
   };
 }
-
