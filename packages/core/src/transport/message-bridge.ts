@@ -58,6 +58,7 @@ export interface MessageBridgeState {
   onPeerRejected?: (peerId: string, reason: string) => void;
   onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
   onConstitutionMismatch?: (peerId: string, expectedHash: string, receivedHash: string) => void;
+  onHandshakeTimeout?: (peerId: string) => void;
   sendMessage?: (peerId: string, message: Message) => Promise<void>;
   disconnectPeer?: (peerId: string) => Promise<void>;
 }
@@ -371,6 +372,7 @@ export function setHandshakeCallbacks(
     onPeerRejected?: (peerId: string, reason: string) => void;
     onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
     onConstitutionMismatch?: (peerId: string, expectedHash: string, receivedHash: string) => void;
+    onHandshakeTimeout?: (peerId: string) => void;
     sendMessage?: (peerId: string, message: Message) => Promise<void>;
     disconnectPeer?: (peerId: string) => Promise<void>;
   }
@@ -381,6 +383,7 @@ export function setHandshakeCallbacks(
     onPeerRejected: callbacks.onPeerRejected,
     onUpgradeRequired: callbacks.onUpgradeRequired,
     onConstitutionMismatch: callbacks.onConstitutionMismatch,
+    onHandshakeTimeout: callbacks.onHandshakeTimeout,
     sendMessage: callbacks.sendMessage,
     disconnectPeer: callbacks.disconnectPeer,
   };
@@ -429,17 +432,7 @@ export async function initiateHandshake(
   );
 
   const timeoutId = setTimeout(() => {
-    if (state.pendingHandshakes.has(peerId)) {
-      state.pendingHandshakes.delete(peerId);
-      debug('handshake', `Handshake timeout for peer ${peerId}`);
-      if (networkConfig.protocol.enforcementLevel === 'strict') {
-        state.onPeerRejected?.(peerId, 'Handshake timeout');
-        state.disconnectPeer?.(peerId);
-      } else {
-        state.validatedPeers.add(peerId);
-        state.onPeerValidated?.(peerId);
-      }
-    }
+    state.onHandshakeTimeout?.(peerId);
   }, HANDSHAKE_TIMEOUT_MS);
 
   const pendingHandshakes = new Map(state.pendingHandshakes);
@@ -449,6 +442,37 @@ export async function initiateHandshake(
   debug('handshake', `Sent handshake to peer ${peerId}`);
 
   return { ...state, pendingHandshakes };
+}
+
+export function handleHandshakeTimeout(
+  state: MessageBridgeState,
+  peerId: string
+): MessageBridgeState {
+  if (!state.pendingHandshakes.has(peerId)) {
+    return state;
+  }
+
+  const pendingHandshakes = new Map(state.pendingHandshakes);
+  pendingHandshakes.delete(peerId);
+
+  debug('handshake', `Handshake timeout for peer ${peerId}`);
+
+  const networkConfig = state.config.networkConfig;
+  if (!networkConfig) {
+    return { ...state, pendingHandshakes };
+  }
+
+  if (networkConfig.protocol.enforcementLevel === 'strict') {
+    state.onPeerRejected?.(peerId, 'Handshake timeout');
+    state.disconnectPeer?.(peerId);
+    return { ...state, pendingHandshakes };
+  }
+
+  const validatedPeers = new Set(state.validatedPeers);
+  validatedPeers.add(peerId);
+  state.onPeerValidated?.(peerId);
+
+  return { ...state, pendingHandshakes, validatedPeers };
 }
 
 export async function handleVersionHandshake(
@@ -697,4 +721,3 @@ export function removePeerValidation(
   queuedMessages.delete(peerId);
   return { ...state, validatedPeers, pendingHandshakes, queuedMessages };
 }
-

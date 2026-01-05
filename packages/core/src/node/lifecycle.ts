@@ -58,6 +58,7 @@ import {
   handleVersionHandshakeResponse,
   handleVersionIncompatibleNotice,
   handleConstitutionMismatchNotice,
+  handleHandshakeTimeout,
   initiateHandshake,
   isPeerValidated,
   isHandshakeRequired,
@@ -291,6 +292,15 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
     },
     onConstitutionMismatch: (peerId: string, expectedHash: string, receivedHash: string) => {
       console.warn(`[ecco] Constitution mismatch with peer ${peerId}. Expected: ${expectedHash}, received: ${receivedHash}`);
+    },
+    onHandshakeTimeout: (peerId: string) => {
+      updateState(stateRef, (s) => {
+        if (!s.messageBridge) {
+          return s;
+        }
+        const updatedBridge = handleHandshakeTimeout(s.messageBridge, peerId);
+        return setMessageBridge(s, updatedBridge);
+      });
     },
     sendMessage: async (peerId: string, message: Message) => {
       const currentState = getState(stateRef);
