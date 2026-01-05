@@ -85,6 +85,32 @@ export function setAuthState(
   return { ...state, authState };
 }
 
+export function shutdownMessageBridge(
+  state: MessageBridgeState
+): MessageBridgeState {
+  for (const pending of state.pendingHandshakes.values()) {
+    if (pending.timeoutId) {
+      clearTimeout(pending.timeoutId);
+    }
+  }
+
+  return {
+    ...state,
+    topicHandlers: new Map(),
+    directHandlers: new Map(),
+    validatedPeers: new Set(),
+    pendingHandshakes: new Map(),
+    queuedMessages: new Map(),
+    onPeerValidated: undefined,
+    onPeerRejected: undefined,
+    onUpgradeRequired: undefined,
+    onConstitutionMismatch: undefined,
+    onHandshakeTimeout: undefined,
+    sendMessage: undefined,
+    disconnectPeer: undefined,
+  };
+}
+
 export async function serializeMessage(
   state: MessageBridgeState,
   message: Message

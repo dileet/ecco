@@ -333,6 +333,34 @@ export async function stopDiscovery(
   };
 }
 
+export async function shutdown(
+  state: HybridDiscoveryState
+): Promise<HybridDiscoveryState> {
+  const stoppedState = await stopDiscovery(state);
+
+  const shutdownPromises = Array.from(stoppedState.adapters.values()).map(
+    async (adapter) => {
+      await adapter.shutdown();
+    }
+  );
+
+  await Promise.all(shutdownPromises);
+
+  return {
+    ...stoppedState,
+    discoveredPeers: new Map(),
+    handlers: {
+      discovery: new Set(),
+      connection: new Set(),
+      message: new Set(),
+      phaseChange: new Set(),
+    },
+    adapterCleanups: new Map(),
+    escalationTimers: [],
+    isDiscovering: false,
+  };
+}
+
 export async function connectWithFallback(
   state: HybridDiscoveryState,
   peerId: string

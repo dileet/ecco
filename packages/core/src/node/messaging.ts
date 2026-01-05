@@ -11,6 +11,7 @@ import {
   createMessage,
   isPeerValidated,
   isHandshakeRequired,
+  shutdownMessageBridge,
 } from '../transport/message-bridge';
 import { isHandshakeMessage } from '../protocol/handshake';
 import { debug } from '../utils';
@@ -160,6 +161,36 @@ export function removeAllTopicSubscriptionsForPeer(stateRef: StateRef<NodeState>
       },
     };
   });
+}
+
+export function shutdownMessaging(stateRef: StateRef<NodeState>): void {
+  const state = getState(stateRef);
+  const topics = new Set([
+    ...state.subscribedTopics.keys(),
+    ...Object.keys(state.subscriptions),
+  ]);
+
+  if (state.node?.services.pubsub) {
+    for (const topic of topics) {
+      state.node.services.pubsub.unsubscribe(topic);
+    }
+  }
+
+  const prefix = `${state.id}:`;
+  for (const [key, controller] of pubsubAbortControllers) {
+    if (key.startsWith(prefix)) {
+      controller.abort();
+      pubsubAbortControllers.delete(key);
+    }
+  }
+
+  updateState(stateRef, (s) => ({
+    ...s,
+    subscriptions: {},
+    subscribedTopics: new Map(),
+    messageBridge: s.messageBridge ? shutdownMessageBridge(s.messageBridge) : s.messageBridge,
+    floodProtection: { ...s.floodProtection, topicSubscribers: new Map() },
+  }));
 }
 
 export async function publish(state: NodeState, topic: string, event: EccoEvent): Promise<void> {

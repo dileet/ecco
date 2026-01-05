@@ -13,7 +13,7 @@ import { signMessage, createPublicKeyCache } from '../services/auth';
 import { withTimeout, retryWithBackoff, debug } from '../utils';
 import * as storage from '../storage';
 import { closePool } from '../connection';
-import { publish } from './messaging';
+import { publish, shutdownMessaging } from './messaging';
 import { setupEventListeners } from './discovery';
 import { announceCapabilities, setupCapabilityTracking } from './capabilities';
 import { connectToBootstrapPeers } from './bootstrap';
@@ -30,6 +30,7 @@ import {
   setWallet,
   setTransport,
   setMessageBridge,
+  setConnectionPool,
   runCleanupHandlers,
 } from './state';
 import type { NodeState, EccoServices, StateRef } from './types';
@@ -39,7 +40,7 @@ import {
   createHybridDiscovery,
   registerAdapter as registerHybridAdapter,
   startDiscovery as startHybridDiscovery,
-  stopDiscovery as stopHybridDiscovery,
+  shutdown as shutdownHybridDiscovery,
   onMessage as onHybridMessage,
 } from '../transport/hybrid-discovery';
 import { createLibp2pAdapter, toAdapter as toLibp2pAdapter, initialize as initLibp2pAdapter } from '../transport/adapters/libp2p';
@@ -456,22 +457,19 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   updateState(stateRef, (s) => ({ ...s, shuttingDown: true }));
 
+  await runCleanupHandlers(getState(stateRef));
+  shutdownMessaging(stateRef);
+
   const state = getState(stateRef);
 
-  await runCleanupHandlers(state);
-
-  updateState(stateRef, (s) => ({
-    ...s,
-    subscriptions: {},
-    subscribedTopics: new Map(),
-  }));
-
   if (state.transport) {
-    await stopHybridDiscovery(state.transport);
+    const transport = await shutdownHybridDiscovery(state.transport);
+    updateState(stateRef, (s) => setTransport(s, transport));
   }
 
   if (state.connectionPool) {
-    await closePool(state.connectionPool);
+    const pool = await closePool(state.connectionPool);
+    updateState(stateRef, (s) => setConnectionPool(s, pool));
   }
 
   if (state.node) {
