@@ -26,18 +26,30 @@ import {
   getPendingRewards as getPendingRewardsOnChain,
 } from '../services/fee-collector'
 import { signInvoice } from '../utils/invoice-signing'
+import { createAsyncMutex, type AsyncMutex } from '../utils/concurrency'
 
 const MAX_INVOICE_QUEUE = 1000
 
 interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
   streamingAgreements: Map<string, StreamingAgreement>
+  streamingLocks: Map<string, AsyncMutex>
   pendingPayments: Map<string, {
     invoice: Invoice
     resolve: (proof: PaymentProof) => void
     reject: (error: Error) => void
   }>
   invoiceQueue: Invoice[]
+}
+
+function getStreamingMutex(paymentState: PaymentState, channelId: string): AsyncMutex {
+  const existing = paymentState.streamingLocks.get(channelId)
+  if (existing) {
+    return existing
+  }
+  const mutex = createAsyncMutex()
+  paymentState.streamingLocks.set(channelId, mutex)
+  return mutex
 }
 
 function bigintToDecimalString(value: bigint): string {
@@ -247,64 +259,71 @@ export function createPaymentHelpers(
     options?: RecordTokensOptions
   ): Promise<RecordTokensResult> => {
     const channelId = options?.channelId ?? ctx.message.id
-    let agreement = paymentState.streamingAgreements.get(channelId)
+    const mutex = getStreamingMutex(paymentState, channelId)
+    const release = await mutex.acquire()
 
-    if (!agreement) {
-      if (!options?.pricing) {
-        throw new Error(`No streaming agreement found for channel ${channelId} and no pricing config provided`)
+    try {
+      let agreement = paymentState.streamingAgreements.get(channelId)
+
+      if (!agreement) {
+        if (!options?.pricing) {
+          throw new Error(`No streaming agreement found for channel ${channelId} and no pricing config provided`)
+        }
+
+        if (!wallet) {
+          throw new Error('Wallet not configured for payments')
+        }
+
+        agreement = {
+          id: crypto.randomUUID(),
+          jobId: channelId,
+          payer: ctx.message.from,
+          recipient: getAddress(wallet),
+          chainId: options.pricing.chainId,
+          token: options.pricing.token ?? 'ETH',
+          ratePerToken: bigintToDecimalString(options.pricing.ratePerToken ? toWei(options.pricing.ratePerToken) : 0n),
+          accumulatedAmount: '0',
+          lastTick: Date.now(),
+          status: 'active',
+          createdAt: Date.now(),
+        }
+        await writeStreamingChannel(agreement)
+        paymentState.streamingAgreements.set(channelId, agreement)
       }
 
-      if (!wallet) {
-        throw new Error('Wallet not configured for payments')
+      const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
+
+      await updateStreamingChannel(updatedAgreement)
+      paymentState.streamingAgreements.set(channelId, updatedAgreement)
+
+      let invoiceSent = false
+      if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
+        const invoice: Invoice = {
+          id: crypto.randomUUID(),
+          jobId: channelId,
+          chainId: updatedAgreement.chainId,
+          amount: amountOwed,
+          token: updatedAgreement.token,
+          recipient: updatedAgreement.recipient,
+          validUntil: Date.now() + 3600000,
+        }
+        const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+        await ctx.reply(signedInvoice, 'invoice')
+        invoiceSent = true
       }
 
-      agreement = {
-        id: crypto.randomUUID(),
-        jobId: channelId,
-        payer: ctx.message.from,
-        recipient: getAddress(wallet),
-        chainId: options.pricing.chainId,
-        token: options.pricing.token ?? 'ETH',
-        ratePerToken: bigintToDecimalString(options.pricing.ratePerToken ? toWei(options.pricing.ratePerToken) : 0n),
-        accumulatedAmount: '0',
-        lastTick: Date.now(),
-        status: 'active',
-        createdAt: Date.now(),
+      const totalTokens = Math.round(parseFloat(updatedAgreement.accumulatedAmount) / parseFloat(updatedAgreement.ratePerToken))
+
+      return {
+        channelId,
+        tokens: count,
+        totalTokens,
+        amountOwed,
+        totalAmount: updatedAgreement.accumulatedAmount,
+        invoiceSent,
       }
-      await writeStreamingChannel(agreement)
-      paymentState.streamingAgreements.set(channelId, agreement)
-    }
-
-    const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
-
-    await updateStreamingChannel(updatedAgreement)
-    paymentState.streamingAgreements.set(channelId, updatedAgreement)
-
-    let invoiceSent = false
-    if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
-      const invoice: Invoice = {
-        id: crypto.randomUUID(),
-        jobId: channelId,
-        chainId: updatedAgreement.chainId,
-        amount: amountOwed,
-        token: updatedAgreement.token,
-        recipient: updatedAgreement.recipient,
-        validUntil: Date.now() + 3600000,
-      }
-      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
-      await ctx.reply(signedInvoice, 'invoice')
-      invoiceSent = true
-    }
-
-    const totalTokens = Math.round(parseFloat(updatedAgreement.accumulatedAmount) / parseFloat(updatedAgreement.ratePerToken))
-
-    return {
-      channelId,
-      tokens: count,
-      totalTokens,
-      amountOwed,
-      totalAmount: updatedAgreement.accumulatedAmount,
-      invoiceSent,
+    } finally {
+      release()
     }
   }
 
@@ -461,6 +480,7 @@ export function createPaymentState(): PaymentState {
   return {
     escrowAgreements: new Map(),
     streamingAgreements: new Map(),
+    streamingLocks: new Map(),
     pendingPayments: new Map(),
     invoiceQueue: [],
   }

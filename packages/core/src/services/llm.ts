@@ -1,5 +1,6 @@
 import { getLlama, type Llama, type LlamaModel, type LlamaContext } from 'node-llama-cpp'
 import type { GenerateFn, StreamGenerateFn, EmbedFn } from '../agent/types'
+import { createAsyncMutex, type AsyncMutex } from '../utils/concurrency'
 
 export interface LocalModelConfig {
   modelPath: string
@@ -7,41 +8,6 @@ export interface LocalModelConfig {
   gpuLayers?: number
   threads?: number
   embedding?: boolean
-}
-
-interface AsyncMutex {
-  acquire: () => Promise<() => void>
-  isLocked: () => boolean
-  queueLength: () => number
-}
-
-function createAsyncMutex(): AsyncMutex {
-  let locked = false
-  const queue: Array<() => void> = []
-
-  const acquire = (): Promise<() => void> => {
-    return new Promise((resolve) => {
-      const tryAcquire = () => {
-        if (!locked) {
-          locked = true
-          resolve(() => {
-            locked = false
-            const next = queue.shift()
-            if (next) next()
-          })
-        } else {
-          queue.push(tryAcquire)
-        }
-      }
-      tryAcquire()
-    })
-  }
-
-  return {
-    acquire,
-    isLocked: () => locked,
-    queueLength: () => queue.length,
-  }
 }
 
 export interface LocalModelState {
