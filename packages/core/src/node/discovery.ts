@@ -72,10 +72,29 @@ export function setupEventListeners(
   const dialQueue: { peerId: PeerId; peerIdStr: string }[] = [];
   const queuedPeers = new Set<string>();
   const inFlightDials = new Set<string>();
+  const connectedPeers = new Set(
+    node.getConnections().map((conn) => conn.remotePeer.toString().toLowerCase())
+  );
   let nextDialAllowedAt = 0;
   let dialBackoffMs = DIAL_BACKOFF_BASE_MS;
 
+  const removeQueuedPeer = (peerIdLower: string): void => {
+    if (dialQueue.length === 0) {
+      return;
+    }
+    for (let i = dialQueue.length - 1; i >= 0; i -= 1) {
+      const candidate = dialQueue[i];
+      if (candidate && candidate.peerIdStr.toLowerCase() === peerIdLower) {
+        queuedPeers.delete(candidate.peerIdStr);
+        dialQueue.splice(i, 1);
+      }
+    }
+  };
+
   const enqueueDial = (peerId: PeerId, peerIdStr: string): void => {
+    if (connectedPeers.has(peerIdStr.toLowerCase())) {
+      return;
+    }
     if (queuedPeers.has(peerIdStr) || inFlightDials.has(peerIdStr)) {
       return;
     }
@@ -98,6 +117,13 @@ export function setupEventListeners(
         return;
       }
       queuedPeers.delete(candidate.peerIdStr);
+      if (connectedPeers.has(candidate.peerIdStr.toLowerCase())) {
+        continue;
+      }
+      if (node.getConnections(candidate.peerId).length > 0) {
+        connectedPeers.add(candidate.peerIdStr.toLowerCase());
+        continue;
+      }
       if (inFlightDials.has(candidate.peerIdStr)) {
         continue;
       }
@@ -115,6 +141,7 @@ export function setupEventListeners(
       node.dial(candidate.peerId)
         .then(() => {
           dialBackoffMs = DIAL_BACKOFF_BASE_MS;
+          connectedPeers.add(candidate.peerIdStr.toLowerCase());
         })
         .catch((error) => {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -154,6 +181,8 @@ export function setupEventListeners(
 
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
+    connectedPeers.add(peerId.toLowerCase());
+    removeQueuedPeer(peerId.toLowerCase());
     const currentState = getState(stateRef);
     if (!hasPeer(currentState, peerId)) {
       const peerAddresses = node.getConnections()
@@ -182,6 +211,7 @@ export function setupEventListeners(
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {
     const peerId = evt.detail.toString();
+    connectedPeers.delete(peerId.toLowerCase());
     discoveredPeers.delete(peerId);
     removeAllTopicSubscriptionsForPeer(stateRef, peerId);
     const currentState = getState(stateRef);
@@ -199,6 +229,7 @@ export function setupEventListeners(
     dialQueue.length = 0;
     queuedPeers.clear();
     inFlightDials.clear();
+    connectedPeers.clear();
   });
 }
 
