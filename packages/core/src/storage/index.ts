@@ -37,6 +37,8 @@ export interface TimedOutPaymentRecord {
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 let sqliteDb: Database | null = null;
 let currentNodeId: string | null = null;
+let dbNodeId: string | null = null;
+let initPromise: Promise<void> | null = null;
 
 const getSqliteDb = (): Database | null => sqliteDb;
 
@@ -60,21 +62,54 @@ const getEccoDir = (): string => path.resolve(homedir(), '.ecco');
 const getDbPath = (nodeId: string): string => path.join(getEccoDir(), `${nodeId}.sqlite`);
 
 const getDb = (): ReturnType<typeof drizzle> | null => dbInstance;
+const isDbReady = (nodeId: string): boolean => dbInstance !== null && dbNodeId === nodeId;
 
-const ensureDbInitialized = (): void => {
-  if (dbInstance) {
-    return;
-  }
-  if (!currentNodeId) {
-    throw new Error('Node ID not set');
-  }
-  const dbPath = getDbPath(currentNodeId);
+const openDatabase = (nodeId: string, createIfMissing: boolean): void => {
+  const dbPath = getDbPath(nodeId);
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  if (!createIfMissing && !fs.existsSync(dbPath)) {
+    return;
+  }
   sqliteDb = new Database(dbPath);
   dbInstance = drizzle({ client: sqliteDb });
+  dbNodeId = nodeId;
+};
+
+const initializeDatabase = async (
+  nodeId: string,
+  createIfMissing: boolean
+): Promise<void> => {
+  if (isDbReady(nodeId)) {
+    return;
+  }
+  if (initPromise) {
+    const pendingInit = initPromise;
+    await pendingInit;
+    if (isDbReady(nodeId)) {
+      return;
+    }
+  }
+  initPromise = Promise.resolve().then(() => {
+    if (isDbReady(nodeId)) {
+      return;
+    }
+    openDatabase(nodeId, createIfMissing);
+  });
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
+  }
+};
+
+const ensureDbInitialized = async (): Promise<void> => {
+  if (!currentNodeId) {
+    throw new Error('Node ID not set');
+  }
+  await initializeDatabase(currentNodeId, true);
 };
 
 const isNoSuchTableError = (error: unknown): boolean =>
@@ -82,18 +117,7 @@ const isNoSuchTableError = (error: unknown): boolean =>
 
 export const initialize = async (nodeId: string): Promise<void> => {
   currentNodeId = nodeId;
-  const dbPath = getDbPath(nodeId);
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  if (!fs.existsSync(dbPath)) {
-    return;
-  }
-
-  sqliteDb = new Database(dbPath);
-  dbInstance = drizzle({ client: sqliteDb });
+  await initializeDatabase(nodeId, false);
 };
 
 export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgreement>> => {
@@ -292,7 +316,7 @@ export const loadPendingSettlements = async (): Promise<SettlementIntent[]> => {
 };
 
 export const writeEscrowAgreement = async (agreement: EscrowAgreement): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -330,7 +354,7 @@ export const writeEscrowAgreement = async (agreement: EscrowAgreement): Promise<
 };
 
 export const updateEscrowAgreement = async (agreement: EscrowAgreement): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -352,7 +376,7 @@ export const updateEscrowAgreement = async (agreement: EscrowAgreement): Promise
 };
 
 export const writePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -393,7 +417,7 @@ export const writePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promis
 };
 
 export const updatePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -417,7 +441,7 @@ export const updatePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promi
 };
 
 export const writeStreamingChannel = async (channel: StreamingAgreement): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -456,7 +480,7 @@ export const writeStreamingChannel = async (channel: StreamingAgreement): Promis
 };
 
 export const updateStreamingChannel = async (channel: StreamingAgreement): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -479,7 +503,7 @@ export const updateStreamingChannel = async (channel: StreamingAgreement): Promi
 };
 
 export const writeStakePosition = async (position: StakePosition): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -523,7 +547,7 @@ export const writeStakePosition = async (position: StakePosition): Promise<void>
 };
 
 export const updateStakePosition = async (position: StakePosition): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -549,7 +573,7 @@ export const updateStakePosition = async (position: StakePosition): Promise<void
 };
 
 export const writeSwarmSplit = async (split: SwarmSplit): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -584,7 +608,7 @@ export const writeSwarmSplit = async (split: SwarmSplit): Promise<void> => {
 };
 
 export const updateSwarmSplit = async (split: SwarmSplit): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -605,7 +629,7 @@ export const updateSwarmSplit = async (split: SwarmSplit): Promise<void> => {
 };
 
 export const writeSettlement = async (settlement: SettlementIntent): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -636,7 +660,7 @@ export const writeSettlement = async (settlement: SettlementIntent): Promise<voi
 };
 
 export const removeSettlement = async (settlementId: string): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -645,7 +669,7 @@ export const removeSettlement = async (settlementId: string): Promise<void> => {
 };
 
 export const updateSettlement = async (settlement: SettlementIntent): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -688,7 +712,7 @@ export const markPaymentProofProcessed = async (
   chainId: number,
   invoiceId: string
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -708,7 +732,7 @@ export const writeTimedOutPayment = async (
   invoice: Invoice,
   timedOutAt: number
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -823,7 +847,7 @@ export const markTimedOutPaymentRecovered = async (
   invoiceId: string,
   txHash: string
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -839,7 +863,7 @@ export const markTimedOutPaymentRecovered = async (
 };
 
 export const markTimedOutPaymentExpired = async (invoiceId: string): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -851,7 +875,7 @@ export const markTimedOutPaymentExpired = async (invoiceId: string): Promise<voi
 };
 
 export const deleteTimedOutPayment = async (invoiceId: string): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -866,7 +890,7 @@ export const processPaymentRecovery = async (
   chainId: number,
   invoiceId: string
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -896,7 +920,7 @@ export const createAndDistributeSwarmSplit = async (
   initialSplit: SwarmSplit,
   updatedSplit: SwarmSplit
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -957,7 +981,7 @@ export const writeExpectedInvoice = async (
   expectedRecipient: string,
   expiresAt: number
 ): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
@@ -1014,7 +1038,7 @@ export const getExpectedInvoice = async (
 };
 
 export const deleteExpectedInvoice = async (jobId: string): Promise<void> => {
-  ensureDbInitialized();
+  await ensureDbInitialized();
   const db = getDb();
   if (!db) {
     throw new Error('Database not initialized');
