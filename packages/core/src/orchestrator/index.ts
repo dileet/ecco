@@ -239,6 +239,32 @@ const finalizeLoadStates = (
   return result;
 };
 
+type LoadUpdate = {
+  peerId: string;
+  latency: number;
+  success: boolean;
+};
+
+const applyLoadUpdate = (
+  loadStates: Record<string, AgentLoadState>,
+  update: LoadUpdate
+): Record<string, AgentLoadState> => {
+  const current = loadStates[update.peerId] ?? defaultLoadState(update.peerId);
+  const totalErrors = current.totalErrors + (update.success ? 0 : 1);
+  const totalRequests = current.totalRequests;
+  const successRate =
+    totalRequests > 0 ? (totalRequests - totalErrors) / totalRequests : 1;
+  return {
+    ...loadStates,
+    [update.peerId]: {
+      ...current,
+      totalErrors,
+      averageLatency: current.averageLatency * 0.8 + update.latency * 0.2,
+      successRate,
+    },
+  };
+};
+
 export const executeOrchestration = async (
   nodeRef: StateRef<NodeState>,
   state: OrchestratorState,
@@ -437,7 +463,7 @@ export const executeOrchestration = async (
 
     const agentPromises = requests.map(async (req): Promise<{
       response: AgentResponse;
-      state: OrchestratorState;
+      loadUpdate: LoadUpdate;
     }> => {
       const sendTime = Date.now();
 
@@ -445,19 +471,6 @@ export const executeOrchestration = async (
         const response = await responsePromises.get(req.message.id)!;
 
         const latency = Date.now() - sendTime;
-
-        let newLoadStates = currentState.loadStates;
-        if (config.loadBalancing?.enabled) {
-          const current = newLoadStates[req.match.peer.id] ?? defaultLoadState(req.match.peer.id);
-          newLoadStates = {
-            ...newLoadStates,
-            [req.match.peer.id]: {
-              ...current,
-              averageLatency: current.averageLatency * 0.8 + latency * 0.2,
-              successRate: (current.totalRequests - current.totalErrors) / current.totalRequests,
-            },
-          };
-        }
 
         return {
           response: {
@@ -468,25 +481,14 @@ export const executeOrchestration = async (
             latency,
             success: true,
           },
-          state: { ...currentState, loadStates: newLoadStates },
+          loadUpdate: {
+            peerId: req.match.peer.id,
+            latency,
+            success: true,
+          },
         };
       } catch (error) {
         const latency = Date.now() - sendTime;
-
-        let newLoadStates = currentState.loadStates;
-        if (config.loadBalancing?.enabled) {
-          const current = newLoadStates[req.match.peer.id] ?? defaultLoadState(req.match.peer.id);
-          const totalErrors = current.totalErrors + 1;
-          newLoadStates = {
-            ...newLoadStates,
-            [req.match.peer.id]: {
-              ...current,
-              totalErrors,
-              averageLatency: current.averageLatency * 0.8 + latency * 0.2,
-              successRate: (current.totalRequests - totalErrors) / current.totalRequests,
-            },
-          };
-        }
 
         return {
           response: {
@@ -498,7 +500,11 @@ export const executeOrchestration = async (
             error: error as Error,
             success: false,
           },
-          state: { ...currentState, loadStates: newLoadStates },
+          loadUpdate: {
+            peerId: req.match.peer.id,
+            latency,
+            success: false,
+          },
         };
       }
     });
@@ -507,8 +513,12 @@ export const executeOrchestration = async (
     const peerResponses = results.map((r) => r.response);
     const allResponses = [...additionalResponses, ...peerResponses];
 
-    if (results.length > 0) {
-      currentState = results[results.length - 1].state;
+    if (config.loadBalancing?.enabled) {
+      const updatedLoadStates = results.reduce(
+        (loadStates, result) => applyLoadUpdate(loadStates, result.loadUpdate),
+        currentState.loadStates
+      );
+      currentState = { ...currentState, loadStates: updatedLoadStates };
     }
 
     const configWithRef: MultiAgentConfig = {
@@ -519,14 +529,16 @@ export const executeOrchestration = async (
     const result = await aggregateResponses(allResponses, configWithRef);
     result.metrics.totalTime = Date.now() - startTime;
 
+    if (config.loadBalancing?.enabled) {
+      currentState = {
+        ...currentState,
+        loadStates: finalizeLoadStates(currentState.loadStates, selectedAgents),
+      };
+    }
+
     return { result, state: currentState };
   } finally {
     cleanup();
-
-    if (config.loadBalancing?.enabled) {
-      const newLoadStates = finalizeLoadStates(currentState.loadStates, selectedAgents);
-      currentState = { ...currentState, loadStates: newLoadStates };
-    }
   }
 };
 
