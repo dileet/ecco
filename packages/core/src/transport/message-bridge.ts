@@ -266,7 +266,7 @@ export async function handleIncomingTransportMessage(
   const peerHandlers = updatedState.directHandlers.get(peerId);
   debug('handleIncomingTransportMessage', `peerHandlers for ${peerId}: ${peerHandlers?.size ?? 0}`);
   if (peerHandlers && peerHandlers.size > 0) {
-    for (const handler of peerHandlers) {
+    for (const handler of Array.from(peerHandlers)) {
       handler(message);
     }
   }
@@ -274,7 +274,7 @@ export async function handleIncomingTransportMessage(
   const globalHandlers = updatedState.directHandlers.get('*');
   debug('handleIncomingTransportMessage', `globalHandlers (*): ${globalHandlers?.size ?? 0}`);
   if (globalHandlers && globalHandlers.size > 0) {
-    for (const handler of globalHandlers) {
+    for (const handler of Array.from(globalHandlers)) {
       handler(message);
     }
   }
@@ -285,7 +285,7 @@ export async function handleIncomingTransportMessage(
     debug('handleIncomingTransportMessage', `topicHandlers for ${topic}: ${topicHandlers?.size ?? 0}`);
     debug('handleIncomingTransportMessage', `All topics: ${Array.from(updatedState.topicHandlers.keys()).join(', ')}`);
     if (topicHandlers && topicHandlers.size > 0) {
-      for (const handler of topicHandlers) {
+      for (const handler of Array.from(topicHandlers)) {
         handler(message);
       }
     }
@@ -371,7 +371,7 @@ export async function handleIncomingBroadcast(
       const handlers = currentState.topicHandlers.get(topicMessage.topic);
       debug('handleIncomingBroadcast', `Found ${handlers?.size ?? 0} handlers for topic ${topicMessage.topic}`);
       if (handlers && handlers.size > 0) {
-        for (const handler of handlers) {
+        for (const handler of Array.from(handlers)) {
           handler(message as Message);
         }
       }
@@ -658,13 +658,13 @@ export async function handleVersionHandshakeResponse(
 
     const peerHandlers = state.directHandlers.get(peerId);
     if (peerHandlers) {
-      for (const handler of peerHandlers) {
+      for (const handler of Array.from(peerHandlers)) {
         handler(queuedMessage);
       }
     }
     const globalHandlers = state.directHandlers.get('*');
     if (globalHandlers) {
-      for (const handler of globalHandlers) {
+      for (const handler of Array.from(globalHandlers)) {
         handler(queuedMessage);
       }
     }

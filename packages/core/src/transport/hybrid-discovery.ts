@@ -149,14 +149,14 @@ export async function startDiscovery(
     cleanups.push(discoveryCleanup);
 
     const connectionCleanup = adapter.onConnection((event) => {
-      for (const handler of state.handlers.connection) {
+      for (const handler of Array.from(state.handlers.connection)) {
         handler(event);
       }
     });
     cleanups.push(connectionCleanup);
 
     const messageCleanup = adapter.onMessage((peerId, message) => {
-      for (const handler of state.handlers.message) {
+      for (const handler of Array.from(state.handlers.message)) {
         handler(peerId, message);
       }
     });
@@ -185,7 +185,7 @@ async function startPhase(
 ): Promise<void> {
   state.currentPhase = phase;
 
-  for (const handler of state.handlers.phaseChange) {
+  for (const handler of Array.from(state.handlers.phaseChange)) {
     handler(phase);
   }
 
@@ -286,7 +286,7 @@ function handleAdapterDiscovery(
       clearEscalationTimers(state);
     }
 
-    for (const handler of state.handlers.discovery) {
+    for (const handler of Array.from(state.handlers.discovery)) {
       handler(result);
     }
   } else if (event.type === 'lost') {
