@@ -2,7 +2,7 @@ import type { NodeState, StateRef } from './types';
 import type { Message } from '../types';
 import { z } from 'zod';
 import { verifyMessage, signMessage } from '../services/auth';
-import { addSubscription, removeSubscription, getState, updateState } from './state';
+import { addSubscription, removeSubscription, getState, updateState, modifyState } from './state';
 import { validateEvent, isValidEvent, type EccoEvent } from '../events';
 import {
   serializeTopicMessage,
@@ -107,28 +107,6 @@ function addTopicSubscriber(stateRef: StateRef<NodeState>, topic: string, peerId
     subscribers.add(peerId);
     const newTopicSubscribers = new Map(s.floodProtection.topicSubscribers);
     newTopicSubscribers.set(topic, subscribers);
-    return {
-      ...s,
-      floodProtection: {
-        ...s.floodProtection,
-        topicSubscribers: newTopicSubscribers,
-      },
-    };
-  });
-}
-
-function removeTopicSubscriber(stateRef: StateRef<NodeState>, topic: string, peerId: string): void {
-  updateState(stateRef, (s) => {
-    const subscribers = s.floodProtection.topicSubscribers.get(topic);
-    if (!subscribers) return s;
-    const newSubscribers = new Set(subscribers);
-    newSubscribers.delete(peerId);
-    const newTopicSubscribers = new Map(s.floodProtection.topicSubscribers);
-    if (newSubscribers.size === 0) {
-      newTopicSubscribers.delete(topic);
-    } else {
-      newTopicSubscribers.set(topic, newSubscribers);
-    }
     return {
       ...s,
       floodProtection: {
@@ -510,30 +488,60 @@ export function subscribeWithRef(
   }
 
   return () => {
-    updateState(stateRef, (s) => removeSubscription(s, topic, handler));
-    removeTopicSubscriber(stateRef, topic, state.id);
+    const { shouldCleanup } = modifyState(stateRef, (s) => {
+      const updatedState = removeSubscription(s, topic, handler);
+      const remainingHandlers = updatedState.subscriptions[topic];
+      const isLastSubscription = !remainingHandlers || remainingHandlers.length === 0;
+
+      if (!isLastSubscription) {
+        return [{ shouldCleanup: false }, updatedState];
+      }
+
+      const subscribers = updatedState.floodProtection.topicSubscribers.get(topic);
+      let floodProtection = updatedState.floodProtection;
+
+      if (subscribers) {
+        const newSubscribers = new Set(subscribers);
+        newSubscribers.delete(updatedState.id);
+        const newTopicSubscribers = new Map(updatedState.floodProtection.topicSubscribers);
+        if (newSubscribers.size === 0) {
+          newTopicSubscribers.delete(topic);
+        } else {
+          newTopicSubscribers.set(topic, newSubscribers);
+        }
+        floodProtection = {
+          ...updatedState.floodProtection,
+          topicSubscribers: newTopicSubscribers,
+        };
+      }
+
+      const newTopics = new Map(updatedState.subscribedTopics);
+      newTopics.delete(topic);
+
+      return [
+        { shouldCleanup: true },
+        {
+          ...updatedState,
+          subscribedTopics: newTopics,
+          floodProtection,
+        },
+      ];
+    });
+
+    if (!shouldCleanup) {
+      return;
+    }
 
     const currentState = getState(stateRef);
-    const remainingHandlers = currentState.subscriptions[topic];
-    const isLastSubscription = !remainingHandlers || remainingHandlers.length === 0;
+    const pubsubKey = getPubsubKey(currentState.id, topic);
+    const abortController = pubsubAbortControllers.get(pubsubKey);
+    if (abortController) {
+      abortController.abort();
+      pubsubAbortControllers.delete(pubsubKey);
+    }
 
-    if (isLastSubscription) {
-      const pubsubKey = getPubsubKey(currentState.id, topic);
-      const abortController = pubsubAbortControllers.get(pubsubKey);
-      if (abortController) {
-        abortController.abort();
-        pubsubAbortControllers.delete(pubsubKey);
-      }
-
-      if (currentState.node?.services.pubsub) {
-        currentState.node.services.pubsub.unsubscribe(topic);
-      }
-
-      updateState(stateRef, (s) => {
-        const newTopics = new Map(s.subscribedTopics);
-        newTopics.delete(topic);
-        return { ...s, subscribedTopics: newTopics };
-      });
+    if (currentState.node?.services.pubsub) {
+      currentState.node.services.pubsub.unsubscribe(topic);
     }
   };
 }
