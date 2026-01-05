@@ -149,6 +149,31 @@ export async function shutdown(state: BLEAdapterState): Promise<BLEAdapterState>
 export async function startDiscovery(state: BLEAdapterState): Promise<BLEAdapterState> {
   if (!state.nativeBridge) return state;
   
+  const connectionCleanup = state.nativeBridge.onPeripheralConnected((peerId) => {
+    const peer = state.discoveredPeers.get(peerId) ?? {
+      id: peerId,
+      transport: 'bluetooth-le',
+      addresses: [`ble://${peerId}`],
+      lastSeen: Date.now(),
+    };
+
+    state.connectedPeers.set(peerId, peer);
+
+    for (const handler of state.connectionHandlers) {
+      handler({ type: 'connected', peerId, transport: 'bluetooth-le' });
+    }
+  });
+  state.eventCleanups.push(connectionCleanup);
+
+  const disconnectCleanup = state.nativeBridge.onPeripheralDisconnected((peerId) => {
+    state.connectedPeers.delete(peerId);
+
+    for (const handler of state.connectionHandlers) {
+      handler({ type: 'disconnected', peerId, transport: 'bluetooth-le' });
+    }
+  });
+  state.eventCleanups.push(disconnectCleanup);
+
   if (state.config.scan) {
     await state.nativeBridge.startScanning([state.config.serviceUUID]);
 
@@ -197,16 +222,6 @@ export async function connect(
   if (!state.nativeBridge) return state;
   
   await state.nativeBridge.connect(peerId);
-  
-  const peer = state.discoveredPeers.get(peerId);
-  if (peer) {
-    state.connectedPeers.set(peerId, peer);
-    
-    for (const handler of state.connectionHandlers) {
-      handler({ type: 'connected', peerId, transport: 'bluetooth-le' });
-    }
-  }
-  
   return state;
 }
 
@@ -217,12 +232,6 @@ export async function disconnect(
   if (!state.nativeBridge) return state;
   
   await state.nativeBridge.disconnect(peerId);
-  state.connectedPeers.delete(peerId);
-  
-  for (const handler of state.connectionHandlers) {
-    handler({ type: 'disconnected', peerId, transport: 'bluetooth-le' });
-  }
-  
   return state;
 }
 
@@ -341,4 +350,3 @@ export function toAdapter(state: BLEAdapterState): TransportAdapter {
     onMessage: (handler) => onMessage(state, handler),
   };
 }
-
