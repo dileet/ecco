@@ -482,7 +482,11 @@ export function forcePhase(
   state: HybridDiscoveryState,
   phase: DiscoveryPhase
 ): HybridDiscoveryState {
+  clearEscalationTimers(state);
   startPhase(state, phase);
+  if (state.config.autoEscalate && state.isDiscovering) {
+    schedulePhaseEscalation(state);
+  }
   return { ...state, currentPhase: phase };
 }
 
