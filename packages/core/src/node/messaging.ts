@@ -347,6 +347,17 @@ export function subscribeWithRef(
           const currentState = getState(stateRef);
 
           const transportPeerId = messageData.transportPeerId;
+          if (currentState.messageBridge && isHandshakeRequired(currentState.messageBridge)) {
+            if (!transportPeerId) {
+              console.warn(`[${currentState.id}] Pubsub message missing transport peer ID, dropping message`);
+              return;
+            }
+            if (!isPeerValidated(currentState.messageBridge, transportPeerId)) {
+              console.warn(`[${currentState.id}] Pubsub message from unvalidated peer ${transportPeerId}, dropping message`);
+              return;
+            }
+          }
+
           const claimedSender = rawData.peerId ?? rawData.from ?? 'unknown';
 
           if (transportPeerId && claimedSender !== 'unknown' && claimedSender.toLowerCase() !== transportPeerId.toLowerCase()) {

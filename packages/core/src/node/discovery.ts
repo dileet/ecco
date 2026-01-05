@@ -35,6 +35,10 @@ function getBootstrapPeerIds(config: NodeState['config']): Set<string> {
 
 const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_DISCOVERED_PEERS = 1000;
+const DIAL_QUEUE_TICK_MS = 200;
+const DIAL_MAX_CONCURRENT = 4;
+const DIAL_BACKOFF_BASE_MS = 250;
+const DIAL_BACKOFF_MAX_MS = 5000;
 
 function cleanupStaleEntries(discoveredPeers: Map<string, number>): void {
   const now = Date.now();
@@ -65,8 +69,71 @@ export function setupEventListeners(
   const discoveredPeers = new Map<string, number>();
   const bootstrapPeerIds = getBootstrapPeerIds(state.config);
   const abortController = new AbortController();
+  const dialQueue: { peerId: PeerId; peerIdStr: string }[] = [];
+  const queuedPeers = new Set<string>();
+  const inFlightDials = new Set<string>();
+  let nextDialAllowedAt = 0;
+  let dialBackoffMs = DIAL_BACKOFF_BASE_MS;
 
-  node.addEventListener('peer:discovery', async (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
+  const enqueueDial = (peerId: PeerId, peerIdStr: string): void => {
+    if (queuedPeers.has(peerIdStr) || inFlightDials.has(peerIdStr)) {
+      return;
+    }
+    dialQueue.push({ peerId, peerIdStr });
+    queuedPeers.add(peerIdStr);
+  };
+
+  const dialTimer = setInterval(() => {
+    if (dialQueue.length === 0 || inFlightDials.size >= DIAL_MAX_CONCURRENT) {
+      return;
+    }
+    const now = Date.now();
+    if (now < nextDialAllowedAt) {
+      return;
+    }
+
+    while (inFlightDials.size < DIAL_MAX_CONCURRENT && dialQueue.length > 0) {
+      const candidate = dialQueue.shift();
+      if (!candidate) {
+        return;
+      }
+      queuedPeers.delete(candidate.peerIdStr);
+      if (inFlightDials.has(candidate.peerIdStr)) {
+        continue;
+      }
+
+      const startTime = Date.now();
+      if (startTime < nextDialAllowedAt) {
+        dialQueue.unshift(candidate);
+        queuedPeers.add(candidate.peerIdStr);
+        return;
+      }
+
+      inFlightDials.add(candidate.peerIdStr);
+      nextDialAllowedAt = startTime + dialBackoffMs;
+
+      node.dial(candidate.peerId)
+        .then(() => {
+          dialBackoffMs = DIAL_BACKOFF_BASE_MS;
+        })
+        .catch((error) => {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (!errorMessage.includes('ECONNREFUSED') && !errorMessage.includes('timeout')) {
+            console.warn(`[${state.id}] Failed to dial peer: ${candidate.peerIdStr}`, errorMessage);
+          }
+          dialBackoffMs = Math.min(DIAL_BACKOFF_MAX_MS, dialBackoffMs * 2);
+          const nextAllowed = Date.now() + dialBackoffMs;
+          if (nextAllowed > nextDialAllowedAt) {
+            nextDialAllowedAt = nextAllowed;
+          }
+        })
+        .finally(() => {
+          inFlightDials.delete(candidate.peerIdStr);
+        });
+    }
+  }, DIAL_QUEUE_TICK_MS);
+
+  node.addEventListener('peer:discovery', (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
     const { id: peerId } = evt.detail;
     const peerIdStr = peerId.toString();
 
@@ -82,14 +149,7 @@ export function setupEventListeners(
       return;
     }
 
-    try {
-      await node.dial(peerId);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (!errorMessage.includes('ECONNREFUSED') && !errorMessage.includes('timeout')) {
-        console.warn(`[${state.id}] Failed to dial peer: ${peerIdStr}`, errorMessage);
-      }
-    }
+    enqueueDial(peerId, peerIdStr);
   }, { signal: abortController.signal });
 
   node.addEventListener('peer:connect', (evt: CustomEvent<PeerId>) => {
@@ -135,6 +195,10 @@ export function setupEventListeners(
 
   registerCleanup(stateRef, () => {
     abortController.abort();
+    clearInterval(dialTimer);
+    dialQueue.length = 0;
+    queuedPeers.clear();
+    inFlightDials.clear();
   });
 }
 
