@@ -5,7 +5,7 @@ import type { NodeState, StateRef } from './types';
 import type { Capability, CapabilityQuery, CapabilityMatch } from '../types';
 import { publish, subscribeWithRef } from './messaging';
 import { matchPeers } from '../orchestrator/capability-matcher';
-import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup, hasPeer, getAllPeers } from './state';
+import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup, hasPeer, getAllPeers, modifyState } from './state';
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
 import { announceCapabilities as announceDHT } from './dht';
 import { canonicalJsonStringify } from '../utils/canonical-json';
@@ -181,14 +181,17 @@ export async function announceCapabilities(state: NodeState): Promise<void> {
 }
 
 export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
-  const state = getState(stateRef);
+  const shouldSetup = modifyState(stateRef, (state) => {
+    if (state.capabilityTrackingSetup) {
+      return [false, state];
+    }
+    if (!state.node?.services.pubsub) {
+      return [false, setCapabilityTrackingSetup(state, true)];
+    }
+    return [true, setCapabilityTrackingSetup(state, true)];
+  });
 
-  if (state.capabilityTrackingSetup) {
-    return;
-  }
-
-  if (!state.node?.services.pubsub) {
-    updateState(stateRef, (s) => setCapabilityTrackingSetup(s, true));
+  if (!shouldSetup) {
     return;
   }
 
@@ -291,7 +294,6 @@ export function setupCapabilityTracking(stateRef: StateRef<NodeState>): void {
     updateOrAddPeer(stateRef, targetPeerId, capabilities, timestamp);
   });
 
-  updateState(stateRef, (s) => setCapabilityTrackingSetup(s, true));
 }
 
 export function findMatchingPeers(state: NodeState, query: CapabilityQuery): CapabilityMatch[] {
