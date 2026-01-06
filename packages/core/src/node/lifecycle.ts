@@ -372,6 +372,8 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
 
   hybridDiscovery = await startHybridDiscovery(hybridDiscovery);
 
+  const isActive = (): boolean => !getState(stateRef).shuttingDown;
+
   onHybridMessage(hybridDiscovery, async (peerId, transportMessage) => {
     const currentState = getState(stateRef);
     if (currentState.shuttingDown) {
@@ -395,6 +397,10 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
       }
     );
 
+    if (!isActive()) {
+      return;
+    }
+
     if (!valid || !message) {
       return;
     }
@@ -416,6 +422,9 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
           bridge = handleConstitutionMismatchNotice(bridge, peerId, message);
           break;
       }
+      if (!isActive()) {
+        return;
+      }
       updateState(stateRef, (s) => setMessageBridge(s, bridge));
       return;
     }
@@ -424,6 +433,9 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
       debug('handshake', `Message from unvalidated peer ${peerId}, queueing`);
       bridge = queueMessageForPeer(bridge, peerId, message);
       bridge = await initiateHandshake(bridge, peerId);
+      if (!isActive()) {
+        return;
+      }
       updateState(stateRef, (s) => setMessageBridge(s, bridge));
       return;
     }
@@ -433,6 +445,9 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
       peerId,
       transportMessage
     );
+    if (!isActive()) {
+      return;
+    }
     updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
   });
 
