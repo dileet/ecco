@@ -74,23 +74,27 @@ function hasTransportLayer(state: NodeState): boolean {
   return !!(state.transport && state.messageBridge);
 }
 
-function checkAndRotateDeduplicator(stateRef: StateRef<NodeState>): void {
-  const state = getState(stateRef);
-  if (state.floodProtection.deduplicator.shouldRotate()) {
-    state.floodProtection.deduplicator.rotate();
-  }
-}
-
 function isMessageDuplicate(state: NodeState, messageId: string): boolean {
   return state.floodProtection.deduplicator.isDuplicate(messageId);
 }
 
-function markMessageSeen(state: NodeState, messageId: string): void {
-  state.floodProtection.deduplicator.markSeen(messageId);
-}
-
-function checkRateLimit(state: NodeState, peerId: string): boolean {
-  return state.floodProtection.rateLimiter.checkAndConsume(peerId);
+function consumeFloodProtection(
+  stateRef: StateRef<NodeState>,
+  messageId: string,
+  peerId: string
+): boolean {
+  return modifyState(stateRef, (s) => {
+    const allowed = s.floodProtection.rateLimiter.checkAndConsume(peerId);
+    const floodProtection = { ...s.floodProtection };
+    if (!allowed) {
+      return [false, { ...s, floodProtection }];
+    }
+    floodProtection.deduplicator.markSeen(messageId);
+    if (floodProtection.deduplicator.shouldRotate()) {
+      floodProtection.deduplicator.rotate();
+    }
+    return [true, { ...s, floodProtection }];
+  });
 }
 
 function isSubscribedToTopic(state: NodeState, topic: string): boolean {
@@ -381,13 +385,10 @@ export function subscribeWithRef(
             return;
           }
 
-          if (!checkRateLimit(currentState, rateLimitId)) {
+          if (!consumeFloodProtection(stateRef, messageId, rateLimitId)) {
             console.warn(`[${currentState.id}] Rate limit exceeded for peer ${rateLimitId}, dropping message`);
             return;
           }
-
-          markMessageSeen(currentState, messageId);
-          checkAndRotateDeduplicator(stateRef);
 
           if (currentState.messageAuth) {
             if (!rawData.signature) {
@@ -443,13 +444,10 @@ export function subscribeWithRef(
                 }
 
                 const senderId = message.from;
-                if (!checkRateLimit(latestState, senderId)) {
+                if (!consumeFloodProtection(stateRef, messageId, senderId)) {
                   console.warn(`[${latestState.id}] Rate limit exceeded for peer ${senderId}, dropping message`);
                   return;
                 }
-
-                markMessageSeen(latestState, messageId);
-                checkAndRotateDeduplicator(stateRef);
 
                 const payload = message.payload as { topic?: string; event?: EccoEvent };
                 debug('subscribeWithRef bridge handler', `Payload has event=${!!payload?.event}`);
