@@ -3,7 +3,7 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   escrowAgreements,
   paymentLedger,
@@ -373,6 +373,38 @@ export const updateEscrowAgreement = async (agreement: EscrowAgreement): Promise
       approver: agreement.approver ?? null,
     })
     .where(eq(escrowAgreements.id, agreement.id));
+};
+
+export const updateEscrowAgreementIfUnchanged = async (
+  agreement: EscrowAgreement,
+  expectedMilestones: EscrowAgreement['milestones']
+): Promise<boolean> => {
+  await ensureDbInitialized();
+  const db = getDb();
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  const expectedMilestonesJson = JSON.stringify(expectedMilestones);
+  const result = db.update(escrowAgreements)
+    .set({
+      jobId: agreement.jobId,
+      payer: agreement.payer,
+      recipient: agreement.recipient,
+      chainId: agreement.chainId,
+      token: agreement.token,
+      totalAmount: agreement.totalAmount,
+      milestones: JSON.stringify(agreement.milestones),
+      status: agreement.status,
+      requiresApproval: agreement.requiresApproval,
+      approver: agreement.approver ?? null,
+    })
+    .where(and(
+      eq(escrowAgreements.id, agreement.id),
+      eq(escrowAgreements.milestones, expectedMilestonesJson)
+    ))
+    .run();
+
+  return result.changes > 0;
 };
 
 export const writePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promise<void> => {

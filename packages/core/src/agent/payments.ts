@@ -6,7 +6,7 @@ import type { BatchSettlementResult, WorkRewardOptions, WorkRewardResult, FeeHel
 import { releaseEscrowMilestone, recordStreamingTick } from '../services/payment'
 import {
   writeEscrowAgreement,
-  updateEscrowAgreement,
+  updateEscrowAgreementIfUnchanged,
   writeStreamingChannel,
   updateStreamingChannel,
   isPaymentProofProcessed,
@@ -203,9 +203,19 @@ export function createPaymentHelpers(
       }
     }
 
+    const expectedMilestones = currentAgreement.milestones
     const updatedAgreement = releaseEscrowMilestone(currentAgreement, milestoneId)
 
-    await updateEscrowAgreement(updatedAgreement)
+    const didUpdate = await updateEscrowAgreementIfUnchanged(updatedAgreement, expectedMilestones)
+    if (!didUpdate) {
+      const latestAgreement = paymentState.escrowAgreements.get(jobId)
+      const latestMilestone = latestAgreement?.milestones.find((m) => m.id === milestoneId)
+      if (latestMilestone?.released) {
+        throw new Error(`Milestone ${milestoneId} has already been released`)
+      }
+      throw new Error(`Escrow agreement ${currentAgreement.id} was updated concurrently`)
+    }
+
     paymentState.escrowAgreements.set(jobId, updatedAgreement)
 
     const shouldSendInvoice = options?.sendInvoice !== false
