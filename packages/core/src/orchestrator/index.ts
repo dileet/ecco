@@ -44,6 +44,32 @@ export const initialOrchestratorState: OrchestratorState = {
   loadStates: {},
 };
 
+type OrchestratorStateContainer = OrchestratorState | StateRef<OrchestratorState>;
+
+const AgentLoadStateSchema = z.object({
+  peerId: z.string(),
+  activeRequests: z.number(),
+  totalRequests: z.number(),
+  totalErrors: z.number(),
+  averageLatency: z.number(),
+  lastRequestTime: z.number(),
+  successRate: z.number(),
+});
+
+const OrchestratorStateSchema = z.object({
+  loadStates: z.record(AgentLoadStateSchema),
+});
+
+const OrchestratorStateRefSchema = z.object({
+  current: OrchestratorStateSchema,
+  version: z.number(),
+});
+
+const isOrchestratorStateRef = (
+  value: OrchestratorStateContainer
+): value is StateRef<OrchestratorState> =>
+  OrchestratorStateRefSchema.safeParse(value).success;
+
 const defaultLoadState = (peerId: string): AgentLoadState => ({
   peerId,
   activeRequests: 0,
@@ -267,7 +293,7 @@ const applyLoadUpdate = (
 
 export const executeOrchestration = async (
   nodeRef: StateRef<NodeState>,
-  state: OrchestratorState,
+  state: OrchestratorStateContainer,
   query: CapabilityQuery,
   payload: unknown,
   config: MultiAgentConfig,
@@ -275,6 +301,25 @@ export const executeOrchestration = async (
 ): Promise<{ result: AggregatedResult; state: OrchestratorState }> => {
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
+
+  const stateRef = isOrchestratorStateRef(state) ? state : null;
+  let currentState = stateRef ? stateRef.current : state;
+
+  const applyStateUpdate = (
+    updater: (current: OrchestratorState) => OrchestratorState
+  ): OrchestratorState => {
+    if (stateRef) {
+      const nextState = updater(stateRef.current);
+      if (nextState !== stateRef.current) {
+        stateRef.current = nextState;
+        stateRef.version += 1;
+      }
+      currentState = stateRef.current;
+      return currentState;
+    }
+    currentState = updater(currentState);
+    return currentState;
+  };
 
   const allMatches = await findPeers(nodeRef, query);
 
@@ -290,7 +335,8 @@ export const executeOrchestration = async (
   }
 
   const nodeState = getState(nodeRef);
-  const selectedAgents = selectAgents(matchesExcludingSelf, config, state.loadStates, nodeState);
+  currentState = stateRef ? stateRef.current : currentState;
+  const selectedAgents = selectAgents(matchesExcludingSelf, config, currentState.loadStates, nodeState);
 
   const requests = prepareAgentRequests(
     selectedAgents,
@@ -299,10 +345,13 @@ export const executeOrchestration = async (
     senderId
   );
 
-  let currentState = state;
+  let shouldFinalizeLoadStates = false;
   if (config.loadBalancing?.enabled) {
-    const newLoadStates = updateLoadStatesForExecution(currentState.loadStates, selectedAgents);
-    currentState = { ...currentState, loadStates: newLoadStates };
+    applyStateUpdate((current) => ({
+      ...current,
+      loadStates: updateLoadStatesForExecution(current.loadStates, selectedAgents),
+    }));
+    shouldFinalizeLoadStates = true;
   }
 
   const responsePromises = new Map<string, Promise<unknown>>();
@@ -424,11 +473,6 @@ export const executeOrchestration = async (
 
   let updatedBridge: MessageBridgeState | undefined;
 
-  if (nodeState.messageBridge) {
-    updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, directMessageHandler);
-    updateState(nodeRef, (s) => ({ ...s, messageBridge: updatedBridge }));
-  }
-
   const cleanup = () => {
     for (const timeoutId of timeoutIds.values()) {
       clearTimeout(timeoutId);
@@ -450,6 +494,11 @@ export const executeOrchestration = async (
   };
 
   try {
+    if (nodeState.messageBridge) {
+      updatedBridge = subscribeToAllDirectMessages(nodeState.messageBridge, directMessageHandler);
+      updateState(nodeRef, (s) => ({ ...s, messageBridge: updatedBridge }));
+    }
+
     const invoiceExpiresAt = Date.now() + 300000;
     for (const req of requests) {
       writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch(() => {});
@@ -514,11 +563,13 @@ export const executeOrchestration = async (
     const allResponses = [...additionalResponses, ...peerResponses];
 
     if (config.loadBalancing?.enabled) {
-      const updatedLoadStates = results.reduce(
-        (loadStates, result) => applyLoadUpdate(loadStates, result.loadUpdate),
-        currentState.loadStates
-      );
-      currentState = { ...currentState, loadStates: updatedLoadStates };
+      applyStateUpdate((current) => ({
+        ...current,
+        loadStates: results.reduce(
+          (loadStates, result) => applyLoadUpdate(loadStates, result.loadUpdate),
+          current.loadStates
+        ),
+      }));
     }
 
     const configWithRef: MultiAgentConfig = {
@@ -530,14 +581,21 @@ export const executeOrchestration = async (
     result.metrics.totalTime = Date.now() - startTime;
 
     if (config.loadBalancing?.enabled) {
-      currentState = {
-        ...currentState,
-        loadStates: finalizeLoadStates(currentState.loadStates, selectedAgents),
-      };
+      applyStateUpdate((current) => ({
+        ...current,
+        loadStates: finalizeLoadStates(current.loadStates, selectedAgents),
+      }));
+      shouldFinalizeLoadStates = false;
     }
 
     return { result, state: currentState };
   } finally {
+    if (config.loadBalancing?.enabled && shouldFinalizeLoadStates) {
+      applyStateUpdate((current) => ({
+        ...current,
+        loadStates: finalizeLoadStates(current.loadStates, selectedAgents),
+      }));
+    }
     cleanup();
   }
 };
