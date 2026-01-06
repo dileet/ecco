@@ -251,10 +251,6 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     allCapabilities.push(modelCapability)
   }
 
-  const orchestratorStateRef: StateRef<OrchestratorState> = {
-    current: initialOrchestratorState,
-    version: 0,
-  }
   let agentInstance: Agent | null = null
 
   const bluetoothConfig = config.transports?.bluetooth
@@ -658,6 +654,14 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     }
 
     const payload = { prompt: options.query }
+
+    const orchestratorStateRef: StateRef<OrchestratorState> = {
+      current: {
+        ...initialOrchestratorState,
+        loadStates: { ...initialOrchestratorState.loadStates },
+      },
+      version: 0,
+    }
 
     const { result } = await executeOrchestration(
       baseAgent.ref,
