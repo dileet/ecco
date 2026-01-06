@@ -170,8 +170,8 @@ function addConnection(
     const toRemoveIndex = newConns.reduce((oldestIdx, conn, idx, arr) =>
       conn.lastUsed < arr[oldestIdx].lastUsed ? idx : oldestIdx, 0
     );
+    const toRemove = newConns[toRemoveIndex];
     newConns.splice(toRemoveIndex, 1);
-    const toRemove = conns[toRemoveIndex];
     toRemove.stream.close().catch(() => {});
   }
 
