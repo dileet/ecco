@@ -146,20 +146,35 @@ export async function embed(
   state: LocalModelState,
   texts: string[]
 ): Promise<number[][]> {
+  if (state.disposed) {
+    throw new Error('Model is disposed')
+  }
+
   if (!state.config.embedding) {
     throw new Error('Model was not loaded with embedding support. Use a model that supports embeddings.')
   }
 
-  const embeddingContext = await state.model.createEmbeddingContext()
+  const release = await state.mutex.acquire()
+
+  if (state.disposed) {
+    release()
+    throw new Error('Model is disposed')
+  }
+
+  let embeddingContext: Awaited<ReturnType<LlamaModel['createEmbeddingContext']>> | null = null
   const embeddings: number[][] = []
 
   try {
+    embeddingContext = await state.model.createEmbeddingContext()
     for (const text of texts) {
       const result = await embeddingContext.getEmbeddingFor(text)
       embeddings.push(Array.from(result.vector))
     }
   } finally {
-    await embeddingContext.dispose()
+    if (embeddingContext) {
+      await embeddingContext.dispose()
+    }
+    release()
   }
 
   return embeddings
