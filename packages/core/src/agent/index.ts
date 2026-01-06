@@ -12,6 +12,7 @@ import {
   createReputationState,
   resolveWalletForPeer as resolveWalletForPeerImpl,
 } from '../node'
+import type { StateRef } from '../node/types'
 import { createWalletState, getAddress, type WalletState } from '../services/wallet'
 import {
   ECCO_TESTNET,
@@ -250,7 +251,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     allCapabilities.push(modelCapability)
   }
 
-  let orchestratorState: OrchestratorState = initialOrchestratorState
+  const orchestratorStateRef: StateRef<OrchestratorState> = {
+    current: initialOrchestratorState,
+    version: 0,
+  }
   let agentInstance: Agent | null = null
 
   const bluetoothConfig = config.transports?.bluetooth
@@ -655,16 +659,14 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     const payload = { prompt: options.query }
 
-    const { result, state } = await executeOrchestration(
+    const { result } = await executeOrchestration(
       baseAgent.ref,
-      orchestratorState,
+      orchestratorStateRef,
       capabilityQuery,
       payload,
       mergedConfig,
       options.additionalResponses ?? []
     )
-
-    orchestratorState = state
 
     const textResponse = extractTextFromResult(result.result)
 
