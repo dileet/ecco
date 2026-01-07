@@ -103,25 +103,42 @@ export async function* streamGenerate(
   })
 
   const chunks: Array<{ text: string; tokens: number }> = []
+  const waiters: Array<() => void> = []
   let done = false
-  let resolveWait: (() => void) | null = null
+
+  const notifyWaiter = (): void => {
+    const waiter = waiters.shift()
+    if (waiter) {
+      waiter()
+    }
+  }
+
+  const waitForChunk = async (): Promise<void> => {
+    if (chunks.length > 0 || done) {
+      return
+    }
+
+    await new Promise<void>((resolve) => {
+      waiters.push(resolve)
+      if (chunks.length > 0 || done) {
+        const waiter = waiters.pop()
+        if (waiter) {
+          waiter()
+        }
+      }
+    })
+  }
 
   const promptPromise = session.prompt(options.prompt, {
     onTextChunk: (text) => {
       chunks.push({ text, tokens: 1 })
-      if (resolveWait) {
-        resolveWait()
-        resolveWait = null
-      }
+      notifyWaiter()
     },
   })
 
   promptPromise.then(() => {
     done = true
-    if (resolveWait) {
-      resolveWait()
-      resolveWait = null
-    }
+    notifyWaiter()
   })
 
   try {
@@ -129,9 +146,7 @@ export async function* streamGenerate(
       if (chunks.length > 0) {
         yield chunks.shift()!
       } else if (!done) {
-        await new Promise<void>((resolve) => {
-          resolveWait = resolve
-        })
+        await waitForChunk()
       }
     }
 
@@ -211,25 +226,42 @@ export function createLocalStreamGenerateFn(state: LocalModelState): StreamGener
     })
 
     const chunks: Array<{ text: string; tokens: number }> = []
+    const waiters: Array<() => void> = []
     let done = false
-    let resolveWait: (() => void) | null = null
+
+    const notifyWaiter = (): void => {
+      const waiter = waiters.shift()
+      if (waiter) {
+        waiter()
+      }
+    }
+
+    const waitForChunk = async (): Promise<void> => {
+      if (chunks.length > 0 || done) {
+        return
+      }
+
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve)
+        if (chunks.length > 0 || done) {
+          const waiter = waiters.pop()
+          if (waiter) {
+            waiter()
+          }
+        }
+      })
+    }
 
     const promptPromise = session.prompt(options.prompt, {
       onTextChunk: (text) => {
         chunks.push({ text, tokens: 1 })
-        if (resolveWait) {
-          resolveWait()
-          resolveWait = null
-        }
+        notifyWaiter()
       },
     })
 
     promptPromise.then(() => {
       done = true
-      if (resolveWait) {
-        resolveWait()
-        resolveWait = null
-      }
+      notifyWaiter()
     })
 
     try {
@@ -237,9 +269,7 @@ export function createLocalStreamGenerateFn(state: LocalModelState): StreamGener
         if (chunks.length > 0) {
           yield chunks.shift()!
         } else if (!done) {
-          await new Promise<void>((resolve) => {
-            resolveWait = resolve
-          })
+          await waitForChunk()
         }
       }
 
