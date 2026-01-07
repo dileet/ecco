@@ -33,6 +33,7 @@ import {
   setConnectionPool,
   runCleanupHandlers,
 } from './state';
+import { startSettlementWorker, stopSettlementWorker } from './settlement-worker';
 import type { NodeState, EccoServices, StateRef } from './types';
 import type { Message } from '../types';
 import type { MessageEvent } from '../events';
@@ -470,6 +471,7 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   setupCapabilityTracking(stateRef);
   await setupBootstrap(stateRef);
   await announceCapabilities(getState(stateRef));
+  await startSettlementWorker(stateRef);
 
   return stateRef;
 }
@@ -477,6 +479,7 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   updateState(stateRef, (s) => ({ ...s, shuttingDown: true }));
 
+  await stopSettlementWorker(stateRef);
   await runCleanupHandlers(getState(stateRef));
   shutdownMessaging(stateRef);
 
