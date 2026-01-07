@@ -9,6 +9,7 @@ import type {
 
 const PRECISION_DECIMALS = 18;
 const MAX_SAFE_CONTRIBUTION = Number.MAX_SAFE_INTEGER / 1e9;
+const INVOICE_EXPIRATION_GRACE_MS = 60000;
 
 function parseDecimalToBigInt(value: string): bigint {
   const [integerPart, fractionalPart = ''] = value.split('.');
@@ -30,7 +31,7 @@ function bigIntToDecimalString(value: bigint): string {
 }
 
 export function validateInvoice(invoice: Invoice): boolean {
-  if (Date.now() > invoice.validUntil) {
+  if (Date.now() > invoice.validUntil + INVOICE_EXPIRATION_GRACE_MS) {
     throw new Error('Invoice has expired');
   }
   return true;
