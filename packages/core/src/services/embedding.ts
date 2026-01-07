@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { NodeState, StateRef } from '../node/types';
 import { subscribeToTopic, getId, publish, findPeers, getState, setState, getPeer, addPeer, updatePeer, registerCleanup } from '../node';
 import type { CapabilityQuery, PeerInfo } from '../types';
-import { MessageEventSchema, type MessageEvent } from '../events';
+import { MessageEventSchema, type MessageEvent, type EccoEvent } from '../events';
 import { withTimeout } from '../utils';
 import type { EmbedFn } from '../agent/types';
 
@@ -72,6 +72,7 @@ interface ResponseCollectorState {
   fullDimensions: Map<number, number>;
 }
 
+
 function createResponseCollectorState(textCount: number): ResponseCollectorState {
   return {
     collectedEmbeddings: [],
@@ -136,40 +137,35 @@ async function createEmbeddingResponsePromise(
   const collectorPromise = new Promise<EmbeddingResponse>((resolve) => {
     const collectorState = createResponseCollectorState(textCount);
 
-    const responseHandler = (response: EmbeddingResponse) => {
-      const { complete, embeddings } = processEmbeddingResponse(collectorState, response);
+    const handleResponseEvent = (event: EccoEvent): void => {
+      const messageEvent = MessageEventSchema.safeParse(event);
+      if (!messageEvent.success) {
+        return;
+      }
+
+      const parsed = EmbeddingResponseSchema.safeParse(messageEvent.data.payload);
+      if (!parsed.success) {
+        return;
+      }
+
+      if (parsed.data.requestId !== requestId) {
+        return;
+      }
+
+      const { complete, embeddings } = processEmbeddingResponse(collectorState, parsed.data);
       if (complete) {
         resolve({
           type: 'embedding-response',
           requestId,
           embeddings,
-          model: response.model,
-          dimensions: response.dimensions,
+          model: parsed.data.model,
+          dimensions: parsed.data.dimensions,
         });
       }
     };
 
-    cleanupFunctions.push(
-      subscribeToTopic(ref, `embedding-response:${requestId}`, (event) => {
-        if (event.type === 'message') {
-          const parsed = EmbeddingResponseSchema.safeParse(event.payload);
-          if (parsed.success) {
-            responseHandler(parsed.data);
-          }
-        }
-      })
-    );
-
-    cleanupFunctions.push(
-      subscribeToTopic(ref, `peer:${getId(ref)}`, (event) => {
-        if (event.type === 'message') {
-          const parsed = EmbeddingResponseSchema.safeParse(event.payload);
-          if (parsed.success && parsed.data.requestId === requestId) {
-            responseHandler(parsed.data);
-          }
-        }
-      })
-    );
+    const unsubscribe = subscribeToTopic(ref, `peer:${getId(ref)}`, handleResponseEvent);
+    cleanupFunctions.push(unsubscribe);
 
     const message = {
       id: requestId,
