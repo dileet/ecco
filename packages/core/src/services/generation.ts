@@ -293,7 +293,6 @@ export async function* streamGeneration(
       chunks.push({ text: chunkParsed.data.text, tokens: chunkParsed.data.tokens })
       if (resolveNext) {
         resolveNext()
-        resolveNext = null
       }
     }
 
@@ -302,10 +301,25 @@ export async function* streamGeneration(
       complete = true
       if (resolveNext) {
         resolveNext()
-        resolveNext = null
       }
     }
   }
+
+  const waitForStreamUpdate = () =>
+    new Promise<void>((resolve) => {
+      const finish = () => {
+        if (resolveNext === finish) {
+          resolveNext = null
+        }
+        resolve()
+      }
+      resolveNext = finish
+      if (chunks.length > 0 || complete) {
+        finish()
+        return
+      }
+      setTimeout(finish, 100)
+    })
 
   unsubscribers.push(subscribeToTopic(ref, `peer:${getId(ref)}`, handleStreamEvent))
 
@@ -342,11 +356,8 @@ export async function* streamGeneration(
         yield chunks.shift()!
       }
 
-      if (!complete && chunks.length === 0) {
-        await new Promise<void>((resolve) => {
-          resolveNext = resolve
-          setTimeout(resolve, 100)
-        })
+      if (!complete) {
+        await waitForStreamUpdate()
       }
     }
 
