@@ -14,6 +14,7 @@ export type {
 
 export {
   createTransportManager,
+  createStateRef,
   registerAdapter,
   initializeAdapters,
   startDiscovery,
@@ -24,6 +25,7 @@ export {
   shutdown,
   getBestTransportForPeer,
   type TransportManagerState,
+  type TransportManagerStateRef,
 } from './manager';
 
 export {

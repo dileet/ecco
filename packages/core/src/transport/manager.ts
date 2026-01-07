@@ -18,6 +18,14 @@ export interface TransportManagerState {
   cleanups: Array<() => void>;
 }
 
+export interface TransportManagerStateRef {
+  current: TransportManagerState;
+}
+
+export function createStateRef(state: TransportManagerState): TransportManagerStateRef {
+  return { current: state };
+}
+
 export function createTransportManager(
   config: TransportManagerConfig
 ): TransportManagerState {
@@ -52,41 +60,43 @@ export async function initializeAdapters(
 }
 
 export async function startDiscovery(
-  state: TransportManagerState
+  stateRef: TransportManagerStateRef
 ): Promise<TransportManagerState> {
   const cleanups: Array<() => void> = [];
-  
-  for (const adapter of state.adapters.values()) {
+
+  for (const adapter of stateRef.current.adapters.values()) {
     await adapter.startDiscovery();
-    
+
     const discoveryCleanup = adapter.onDiscovery((event) => {
-      handleDiscoveryEvent(state, event);
+      stateRef.current = handleDiscoveryEvent(stateRef.current, event);
     });
     cleanups.push(discoveryCleanup);
-    
+
     const connectionCleanup = adapter.onConnection((event) => {
-      handleConnectionEvent(state, event);
+      stateRef.current = handleConnectionEvent(stateRef.current, event);
     });
     cleanups.push(connectionCleanup);
   }
-  
-  return { ...state, cleanups: [...state.cleanups, ...cleanups] };
+
+  stateRef.current = { ...stateRef.current, cleanups: [...stateRef.current.cleanups, ...cleanups] };
+  return stateRef.current;
 }
 
 function handleDiscoveryEvent(
   state: TransportManagerState,
   event: TransportDiscoveryEvent
-): void {
+): TransportManagerState {
   const discoveredPeers = new Map(state.discoveredPeers);
-  
+  const proximityPeers = new Map(state.proximityPeers);
+
   switch (event.type) {
     case 'discovered':
     case 'updated':
       discoveredPeers.set(event.peer.id, event.peer);
-      
+
       if (event.peer.rssi !== undefined) {
         const proximity = rssiToDistance(event.peer.rssi);
-        state.proximityPeers.set(event.peer.id, {
+        proximityPeers.set(event.peer.id, {
           peerId: event.peer.id,
           transport: event.peer.transport,
           rssi: event.peer.rssi,
@@ -95,22 +105,22 @@ function handleDiscoveryEvent(
         });
       }
       break;
-      
+
     case 'lost':
       discoveredPeers.delete(event.peer.id);
-      state.proximityPeers.delete(event.peer.id);
+      proximityPeers.delete(event.peer.id);
       break;
   }
-  
-  state.discoveredPeers = discoveredPeers;
+
+  return { ...state, discoveredPeers, proximityPeers };
 }
 
 function handleConnectionEvent(
   state: TransportManagerState,
   event: TransportConnectionEvent
-): void {
+): TransportManagerState {
   const connectedPeers = new Map(state.connectedPeers);
-  
+
   switch (event.type) {
     case 'connected': {
       const peer = state.discoveredPeers.get(event.peerId);
@@ -124,8 +134,8 @@ function handleConnectionEvent(
       connectedPeers.delete(event.peerId);
       break;
   }
-  
-  state.connectedPeers = connectedPeers;
+
+  return { ...state, connectedPeers };
 }
 
 function rssiToDistance(rssi: number): ProximityInfo['distance'] {
