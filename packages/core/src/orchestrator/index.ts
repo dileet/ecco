@@ -8,6 +8,7 @@ import type {
 } from './types';
 import { aggregateResponses } from './aggregation';
 import { findPeers, getId, getLibp2pPeerId, sendMessage, getState, updateState } from '../node';
+import { modifyState } from '../node/state';
 import {
   subscribeToAllDirectMessages,
   type MessageBridgeState,
@@ -304,18 +305,21 @@ export const executeOrchestration = async (
 
   const stateRef = isOrchestratorStateRef(state) ? state : null;
   let currentState = stateRef ? stateRef.current : state;
+  const loadBalancingEnabled = config.loadBalancing?.enabled ?? false;
 
   const applyStateUpdate = (
     updater: (current: OrchestratorState) => OrchestratorState
   ): OrchestratorState => {
     if (stateRef) {
-      const nextState = updater(stateRef.current);
-      if (nextState !== stateRef.current) {
-        stateRef.current = nextState;
-        stateRef.version += 1;
-      }
+      const nextState = modifyState(
+        stateRef,
+        (current): readonly [OrchestratorState, OrchestratorState] => {
+          const updated = updater(current);
+          return [updated, updated];
+        }
+      );
       currentState = stateRef.current;
-      return currentState;
+      return nextState;
     }
     currentState = updater(currentState);
     return currentState;
@@ -335,8 +339,28 @@ export const executeOrchestration = async (
   }
 
   const nodeState = getState(nodeRef);
-  currentState = stateRef ? stateRef.current : currentState;
-  const selectedAgents = selectAgents(matchesExcludingSelf, config, currentState.loadStates, nodeState);
+  let selectedAgents: CapabilityMatch[];
+  let loadStatesUpdatedForExecution = false;
+
+  if (stateRef && loadBalancingEnabled) {
+    const selectAndUpdateLoadStates = (
+      current: OrchestratorState
+    ): readonly [CapabilityMatch[], OrchestratorState] => {
+      const selected = selectAgents(matchesExcludingSelf, config, current.loadStates, nodeState);
+      const nextState = {
+        ...current,
+        loadStates: updateLoadStatesForExecution(current.loadStates, selected),
+      };
+      return [selected, nextState];
+    };
+
+    selectedAgents = modifyState(stateRef, selectAndUpdateLoadStates);
+    currentState = stateRef.current;
+    loadStatesUpdatedForExecution = true;
+  } else {
+    currentState = stateRef ? stateRef.current : currentState;
+    selectedAgents = selectAgents(matchesExcludingSelf, config, currentState.loadStates, nodeState);
+  }
 
   const requests = prepareAgentRequests(
     selectedAgents,
@@ -346,11 +370,13 @@ export const executeOrchestration = async (
   );
 
   let shouldFinalizeLoadStates = false;
-  if (config.loadBalancing?.enabled) {
-    applyStateUpdate((current) => ({
-      ...current,
-      loadStates: updateLoadStatesForExecution(current.loadStates, selectedAgents),
-    }));
+  if (loadBalancingEnabled) {
+    if (!loadStatesUpdatedForExecution) {
+      applyStateUpdate((current) => ({
+        ...current,
+        loadStates: updateLoadStatesForExecution(current.loadStates, selectedAgents),
+      }));
+    }
     shouldFinalizeLoadStates = true;
   }
 
@@ -562,7 +588,7 @@ export const executeOrchestration = async (
     const peerResponses = results.map((r) => r.response);
     const allResponses = [...additionalResponses, ...peerResponses];
 
-    if (config.loadBalancing?.enabled) {
+    if (loadBalancingEnabled) {
       applyStateUpdate((current) => ({
         ...current,
         loadStates: results.reduce(
@@ -580,7 +606,7 @@ export const executeOrchestration = async (
     const result = await aggregateResponses(allResponses, configWithRef);
     result.metrics.totalTime = Date.now() - startTime;
 
-    if (config.loadBalancing?.enabled) {
+    if (loadBalancingEnabled) {
       applyStateUpdate((current) => ({
         ...current,
         loadStates: finalizeLoadStates(current.loadStates, selectedAgents),
@@ -590,7 +616,7 @@ export const executeOrchestration = async (
 
     return { result, state: currentState };
   } finally {
-    if (config.loadBalancing?.enabled && shouldFinalizeLoadStates) {
+    if (loadBalancingEnabled && shouldFinalizeLoadStates) {
       applyStateUpdate((current) => ({
         ...current,
         loadStates: finalizeLoadStates(current.loadStates, selectedAgents),
