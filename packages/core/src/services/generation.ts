@@ -46,6 +46,61 @@ export type GenerationResponse = z.infer<typeof GenerationResponseSchema>
 export type GenerationStreamChunk = z.infer<typeof GenerationStreamChunkSchema>
 export type GenerationStreamComplete = z.infer<typeof GenerationStreamCompleteSchema>
 
+interface GenerationResponseCollectorState {
+  response: GenerationResponse | null
+  resolved: boolean
+}
+
+function createGenerationResponseCollectorState(): GenerationResponseCollectorState {
+  return {
+    response: null,
+    resolved: false,
+  }
+}
+
+function processGenerationResponseEvent(
+  state: GenerationResponseCollectorState,
+  response: GenerationResponse
+): { complete: boolean; response: GenerationResponse | null } {
+  if (state.resolved) {
+    return { complete: true, response: state.response }
+  }
+  state.response = response
+  state.resolved = true
+  return { complete: true, response }
+}
+
+interface StreamCollectorState {
+  chunks: Array<{ text: string; tokens?: number }>
+  complete: boolean
+  resolveNext: (() => void) | null
+}
+
+function createStreamCollectorState(): StreamCollectorState {
+  return {
+    chunks: [],
+    complete: false,
+    resolveNext: null,
+  }
+}
+
+function processStreamChunk(
+  state: StreamCollectorState,
+  chunk: { text: string; tokens?: number }
+): void {
+  state.chunks.push(chunk)
+  if (state.resolveNext) {
+    state.resolveNext()
+  }
+}
+
+function markStreamComplete(state: StreamCollectorState): void {
+  state.complete = true
+  if (state.resolveNext) {
+    state.resolveNext()
+  }
+}
+
 function calculatePeerScore(peer: PeerInfo): number {
   const balance = (peer.servicesProvided || 0) - (peer.servicesConsumed || 0)
   const balanceScore = Math.max(0, Math.min(1, (balance + 10) / 20))
@@ -182,30 +237,26 @@ async function sendGenerationRequest(
   const cleanupFunctions: Array<() => void> = []
 
   const responsePromise = new Promise<GenerationResponse>((resolve) => {
-    const responseHandler = (response: GenerationResponse) => {
-      resolve(response)
+    const collectorState = createGenerationResponseCollectorState()
+
+    const handleResponseEvent = (event: { type: string; payload?: unknown }) => {
+      if (event.type !== 'message') return
+      const parsed = GenerationResponseSchema.safeParse(event.payload)
+      if (!parsed.success) return
+      if (parsed.data.requestId !== requestId) return
+
+      const { complete, response } = processGenerationResponseEvent(collectorState, parsed.data)
+      if (complete && response) {
+        resolve(response)
+      }
     }
 
     cleanupFunctions.push(
-      subscribeToTopic(ref, `generation-response:${requestId}`, (event) => {
-        if (event.type === 'message') {
-          const parsed = GenerationResponseSchema.safeParse(event.payload)
-          if (parsed.success) {
-            responseHandler(parsed.data)
-          }
-        }
-      })
+      subscribeToTopic(ref, `generation-response:${requestId}`, handleResponseEvent)
     )
 
     cleanupFunctions.push(
-      subscribeToTopic(ref, `peer:${getId(ref)}`, (event) => {
-        if (event.type === 'message') {
-          const parsed = GenerationResponseSchema.safeParse(event.payload)
-          if (parsed.success && parsed.data.requestId === requestId) {
-            responseHandler(parsed.data)
-          }
-        }
-      })
+      subscribeToTopic(ref, `peer:${getId(ref)}`, handleResponseEvent)
     )
 
     const message = {
@@ -278,9 +329,7 @@ export async function* streamGeneration(
     stream: true,
   }
 
-  const chunks: Array<{ text: string; tokens?: number }> = []
-  let complete = false
-  let resolveNext: (() => void) | null = null
+  const collectorState = createStreamCollectorState()
   const unsubscribers: Array<() => void> = []
 
   const handleStreamEvent = (event: unknown) => {
@@ -290,31 +339,25 @@ export async function* streamGeneration(
 
     const chunkParsed = GenerationStreamChunkSchema.safeParse(parsed.data.payload)
     if (chunkParsed.success && chunkParsed.data.requestId === requestId) {
-      chunks.push({ text: chunkParsed.data.text, tokens: chunkParsed.data.tokens })
-      if (resolveNext) {
-        resolveNext()
-      }
+      processStreamChunk(collectorState, { text: chunkParsed.data.text, tokens: chunkParsed.data.tokens })
     }
 
     const completeParsed = GenerationStreamCompleteSchema.safeParse(parsed.data.payload)
     if (completeParsed.success && completeParsed.data.requestId === requestId) {
-      complete = true
-      if (resolveNext) {
-        resolveNext()
-      }
+      markStreamComplete(collectorState)
     }
   }
 
   const waitForStreamUpdate = () =>
     new Promise<void>((resolve) => {
       const finish = () => {
-        if (resolveNext === finish) {
-          resolveNext = null
+        if (collectorState.resolveNext === finish) {
+          collectorState.resolveNext = null
         }
         resolve()
       }
-      resolveNext = finish
-      if (chunks.length > 0 || complete) {
+      collectorState.resolveNext = finish
+      if (collectorState.chunks.length > 0 || collectorState.complete) {
         finish()
         return
       }
@@ -347,22 +390,22 @@ export async function* streamGeneration(
 
   try {
     const startTime = Date.now()
-    while (!complete) {
+    while (!collectorState.complete) {
       if (Date.now() - startTime > timeoutMs) {
         throw new Error('Stream generation timeout')
       }
 
-      while (chunks.length > 0) {
-        yield chunks.shift()!
+      while (collectorState.chunks.length > 0) {
+        yield collectorState.chunks.shift()!
       }
 
-      if (!complete) {
+      if (!collectorState.complete) {
         await waitForStreamUpdate()
       }
     }
 
-    while (chunks.length > 0) {
-      yield chunks.shift()!
+    while (collectorState.chunks.length > 0) {
+      yield collectorState.chunks.shift()!
     }
 
     updatePeerServiceConsumed(ref, targetPeerId)
