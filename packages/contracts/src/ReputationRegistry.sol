@@ -54,6 +54,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     mapping(address => string) public peerIdOf;
     mapping(bytes32 => address) public walletOf;
     mapping(address => bool) public trustedPaymentRecorders;
+    mapping(address => uint256) public unstakeRequestBlock;
 
     uint256 public minStakeToWork = 100 * 10 ** 18;
     uint256 public minStakeToRate = 10 * 10 ** 18;
@@ -165,6 +166,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
 
         rep.unstakeRequestTime = block.timestamp;
         rep.unstakeAmount = amount;
+        unstakeRequestBlock[msg.sender] = block.number;
 
         emit UnstakeRequested(msg.sender, amount);
     }
@@ -172,6 +174,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     function completeUnstake() external nonReentrant {
         PeerReputation storage rep = reputations[msg.sender];
         require(rep.unstakeRequestTime > 0, "No unstake request");
+        require(block.number > unstakeRequestBlock[msg.sender], "Cooldown not complete");
         require(block.timestamp >= rep.unstakeRequestTime + unstakeCooldown, "Cooldown not complete");
 
         uint256 amount = rep.unstakeAmount;
@@ -179,6 +182,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         rep.stake -= amount;
         rep.unstakeRequestTime = 0;
         rep.unstakeAmount = 0;
+        unstakeRequestBlock[msg.sender] = 0;
 
         totalStaked -= amount;
         if (address(feeCollector) != address(0)) {

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther, keccak256, encodePacked, stringToBytes } from "viem";
+import { parseEther, keccak256, encodePacked, stringToBytes, encodeFunctionData } from "viem";
 import { deployReputationRegistryFixture, getNetworkHelpers, increaseTime } from "./helpers/fixtures";
 import { MIN_STAKE_TO_WORK, MIN_STAKE_TO_RATE, generatePeerId, generatePaymentId, generateSalt, COMMIT_REVEAL_DELAY, MAX_BATCH_SIZE } from "./helpers/constants";
 
@@ -12,6 +12,18 @@ async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> 
 type ReputationRegistry = Awaited<ReturnType<typeof deployReputationRegistryFixture>>["reputationRegistry"];
 type WalletClient = Awaited<ReturnType<typeof deployReputationRegistryFixture>>["user1"];
 type PublicClient = Awaited<ReturnType<typeof deployReputationRegistryFixture>>["publicClient"];
+
+type AutomineRpcSchema = [
+  { Method: "evm_setAutomine"; Parameters: [boolean]; ReturnType: void },
+  { Method: "evm_mine"; Parameters: []; ReturnType: void }
+];
+
+function getRpcRequest(publicClient: PublicClient) {
+  const transport = publicClient.transport;
+  return transport.request.bind(transport) as <T extends AutomineRpcSchema[number]>(
+    args: { method: T["Method"]; params: T["Parameters"] }
+  ) => Promise<T["ReturnType"]>;
+}
 
 function getPeerIdHash(peerId: string): `0x${string}` {
   return keccak256(stringToBytes(peerId));
@@ -159,6 +171,59 @@ describe("ReputationRegistry", () => {
         expect.fail("Expected transaction to revert");
       } catch (error) {
         expect(String(error)).to.match(/Cooldown not complete/);
+      }
+    });
+
+    it("should reject completing unstake in the same block", async () => {
+      const { reputationRegistry, eccoToken, user1, publicClient } = await loadFixtureWithHelpers(deployReputationRegistryFixture);
+
+      const stakeAmount = MIN_STAKE_TO_WORK;
+      const peerId = generatePeerId(user1.account.address);
+      const salt = generateSalt(5);
+
+      await registerPeerIdWithCommitReveal(reputationRegistry, publicClient, user1, peerId, salt);
+
+      await eccoToken.write.mint([user1.account.address, stakeAmount]);
+      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: user1.account });
+      await reputationRegistry.write.stake([stakeAmount], { account: user1.account });
+
+      const request = getRpcRequest(publicClient);
+      await request({ method: "evm_setAutomine", params: [false] });
+
+      try {
+        const requestData = encodeFunctionData({
+          abi: reputationRegistry.abi,
+          functionName: "requestUnstake",
+          args: [stakeAmount],
+        });
+        const completeData = encodeFunctionData({
+          abi: reputationRegistry.abi,
+          functionName: "completeUnstake",
+          args: [],
+        });
+
+        const requestHash = await user1.sendTransaction({
+          account: user1.account,
+          to: reputationRegistry.address,
+          data: requestData,
+          gas: 3_000_000n,
+        });
+        const completeHash = await user1.sendTransaction({
+          account: user1.account,
+          to: reputationRegistry.address,
+          data: completeData,
+          gas: 3_000_000n,
+        });
+
+        await request({ method: "evm_mine", params: [] });
+
+        const requestReceipt = await publicClient.waitForTransactionReceipt({ hash: requestHash });
+        expect(requestReceipt.status).to.equal("success");
+
+        const completeReceipt = await publicClient.waitForTransactionReceipt({ hash: completeHash });
+        expect(completeReceipt.status).to.equal("reverted");
+      } finally {
+        await request({ method: "evm_setAutomine", params: [true] });
       }
     });
   });
