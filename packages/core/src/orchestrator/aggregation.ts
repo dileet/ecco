@@ -35,6 +35,10 @@ export const majorityVote: AggregationStrategyFn = async (responses, config) => 
       localEmbedFn: config.semanticSimilarity.localEmbedFn,
     });
 
+    if (consensusResult.consensusIndices.length === 0) {
+      throw new Error('Consensus returned no indices');
+    }
+
     return {
       result: values[consensusResult.consensusIndices[0]],
       confidence: consensusResult.confidence,
@@ -120,6 +124,10 @@ export const weightedVote: AggregationStrategyFn = async (responses, config) => 
 };
 
 export const bestScore: AggregationStrategyFn = async (responses) => {
+  if (responses.length === 0) {
+    throw new Error('Cannot find best score from empty responses');
+  }
+
   const best = responses.reduce((prev, current) =>
     current.matchScore > prev.matchScore ? current : prev
   );
@@ -166,6 +174,10 @@ export const consensusThreshold = async (
 };
 
 export const firstResponse: AggregationStrategyFn = async (responses) => {
+  if (responses.length === 0) {
+    throw new Error('Cannot find first response from empty responses');
+  }
+
   const fastest = responses.reduce((prev, current) =>
     current.timestamp < prev.timestamp ? current : prev
   );
@@ -174,6 +186,10 @@ export const firstResponse: AggregationStrategyFn = async (responses) => {
 };
 
 export const longest: AggregationStrategyFn = async (responses) => {
+  if (responses.length === 0) {
+    throw new Error('Cannot find longest response from empty responses');
+  }
+
   const getLengthValue = (r: AgentResponse): number => {
     if (typeof r.response === 'string') return r.response.length;
     if (typeof r.response === 'object' && r.response !== null && 'text' in r.response) {
