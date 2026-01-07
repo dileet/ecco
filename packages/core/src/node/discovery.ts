@@ -2,7 +2,7 @@ import type { PeerId } from '@libp2p/interface';
 import type { NodeState, StateRef } from './types';
 import type { CapabilityQuery, CapabilityMatch, PeerInfo } from '../types';
 import { matchPeers } from '../orchestrator/capability-matcher';
-import { announceCapabilities, setupCapabilityTracking, requestCapabilities, findMatchingPeers } from './capabilities';
+import { announceCapabilities, requestCapabilities, findMatchingPeers } from './capabilities';
 import { setupPerformanceTracking } from './peer-performance';
 import { getState, updateState, removePeer, addPeers, hasPeer, getAllPeers, setMessageBridge, registerCleanup } from './state';
 import { delay, debug } from '../utils';
@@ -238,7 +238,6 @@ export function setupEventListeners(
 }
 
 async function handlePeerConnect(stateRef: StateRef<NodeState>): Promise<void> {
-  setupCapabilityTracking(stateRef);
   updateState(stateRef, setupPerformanceTracking);
   const state = getState(stateRef);
   await announceCapabilities(state);
