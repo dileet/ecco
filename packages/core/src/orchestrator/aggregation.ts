@@ -66,7 +66,7 @@ export const majorityVote: AggregationStrategyFn = async (responses, config) => 
 
   return {
     result,
-    confidence: maxCount / responses.length,
+    confidence: responses.length > 0 ? maxCount / responses.length : 0,
     agreement: maxCount,
   };
 };
@@ -114,7 +114,7 @@ export const weightedVote: AggregationStrategyFn = async (responses, config) => 
 
   return {
     result,
-    confidence: maxWeight / totalWeight,
+    confidence: totalWeight > 0 ? maxWeight / totalWeight : 0,
     agreement: agreementCount,
   };
 };

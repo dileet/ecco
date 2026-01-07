@@ -398,7 +398,10 @@ export function createPaymentHelpers(
         invoiceSent = true
       }
 
-      const totalTokens = Math.round(parseFloat(updatedAgreement.accumulatedAmount) / parseFloat(updatedAgreement.ratePerToken))
+      const ratePerToken = parseFloat(updatedAgreement.ratePerToken)
+      const totalTokens = ratePerToken > 0
+        ? Math.round(parseFloat(updatedAgreement.accumulatedAmount) / ratePerToken)
+        : 0
 
       return {
         channelId,

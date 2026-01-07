@@ -171,15 +171,19 @@ const selectAgents = (
         });
 
         const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-        let random = secureRandom() * totalWeight;
 
         let selectedIndex = 0;
-        for (let j = 0; j < weights.length; j++) {
-          random -= weights[j];
-          if (random <= 0) {
-            selectedIndex = j;
-            break;
+        if (totalWeight > 0) {
+          let random = secureRandom() * totalWeight;
+          for (let j = 0; j < weights.length; j++) {
+            random -= weights[j];
+            if (random <= 0) {
+              selectedIndex = j;
+              break;
+            }
           }
+        } else {
+          selectedIndex = Math.floor(secureRandom() * available.length);
         }
 
         selected.push(available[selectedIndex]);
