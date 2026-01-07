@@ -65,6 +65,11 @@ export interface MessageBridgeState {
   disconnectPeer?: (peerId: string) => Promise<void>;
 }
 
+export interface HandshakeInitiation {
+  state: MessageBridgeState;
+  message: Message | null;
+}
+
 export function createMessageBridge(
   config: MessageBridgeConfig,
   authState?: AuthState
@@ -430,29 +435,29 @@ export function isHandshakeRequired(state: MessageBridgeState): boolean {
 export async function initiateHandshake(
   state: MessageBridgeState,
   peerId: string
-): Promise<MessageBridgeState> {
+): Promise<HandshakeInitiation> {
   const networkConfig = state.config.networkConfig;
 
   if (!networkConfig) {
     debug('handshake', `Cannot initiate handshake with ${peerId}: networkConfig is required`);
     state.onPeerRejected?.(peerId, 'Network configuration required for handshake');
-    return state;
+    return { state, message: null };
   }
 
   if (networkConfig.protocol.enforcementLevel === 'none') {
     const validatedPeers = new Set(state.validatedPeers);
     validatedPeers.add(peerId);
-    return { ...state, validatedPeers };
+    return { state: { ...state, validatedPeers }, message: null };
   }
 
   if (!state.sendMessage) {
     debug('handshake', `Cannot initiate handshake with ${peerId}: sendMessage not configured`);
     state.onPeerRejected?.(peerId, 'Send message handler required for handshake');
-    return state;
+    return { state, message: null };
   }
 
   if (state.validatedPeers.has(peerId) || state.pendingHandshakes.has(peerId)) {
-    return state;
+    return { state, message: null };
   }
 
   const handshakeMessage = await createHandshakeMessage(
@@ -468,10 +473,7 @@ export async function initiateHandshake(
   const pendingHandshakes = new Map(state.pendingHandshakes);
   pendingHandshakes.set(peerId, { initiated: Date.now(), timeoutId });
 
-  await state.sendMessage(peerId, handshakeMessage);
-  debug('handshake', `Sent handshake to peer ${peerId}`);
-
-  return { ...state, pendingHandshakes };
+  return { state: { ...state, pendingHandshakes }, message: handshakeMessage };
 }
 
 export function handleHandshakeTimeout(

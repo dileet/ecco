@@ -431,12 +431,17 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
 
     if (isHandshakeRequired(bridge) && !isPeerValidated(bridge, peerId)) {
       debug('handshake', `Message from unvalidated peer ${peerId}, queueing`);
-      bridge = queueMessageForPeer(bridge, peerId, message);
-      bridge = await initiateHandshake(bridge, peerId);
+      const queuedBridge = queueMessageForPeer(bridge, peerId, message);
+      const handshake = await initiateHandshake(queuedBridge, peerId);
+      bridge = handshake.state;
       if (!isActive()) {
         return;
       }
       updateState(stateRef, (s) => setMessageBridge(s, bridge));
+      if (handshake.message && bridge.sendMessage) {
+        await bridge.sendMessage(peerId, handshake.message);
+        debug('handshake', `Sent handshake to peer ${peerId}`);
+      }
       return;
     }
 

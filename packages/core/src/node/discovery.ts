@@ -200,8 +200,12 @@ export function setupEventListeners(
     if (currentState.messageBridge && isHandshakeRequired(currentState.messageBridge)) {
       debug('discovery', `Initiating handshake with peer ${peerId}`);
       initiateHandshake(currentState.messageBridge, peerId)
-        .then((updatedBridge) => {
-          updateState(stateRef, (s) => setMessageBridge(s, updatedBridge));
+        .then(async (handshake) => {
+          updateState(stateRef, (s) => setMessageBridge(s, handshake.state));
+          if (handshake.message && handshake.state.sendMessage) {
+            await handshake.state.sendMessage(peerId, handshake.message);
+            debug('handshake', `Sent handshake to peer ${peerId}`);
+          }
         })
         .catch(() => {});
     }
