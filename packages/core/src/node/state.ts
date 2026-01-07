@@ -30,6 +30,18 @@ const DEFAULT_RATE_LIMIT_MAX_TOKENS = 100;
 const DEFAULT_RATE_LIMIT_REFILL_RATE = 10;
 const DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS = 1000;
 
+const settlementQueues = new WeakMap<StateRef<NodeState>, Promise<void>>();
+
+const withSettlementQueue = <T>(
+  ref: StateRef<NodeState>,
+  task: () => Promise<T>
+): Promise<T> => {
+  const current = settlementQueues.get(ref) ?? Promise.resolve();
+  const next = current.then(task, task);
+  settlementQueues.set(ref, next.then(() => undefined, () => undefined));
+  return next;
+};
+
 export const createStateRef = <T>(initial: T): StateRef<T> => ({ 
   current: initial,
   version: 0,
@@ -427,58 +439,103 @@ export const updateSwarmSplit = async (
 };
 
 export const enqueueSettlement = async (
-  state: NodeState,
+  ref: StateRef<NodeState>,
   intent: SettlementIntent
-): Promise<NodeState> => {
-  await storage.writeSettlement(intent);
-  return {
-    ...state,
-    pendingSettlements: [...state.pendingSettlements, intent],
-  };
-};
+): Promise<NodeState> =>
+  withSettlementQueue(ref, async () => {
+    await storage.writeSettlement(intent);
+
+    let nextState = getState(ref);
+
+    updateState(ref, (state) => {
+      const index = state.pendingSettlements.findIndex((entry) => entry.id === intent.id);
+      if (index === -1) {
+        const updated = { ...state, pendingSettlements: [...state.pendingSettlements, intent] };
+        nextState = updated;
+        return updated;
+      }
+
+      const updatedSettlements = [...state.pendingSettlements];
+      updatedSettlements[index] = intent;
+      const updated = { ...state, pendingSettlements: updatedSettlements };
+      nextState = updated;
+      return updated;
+    });
+
+    return nextState;
+  });
 
 export const dequeueSettlement = async (
-  state: NodeState
-): Promise<{ settlement: SettlementIntent | undefined; state: NodeState }> => {
-  if (state.pendingSettlements.length === 0) {
-    return { settlement: undefined, state };
-  }
+  ref: StateRef<NodeState>
+): Promise<{ settlement: SettlementIntent | undefined; state: NodeState }> =>
+  withSettlementQueue(ref, async () => {
+    const currentState = getState(ref);
+    if (currentState.pendingSettlements.length === 0) {
+      return { settlement: undefined, state: currentState };
+    }
 
-  const [first, ...rest] = state.pendingSettlements;
-  await storage.removeSettlement(first.id);
+    const settlement = currentState.pendingSettlements[0];
+    await storage.removeSettlement(settlement.id);
 
-  return {
-    settlement: first,
-    state: { ...state, pendingSettlements: rest },
-  };
-};
+    let nextState = currentState;
+
+    updateState(ref, (state) => {
+      const updatedSettlements = state.pendingSettlements.filter((intent) => intent.id !== settlement.id);
+      const updated = { ...state, pendingSettlements: updatedSettlements };
+      nextState = updated;
+      return updated;
+    });
+
+    return {
+      settlement,
+      state: nextState,
+    };
+  });
 
 export const removeSettlement = async (
-  state: NodeState,
+  ref: StateRef<NodeState>,
   intentId: string
-): Promise<NodeState> => {
-  await storage.removeSettlement(intentId);
-  return {
-    ...state,
-    pendingSettlements: state.pendingSettlements.filter((intent) => intent.id !== intentId),
-  };
-};
+): Promise<NodeState> =>
+  withSettlementQueue(ref, async () => {
+    await storage.removeSettlement(intentId);
+
+    let nextState = getState(ref);
+
+    updateState(ref, (state) => {
+      const updatedSettlements = state.pendingSettlements.filter((intent) => intent.id !== intentId);
+      const updated = { ...state, pendingSettlements: updatedSettlements };
+      nextState = updated;
+      return updated;
+    });
+
+    return nextState;
+  });
 
 export const updateSettlement = async (
-  state: NodeState,
+  ref: StateRef<NodeState>,
   intentId: string,
   updater: (intent: SettlementIntent) => SettlementIntent
-): Promise<NodeState> => {
-  const intent = state.pendingSettlements.find((i) => i.id === intentId);
-  if (!intent) return state;
+): Promise<NodeState> =>
+  withSettlementQueue(ref, async () => {
+    const currentState = getState(ref);
+    const intent = currentState.pendingSettlements.find((i) => i.id === intentId);
+    if (!intent) {
+      return currentState;
+    }
 
-  const updatedIntent = updater(intent);
-  await storage.updateSettlement(updatedIntent);
+    const updatedIntent = updater(intent);
+    await storage.updateSettlement(updatedIntent);
 
-  return {
-    ...state,
-    pendingSettlements: state.pendingSettlements.map((i) =>
-      i.id === intentId ? updatedIntent : i
-    ),
-  };
-};
+    let nextState = currentState;
+
+    updateState(ref, (state) => {
+      const updatedSettlements = state.pendingSettlements.map((i) =>
+        i.id === intentId ? updatedIntent : i
+      );
+      const updated = { ...state, pendingSettlements: updatedSettlements };
+      nextState = updated;
+      return updated;
+    });
+
+    return nextState;
+  });
