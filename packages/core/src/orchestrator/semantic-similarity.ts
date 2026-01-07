@@ -130,6 +130,8 @@ const cosineSimilarityFromEmbeddings = (embedding1: number[], embedding2: number
     mag2 += embedding2[i] * embedding2[i];
   }
 
+  if (mag1 === 0 || mag2 === 0) return 0;
+
   return dotProduct / (Math.sqrt(mag1) * Math.sqrt(mag2));
 };
 
