@@ -4,7 +4,7 @@ import type { AuthState, SignedMessage } from '../services/auth';
 import type { NetworkConfig } from '../networks';
 import { signMessage, verifyMessage } from '../services/auth';
 import { z } from 'zod';
-import { debug } from '../utils';
+import { debug, createMessageDeduplicator, type MessageDeduplicator } from '../utils';
 import {
   createHandshakeMessage,
   createHandshakeResponse,
@@ -18,6 +18,7 @@ import { formatVersion } from '../protocol/version';
 import { createConstitutionMismatchNotice, computeConstitutionHash } from '../protocol/constitution';
 
 const MAX_QUEUED_MESSAGES_PER_PEER = 100;
+const QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE = 0.01;
 
 const MessageSchema = z.object({
   id: z.string(),
@@ -54,6 +55,7 @@ export interface MessageBridgeState {
   validatedPeers: Set<string>;
   pendingHandshakes: Map<string, PendingHandshake>;
   queuedMessages: Map<string, Message[]>;
+  queuedMessageDeduplicators: Map<string, MessageDeduplicator>;
   onPeerValidated?: (peerId: string) => void;
   onPeerRejected?: (peerId: string, reason: string) => void;
   onUpgradeRequired?: (peerId: string, requiredVersion: string, upgradeUrl?: string) => void;
@@ -75,6 +77,7 @@ export function createMessageBridge(
     validatedPeers: new Set(),
     pendingHandshakes: new Map(),
     queuedMessages: new Map(),
+    queuedMessageDeduplicators: new Map(),
   };
 }
 
@@ -101,6 +104,7 @@ export function shutdownMessageBridge(
     validatedPeers: new Set(),
     pendingHandshakes: new Map(),
     queuedMessages: new Map(),
+    queuedMessageDeduplicators: new Map(),
     onPeerValidated: undefined,
     onPeerRejected: undefined,
     onUpgradeRequired: undefined,
@@ -633,6 +637,8 @@ export async function handleVersionHandshakeResponse(
   const queuedMessages = new Map(state.queuedMessages);
   const queued = queuedMessages.get(peerId) ?? [];
   queuedMessages.delete(peerId);
+  const queuedMessageDeduplicators = new Map(state.queuedMessageDeduplicators);
+  queuedMessageDeduplicators.delete(peerId);
 
   let currentAuthState = state.authState;
 
@@ -670,7 +676,14 @@ export async function handleVersionHandshakeResponse(
     }
   }
 
-  return { ...state, pendingHandshakes, validatedPeers, queuedMessages, authState: currentAuthState };
+  return {
+    ...state,
+    pendingHandshakes,
+    validatedPeers,
+    queuedMessages,
+    queuedMessageDeduplicators,
+    authState: currentAuthState,
+  };
 }
 
 export function handleVersionIncompatibleNotice(
@@ -713,13 +726,28 @@ export function queueMessageForPeer(
 ): MessageBridgeState {
   const queuedMessages = new Map(state.queuedMessages);
   const queued = queuedMessages.get(peerId) ?? [];
+  const queuedMessageDeduplicators = new Map(state.queuedMessageDeduplicators);
+  const deduplicator =
+    queuedMessageDeduplicators.get(peerId) ??
+    createMessageDeduplicator(
+      MAX_QUEUED_MESSAGES_PER_PEER,
+      QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE
+    );
+  if (deduplicator.isDuplicate(message.id)) {
+    return state;
+  }
   if (queued.length >= MAX_QUEUED_MESSAGES_PER_PEER) {
     debug('queueMessageForPeer', `Queue limit reached for peer ${peerId}, dropping message`);
     return state;
   }
+  deduplicator.markSeen(message.id);
+  if (deduplicator.shouldRotate()) {
+    deduplicator.rotate();
+  }
   queued.push(message);
   queuedMessages.set(peerId, queued);
-  return { ...state, queuedMessages };
+  queuedMessageDeduplicators.set(peerId, deduplicator);
+  return { ...state, queuedMessages, queuedMessageDeduplicators };
 }
 
 export function markPeerValidated(
@@ -745,5 +773,7 @@ export function removePeerValidation(
   pendingHandshakes.delete(peerId);
   const queuedMessages = new Map(state.queuedMessages);
   queuedMessages.delete(peerId);
-  return { ...state, validatedPeers, pendingHandshakes, queuedMessages };
+  const queuedMessageDeduplicators = new Map(state.queuedMessageDeduplicators);
+  queuedMessageDeduplicators.delete(peerId);
+  return { ...state, validatedPeers, pendingHandshakes, queuedMessages, queuedMessageDeduplicators };
 }
