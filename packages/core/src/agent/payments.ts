@@ -34,12 +34,17 @@ interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
   streamingAgreements: Map<string, StreamingAgreement>
   streamingLocks: Map<string, AsyncMutex>
-  pendingPayments: Map<string, {
-    invoice: Invoice
-    resolve: (proof: PaymentProof) => void
-    reject: (error: Error) => void
-  }>
+  pendingPayments: Map<string, PendingPayment>
   invoiceQueue: Invoice[]
+}
+
+interface PendingPayment {
+  invoice: Invoice
+  resolve: (proof: PaymentProof) => void
+  reject: (error: Error) => void
+  timeoutId: ReturnType<typeof setTimeout>
+  mutex: AsyncMutex
+  settled: boolean
 }
 
 function getStreamingMutex(paymentState: PaymentState, channelId: string): AsyncMutex {
@@ -50,6 +55,11 @@ function getStreamingMutex(paymentState: PaymentState, channelId: string): Async
   const mutex = createAsyncMutex()
   paymentState.streamingLocks.set(channelId, mutex)
   return mutex
+}
+
+function clearPendingPayment(paymentState: PaymentState, pending: PendingPayment): void {
+  clearTimeout(pending.timeoutId)
+  paymentState.pendingPayments.delete(pending.invoice.id)
 }
 
 function bigintToDecimalString(value: bigint): string {
@@ -113,27 +123,37 @@ export function createPaymentHelpers(
     await ctx.reply({ invoice }, 'invoice')
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(async () => {
-        const pending = paymentState.pendingPayments.get(invoice.id)
-        if (pending) {
-          paymentState.pendingPayments.delete(invoice.id)
+      const mutex = createAsyncMutex()
+      const handleTimeout = async () => {
+        const release = await mutex.acquire()
+        try {
+          const pending = paymentState.pendingPayments.get(invoice.id)
+          if (!pending || pending.settled) {
+            return
+          }
+          pending.settled = true
           await writeTimedOutPayment(pending.invoice, Date.now())
+          clearPendingPayment(paymentState, pending)
+          reject(new Error('Payment timeout'))
+        } finally {
+          release()
         }
-        reject(new Error('Payment timeout'))
+      }
+      const timeoutId = setTimeout(() => {
+        void handleTimeout()
       }, 60000)
 
       paymentState.pendingPayments.set(invoice.id, {
         invoice,
         resolve: (proof: PaymentProof) => {
-          clearTimeout(timeout)
-          paymentState.pendingPayments.delete(invoice.id)
           resolve(proof)
         },
         reject: (error: Error) => {
-          clearTimeout(timeout)
-          paymentState.pendingPayments.delete(invoice.id)
           reject(error)
         },
+        timeoutId,
+        mutex,
+        settled: false,
       })
     })
   }
@@ -150,18 +170,30 @@ export function createPaymentHelpers(
 
     const pending = paymentState.pendingPayments.get(proof.invoiceId)
     if (pending) {
+      const release = await pending.mutex.acquire()
       try {
-        const valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
-        if (valid) {
+        const current = paymentState.pendingPayments.get(proof.invoiceId)
+        if (current && !current.settled) {
+          let valid = false
+          try {
+            valid = await verifyPaymentOnChain(wallet, proof, current.invoice)
+          } catch (error) {
+            current.settled = true
+            clearPendingPayment(paymentState, current)
+            current.reject(error instanceof Error ? error : new Error(String(error)))
+            return false
+          }
+          if (!valid) {
+            return false
+          }
           await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-          paymentState.pendingPayments.delete(proof.invoiceId)
-          pending.resolve(proof)
+          current.settled = true
+          clearPendingPayment(paymentState, current)
+          current.resolve(proof)
+          return true
         }
-        return valid
-      } catch (error) {
-        pending.reject(error instanceof Error ? error : new Error(String(error)))
-        paymentState.pendingPayments.delete(proof.invoiceId)
-        return false
+      } finally {
+        release()
       }
     }
 
@@ -512,25 +544,36 @@ export async function handlePaymentProof(
 
   const pending = paymentState.pendingPayments.get(proof.invoiceId)
   if (pending) {
-    let valid = false
+    const release = await pending.mutex.acquire()
     try {
-      valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
-    } catch (error) {
-      pending.reject(error instanceof Error ? error : new Error(String(error)))
-      paymentState.pendingPayments.delete(proof.invoiceId)
-      return false
-    }
+      const current = paymentState.pendingPayments.get(proof.invoiceId)
+      if (current && !current.settled) {
+        let valid = false
+        try {
+          valid = await verifyPaymentOnChain(wallet, proof, current.invoice)
+        } catch (error) {
+          current.settled = true
+          clearPendingPayment(paymentState, current)
+          current.reject(error instanceof Error ? error : new Error(String(error)))
+          return false
+        }
 
-    if (!valid) {
-      pending.reject(new Error('Payment verification failed: transaction invalid'))
-      paymentState.pendingPayments.delete(proof.invoiceId)
-      return false
-    }
+        if (!valid) {
+          current.settled = true
+          clearPendingPayment(paymentState, current)
+          current.reject(new Error('Payment verification failed: transaction invalid'))
+          return false
+        }
 
-    await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-    paymentState.pendingPayments.delete(proof.invoiceId)
-    pending.resolve(proof)
-    return true
+        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+        current.settled = true
+        clearPendingPayment(paymentState, current)
+        current.resolve(proof)
+        return true
+      }
+    } finally {
+      release()
+    }
   }
 
   const timedOut = await getTimedOutPayment(proof.invoiceId)
