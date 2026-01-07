@@ -1,5 +1,5 @@
 import type { PrivateKey } from '@libp2p/interface'
-import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement, SignedInvoice } from '../types'
+import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement, SignedInvoice, PaymentLedgerEntry } from '../types'
 import type { WalletState } from '../services/wallet'
 import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from '../services/wallet'
 import type { BatchSettlementResult, WorkRewardOptions, WorkRewardResult, FeeHelpers, FeeCalculation, PayWithFeeResult } from './types'
@@ -15,6 +15,8 @@ import {
   getTimedOutPayment,
   processPaymentRecovery,
   createAndDistributeSwarmSplit,
+  writePaymentLedgerEntry,
+  updatePaymentLedgerEntry,
 } from '../storage'
 import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from './types'
 import { createSwarmSplit, distributeSwarmSplit } from '../services/payment'
@@ -120,6 +122,20 @@ export function createPaymentHelpers(
 
     const invoice = await createInvoice(ctx, pricing)
 
+    const ledgerEntry: PaymentLedgerEntry = {
+      id: invoice.id,
+      type: 'standard',
+      status: 'pending',
+      chainId: invoice.chainId,
+      token: invoice.token,
+      amount: invoice.amount,
+      recipient: invoice.recipient,
+      payer: ctx.message.from,
+      jobId: invoice.jobId,
+      createdAt: Date.now(),
+    }
+    await writePaymentLedgerEntry(ledgerEntry)
+
     await ctx.reply({ invoice }, 'invoice')
 
     return new Promise((resolve, reject) => {
@@ -187,6 +203,20 @@ export function createPaymentHelpers(
             return false
           }
           await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+          await updatePaymentLedgerEntry({
+            id: proof.invoiceId,
+            type: 'standard',
+            status: 'settled',
+            chainId: proof.chainId,
+            token: current.invoice.token,
+            amount: current.invoice.amount,
+            recipient: current.invoice.recipient,
+            payer: '',
+            jobId: current.invoice.jobId,
+            createdAt: Date.now(),
+            settledAt: Date.now(),
+            txHash: proof.txHash,
+          })
           current.settled = true
           clearPendingPayment(paymentState, current)
           current.resolve(proof)
@@ -203,6 +233,20 @@ export function createPaymentHelpers(
         const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
         if (valid) {
           await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
+          await updatePaymentLedgerEntry({
+            id: proof.invoiceId,
+            type: 'standard',
+            status: 'settled',
+            chainId: proof.chainId,
+            token: timedOut.invoice.token,
+            amount: timedOut.invoice.amount,
+            recipient: timedOut.invoice.recipient,
+            payer: '',
+            jobId: timedOut.invoice.jobId,
+            createdAt: timedOut.timedOutAt,
+            settledAt: Date.now(),
+            txHash: proof.txHash,
+          })
           return true
         }
         return false
@@ -413,6 +457,23 @@ export function createPaymentHelpers(
 
     const distribution = distributeSwarmSplit(swarmSplit)
     await createAndDistributeSwarmSplit(swarmSplit, distribution.split)
+
+    for (const invoice of distribution.invoices) {
+      const ledgerEntry: PaymentLedgerEntry = {
+        id: invoice.id,
+        type: 'swarm',
+        status: 'pending',
+        chainId: options.chainId,
+        token: options.token ?? 'ETH',
+        amount: invoice.amount,
+        recipient: invoice.recipient,
+        payer: agentId,
+        jobId,
+        createdAt: Date.now(),
+        metadata: { swarmSplitId: swarmSplit.id },
+      }
+      await writePaymentLedgerEntry(ledgerEntry)
+    }
 
     const invoicesToAdd = distribution.invoices.length
     const availableSlots = MAX_INVOICE_QUEUE - paymentState.invoiceQueue.length
@@ -625,6 +686,20 @@ export async function setupEscrowAgreement(
   await writeEscrowAgreement(agreement)
   paymentState.escrowAgreements.set(jobId, agreement)
 
+  const ledgerEntry: PaymentLedgerEntry = {
+    id: agreement.id,
+    type: 'escrow',
+    status: 'pending',
+    chainId: agreement.chainId,
+    token: agreement.token,
+    amount: agreement.totalAmount,
+    recipient: agreement.recipient,
+    payer: agreement.payer,
+    jobId: agreement.jobId,
+    createdAt: agreement.createdAt,
+  }
+  await writePaymentLedgerEntry(ledgerEntry)
+
   return agreement
 }
 
@@ -651,6 +726,20 @@ export async function setupStreamingAgreement(
 
   await writeStreamingChannel(agreement)
   paymentState.streamingAgreements.set(jobId, agreement)
+
+  const ledgerEntry: PaymentLedgerEntry = {
+    id: agreement.id,
+    type: 'streaming',
+    status: 'streaming',
+    chainId: agreement.chainId,
+    token: agreement.token,
+    amount: agreement.accumulatedAmount,
+    recipient: agreement.recipient,
+    payer: agreement.payer,
+    jobId: agreement.jobId,
+    createdAt: agreement.createdAt,
+  }
+  await writePaymentLedgerEntry(ledgerEntry)
 
   return agreement
 }
