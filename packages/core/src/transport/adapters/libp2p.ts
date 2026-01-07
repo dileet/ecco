@@ -435,6 +435,15 @@ export async function send(
     return stream;
   }
 
+  const ensureWritableStream = async (currentStream: Stream): Promise<Stream> => {
+    if (currentStream.writeStatus === 'writable') {
+      return currentStream;
+    }
+
+    currentStream.abort(new Error(`Stream not writable: ${currentStream.writeStatus}`));
+    return tryOpenStream(true);
+  }
+
   let stream: Stream;
   try {
     stream = await tryOpenStream(false);
@@ -448,6 +457,7 @@ export async function send(
 
   const data = encodeMessage(message);
   const framedData = lengthPrefixEncode(data);
+  stream = await ensureWritableStream(stream);
 
   try {
     await stream.send(framedData);
