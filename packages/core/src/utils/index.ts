@@ -1,4 +1,4 @@
-export { delay, withTimeout, retryWithBackoff, type RetryOptions } from './timing';
+export { delay, spinFor, spinBackoff, withTimeout, retryWithBackoff, type RetryOptions } from './timing';
 export { createLRUCache, cloneLRUCache, fromRecord, type LRUCache } from './lru-cache';
 export {
   createBloomFilter,

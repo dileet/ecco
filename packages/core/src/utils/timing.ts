@@ -1,5 +1,20 @@
 export const delay = (ms: number): Promise<void> => Bun.sleep(ms);
 
+export const spinFor = (ms: number): void => {
+  if (ms <= 0) return;
+  let now = Date.now();
+  const end = now + ms;
+  while (now < end) {
+    now = Date.now();
+  }
+};
+
+export const spinBackoff = (attempt: number, stepMs: number, maxMs: number): void => {
+  if (attempt <= 0) return;
+  const delayMs = Math.min(attempt * stepMs, maxMs);
+  spinFor(delayMs);
+};
+
 export const withTimeout = <T>(
   promise: Promise<T>,
   ms: number,
@@ -42,4 +57,3 @@ export const retryWithBackoff = async <T>(
 
   throw lastError ?? new Error('Retry failed');
 };
-

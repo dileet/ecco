@@ -17,11 +17,14 @@ import { configDefaults, mergeConfig } from '../config';
 import * as storage from '../storage';
 import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
 import { createMessageDeduplicator, createRateLimiter } from '../utils/bloom-filter';
+import { spinBackoff } from '../utils/timing';
 import { SDK_PROTOCOL_VERSION } from '../networks';
 
 export type { StateRef } from './types';
 
 const MAX_CAS_RETRIES = 100;
+const CAS_BACKOFF_STEP_MS = 1;
+const MAX_CAS_BACKOFF_MS = 10;
 const DEFAULT_MAX_PEERS = 10000;
 const DEFAULT_STALE_PEER_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_DEDUP_MAX_MESSAGES = 10000;
@@ -107,6 +110,7 @@ export const setState = <T>(ref: StateRef<T>, value: T): void => {
 
 export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
   for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+    spinBackoff(attempt, CAS_BACKOFF_STEP_MS, MAX_CAS_BACKOFF_MS);
     const versionBefore = ref.version;
     const newState = fn(ref.current);
     if (ref.version === versionBefore) {
@@ -120,6 +124,7 @@ export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
 
 export const modifyState = <T, A>(ref: StateRef<T>, fn: (state: T) => readonly [A, T]): A => {
   for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+    spinBackoff(attempt, CAS_BACKOFF_STEP_MS, MAX_CAS_BACKOFF_MS);
     const versionBefore = ref.version;
     const [result, newState] = fn(ref.current);
     if (ref.version === versionBefore) {
