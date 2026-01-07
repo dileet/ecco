@@ -27,7 +27,7 @@ coverage/
 *.swp
 *.swo
 *~
-CLAUDE.md
+.claude/
 
 # OS
 .DS_Store

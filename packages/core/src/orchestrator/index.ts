@@ -58,7 +58,7 @@ const AgentLoadStateSchema = z.object({
 });
 
 const OrchestratorStateSchema = z.object({
-  loadStates: z.record(AgentLoadStateSchema),
+  loadStates: z.record(z.string(), AgentLoadStateSchema),
 });
 
 const OrchestratorStateRefSchema = z.object({
@@ -304,7 +304,14 @@ export const executeOrchestration = async (
   const requestId = crypto.randomUUID();
 
   const stateRef = isOrchestratorStateRef(state) ? state : null;
-  let currentState = stateRef ? stateRef.current : state;
+  let currentState: OrchestratorState;
+  if (stateRef) {
+    currentState = stateRef.current;
+  } else if (isOrchestratorStateRef(state)) {
+    currentState = state.current;
+  } else {
+    currentState = state;
+  }
   const loadBalancingEnabled = config.loadBalancing?.enabled ?? false;
 
   const applyStateUpdate = (
@@ -525,16 +532,19 @@ export const executeOrchestration = async (
     }
 
     const invoiceExpiresAt = Date.now() + 300000;
-    for (const req of requests) {
+    const sendPromises = requests.map(async (req) => {
       writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch(() => {});
-      sendMessage(nodeRef, req.message.to, req.message).catch((error) => {
+      try {
+        await sendMessage(nodeRef, req.message.to, req.message);
+      } catch (error) {
         const resolver = takeResolver(req.message.id);
         if (resolver) {
           finalizeRequest(req.message.id);
           resolver.reject(getError(error));
         }
-      });
-    }
+      }
+    });
+    await Promise.allSettled(sendPromises);
 
     const agentPromises = requests.map(async (req): Promise<{
       response: AgentResponse;
