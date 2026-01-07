@@ -355,10 +355,11 @@ export const executeOrchestration = async (
   }
 
   const responsePromises = new Map<string, Promise<unknown>>();
-  const responseResolvers = new Map<
-    string,
-    { resolve: (data: unknown) => void; reject: (error: Error) => void }
-  >();
+  type ResponseResolver = {
+    resolve: (data: unknown) => void;
+    reject: (error: Error) => void;
+  };
+  const responseResolvers = new Map<string, ResponseResolver>();
   const timeoutIds = new Map<string, ReturnType<typeof setTimeout>>();
 
   type StreamBufferState = {
@@ -372,18 +373,34 @@ export const executeOrchestration = async (
   const responseTimeout = config.timeout ?? 120000;
   const maxStreamBufferBytes = config.maxStreamBufferBytes ?? MAX_STREAM_BUFFER_BYTES;
   const maxStreamChunks = config.maxStreamChunks ?? MAX_STREAM_CHUNKS;
+  const getError = (value: unknown): Error =>
+    value instanceof Error ? value : new Error(String(value));
+  const takeResolver = (requestId: string): ResponseResolver | undefined => {
+    const resolver = responseResolvers.get(requestId);
+    if (!resolver) {
+      return undefined;
+    }
+    responseResolvers.delete(requestId);
+    return resolver;
+  };
+  const finalizeRequest = (requestId: string) => {
+    const timeoutId = timeoutIds.get(requestId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutIds.delete(requestId);
+    }
+    streamBuffers.delete(requestId);
+  };
 
   for (const req of requests) {
     const promise = new Promise<unknown>((resolve, reject) => {
       responseResolvers.set(req.message.id, { resolve, reject });
 
       const timeoutId = setTimeout(() => {
-        const resolver = responseResolvers.get(req.message.id);
+        const resolver = takeResolver(req.message.id);
         if (resolver) {
           resolver.reject(new Error(`Response timeout after ${responseTimeout}ms`));
-          responseResolvers.delete(req.message.id);
-          streamBuffers.delete(req.message.id);
-          timeoutIds.delete(req.message.id);
+          finalizeRequest(req.message.id);
         }
       }, responseTimeout);
 
@@ -403,17 +420,11 @@ export const executeOrchestration = async (
           const nextBytes = buffer.bytes + chunkBytes;
           const nextChunks = buffer.chunks + 1;
           if (nextBytes > maxStreamBufferBytes || nextChunks > maxStreamChunks) {
-            const resolver = responseResolvers.get(parsed.data.requestId);
+            const resolver = takeResolver(parsed.data.requestId);
             if (resolver) {
               resolver.reject(new Error('Stream exceeded maximum size'));
-              responseResolvers.delete(parsed.data.requestId);
+              finalizeRequest(parsed.data.requestId);
             }
-            const timeoutId = timeoutIds.get(parsed.data.requestId);
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-              timeoutIds.delete(parsed.data.requestId);
-            }
-            streamBuffers.delete(parsed.data.requestId);
             return;
           }
           streamBuffers.set(parsed.data.requestId, {
@@ -431,24 +442,18 @@ export const executeOrchestration = async (
     if (message.type === 'stream-complete') {
       const parsed = StreamCompletePayloadSchema.safeParse(message.payload);
       if (parsed.success) {
-        const resolver = responseResolvers.get(parsed.data.requestId);
+        const buffer = streamBuffers.get(parsed.data.requestId);
+        const bufferedText = buffer ? buffer.text : parsed.data.text;
+        const totalBytes = buffer ? buffer.bytes : getByteLength(parsed.data.text);
+        const totalChunks = buffer ? buffer.chunks : 1;
+        const resolver = takeResolver(parsed.data.requestId);
         if (resolver) {
-          const timeoutId = timeoutIds.get(parsed.data.requestId);
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutIds.delete(parsed.data.requestId);
-          }
-          const buffer = streamBuffers.get(parsed.data.requestId);
-          const bufferedText = buffer ? buffer.text : parsed.data.text;
-          const totalBytes = buffer ? buffer.bytes : getByteLength(parsed.data.text);
-          const totalChunks = buffer ? buffer.chunks : 1;
+          finalizeRequest(parsed.data.requestId);
           if (totalBytes > maxStreamBufferBytes || totalChunks > maxStreamChunks) {
             resolver.reject(new Error('Stream exceeded maximum size'));
           } else {
             resolver.resolve({ text: bufferedText });
           }
-          responseResolvers.delete(parsed.data.requestId);
-          streamBuffers.delete(parsed.data.requestId);
         }
       }
     }
@@ -457,16 +462,10 @@ export const executeOrchestration = async (
       const responsePayload = message.payload as { requestId?: string; response?: unknown };
       const msgRequestId = responsePayload?.requestId ?? message.id;
 
-      const resolver = responseResolvers.get(msgRequestId);
+      const resolver = takeResolver(msgRequestId);
       if (resolver) {
-        const timeoutId = timeoutIds.get(msgRequestId);
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutIds.delete(msgRequestId);
-        }
+        finalizeRequest(msgRequestId);
         resolver.resolve(responsePayload?.response ?? message.payload);
-        responseResolvers.delete(msgRequestId);
-        streamBuffers.delete(msgRequestId);
       }
     }
   };
@@ -503,9 +502,10 @@ export const executeOrchestration = async (
     for (const req of requests) {
       writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch(() => {});
       sendMessage(nodeRef, req.message.to, req.message).catch((error) => {
-        const resolver = responseResolvers.get(req.message.id);
+        const resolver = takeResolver(req.message.id);
         if (resolver) {
-          resolver.reject(error as Error);
+          finalizeRequest(req.message.id);
+          resolver.reject(getError(error));
         }
       });
     }
@@ -546,7 +546,7 @@ export const executeOrchestration = async (
             response: null,
             timestamp: Date.now(),
             latency,
-            error: error as Error,
+            error: getError(error),
             success: false,
           },
           loadUpdate: {
