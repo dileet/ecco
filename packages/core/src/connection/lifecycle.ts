@@ -15,15 +15,19 @@ export async function acquire(
       useCount: existing.useCount + 1,
     };
 
-    const conns = connections.get(peerId)!;
-    const index = conns.indexOf(existing);
-    const updatedConns = [...conns];
-    updatedConns[index] = updated;
+    const conns = connections.get(peerId);
+    if (conns) {
+      const index = conns.indexOf(existing);
+      if (index >= 0) {
+        const updatedConns = [...conns];
+        updatedConns[index] = updated;
 
-    const newConnections = new Map(connections);
-    newConnections.set(peerId, updatedConns);
+        const newConnections = new Map(connections);
+        newConnections.set(peerId, updatedConns);
 
-    return { connection: updated, connections: newConnections };
+        return { connection: updated, connections: newConnections };
+      }
+    }
   }
 
   try {
