@@ -136,7 +136,7 @@ export async function* streamGenerate(
     },
   })
 
-  promptPromise.then(() => {
+  promptPromise.finally(() => {
     done = true
     notifyWaiter()
   })
@@ -152,7 +152,7 @@ export async function* streamGenerate(
 
     await promptPromise
   } finally {
-    sequence.dispose()
+    await sequence.dispose()
     release()
   }
 }
@@ -259,7 +259,7 @@ export function createLocalStreamGenerateFn(state: LocalModelState): StreamGener
       },
     })
 
-    promptPromise.then(() => {
+    promptPromise.finally(() => {
       done = true
       notifyWaiter()
     })
@@ -275,7 +275,7 @@ export function createLocalStreamGenerateFn(state: LocalModelState): StreamGener
 
       await promptPromise
     } finally {
-      sequence.dispose()
+      await sequence.dispose()
       release()
     }
   }
