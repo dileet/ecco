@@ -6,17 +6,24 @@ import type {
 } from '../types';
 
 export async function computeConstitutionHash(constitution: Constitution): Promise<ConstitutionHash> {
-  const joined = constitution.rules.join('\n');
+  const joined = constitution.rules.join('\n').normalize('NFC');
   const encoder = new TextEncoder();
   const data = encoder.encode(joined);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toLowerCase();
 
   return {
     hash,
     rulesCount: constitution.rules.length,
   };
+}
+
+function safeHashSlice(hash: string, length: number): string {
+  if (hash.length < length) {
+    return hash;
+  }
+  return hash.slice(0, length);
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -39,10 +46,13 @@ export function validateConstitution(
   localHash: ConstitutionHash,
   peerHash: ConstitutionHash
 ): { valid: boolean; reason?: string } {
-  if (!timingSafeEqual(localHash.hash, peerHash.hash)) {
+  const localNormalized = localHash.hash.toLowerCase();
+  const peerNormalized = peerHash.hash.toLowerCase();
+
+  if (!timingSafeEqual(localNormalized, peerNormalized)) {
     return {
       valid: false,
-      reason: `Constitution mismatch: expected hash ${localHash.hash.slice(0, 16)}..., received ${peerHash.hash.slice(0, 16)}...`,
+      reason: `Constitution mismatch: expected hash ${safeHashSlice(localNormalized, 16)}..., received ${safeHashSlice(peerNormalized, 16)}...`,
     };
   }
 
@@ -55,10 +65,13 @@ export function createConstitutionMismatchNotice(
   expectedHash: string,
   receivedHash: string
 ): Message {
+  const expectedNormalized = expectedHash.toLowerCase();
+  const receivedNormalized = receivedHash.toLowerCase();
+
   const payload: ConstitutionMismatchNotice = {
-    expectedHash,
-    receivedHash,
-    message: `Constitution mismatch: this network requires all agents to share the same constitution. Expected hash ${expectedHash.slice(0, 16)}..., received ${receivedHash.slice(0, 16)}...`,
+    expectedHash: expectedNormalized,
+    receivedHash: receivedNormalized,
+    message: `Constitution mismatch: this network requires all agents to share the same constitution. Expected hash ${safeHashSlice(expectedNormalized, 16)}..., received ${safeHashSlice(receivedNormalized, 16)}...`,
   };
 
   return {
