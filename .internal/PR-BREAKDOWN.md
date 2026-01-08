@@ -414,13 +414,13 @@
 | [ ] #522 Sqrt precision loss for small stakes | fix/issue-522-sqrt-precision-loss-for-small-stakes | packages/contracts/src/ReputationRegistry.sol | Min weight 1 | Tier 3 |
 | [ ] #550 Pubsub capability topics not namespaced by networkId | fix/issue-550-pubsub-capability-topics-not-namespaced-by-netwo | capabilities.ts | Namespace topics or include networkId in payload | Tier 3 |
 | [ ] #551 Replay window resets on dedup rotation/restart | fix/issue-551-replay-window-resets-on-dedup-rotation-restart | bloom-filter.ts; messaging.ts | Persist dedup state or enforce freshness | Tier 3 |
-| [ ] #543 Handshake networkId not validated | fix/issue-543-handshake-networkid-not-validated | message-bridge.ts | Reject mismatched networkId | Tier 3 |
+| [x] #543 Handshake networkId not validated | fix/issue-543-handshake-networkid-not-validated | message-bridge.ts | Reject mismatched networkId | Tier 3 |
 | [ ] #544 Broadcast topic not bound to signature | fix/issue-544-broadcast-topic-not-bound-to-signature | message-bridge.ts | Include topic in signature and verify match | Tier 3 |
 | [ ] #545 Broadcast fallback accepts direct frames | fix/issue-545-broadcast-fallback-accepts-direct-frames | message-bridge.ts | Drop non-topic broadcasts | Tier 3 |
 | [ ] #546 Dedup marks invalid messages as seen | fix/issue-546-dedup-marks-invalid-messages-as-seen | messaging.ts | Verify before dedup/rate-limit | Tier 3 |
 | [ ] #547 Orchestrator response spoofing via requestId | fix/issue-547-orchestrator-response-spoofing-via-requestid | orchestrator/index.ts | Bind requestId to peer and validate sender | Tier 3 |
 | [ ] #556 Voting window units mismatch with timestamp clock | fix/issue-556-voting-window-units-mismatch-with-timestamp-cloc | EccoToken.sol; EccoGovernor.sol | Validate voting delay/period in seconds | Tier 3 |
-| [ ] #559 Stake requirement bypass when reputation state missing | fix/issue-559-stake-requirement-bypass-when-reputation-state-m | index.ts | Fail closed or require reputationState before selection | Tier 3 |
+| [x] #559 Stake requirement bypass when reputation state missing | fix/issue-559-stake-requirement-bypass-when-reputation-state-m | index.ts | Fail closed or require reputationState before selection | Tier 3 |
 | [x] #561 Error responses counted as success | fix/issue-561-error-responses-counted-as-success | index.ts | Treat error payloads as failures or require success flag | Tier 3 |
 | [ ] #59 Process Cleanup Not Awaited (dupes: #502) | fix/issue-059-process-cleanup-not-awaited | packages/core/src/agent/index.ts | Await process cleanup and ensure teardown finishes before exit | Tier 3 |
 | [ ] #212 Rate Limiter Loses Partial Refill Time (dupes: #282, #472) | fix/issue-212-rate-limiter-loses-partial-refill-time | packages/core/src/utils/bloom-filter.ts | Track refill remainder time to preserve rate limiter accuracy | Tier 3 |

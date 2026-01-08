@@ -69,6 +69,7 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
     uint256 public constant COMMIT_REVEAL_DELAY = 1 minutes;
     uint256 public constant COMMIT_EXPIRY = 1 days;
     uint256 public constant MAX_BATCH_SIZE = 50;
+    uint256 public constant MAX_STAKE_WEIGHT = 100;
 
     uint256 public rateLimitPeriod = 1 days;
     uint256 public maxRatingsPerPeriod = 50;
@@ -327,6 +328,9 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         if (rep.stake >= minStakeToRate) {
             uint256 sqrtResult = sqrt(rep.stake / minStakeToRate);
             stakeWeight = sqrtResult > 0 ? sqrtResult : 1;
+            if (stakeWeight > MAX_STAKE_WEIGHT) {
+                stakeWeight = MAX_STAKE_WEIGHT;
+            }
         } else {
             stakeWeight = 1;
         }

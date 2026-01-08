@@ -18,7 +18,7 @@ contract EccoGovernor is
     GovernorVotesQuorumFraction,
     GovernorTimelockControl
 {
-    uint48 public constant MIN_VOTING_DELAY = 1;
+    uint48 public constant MIN_VOTING_DELAY = 1 days;
 
     IReputationRegistry public immutable reputationRegistry;
 
