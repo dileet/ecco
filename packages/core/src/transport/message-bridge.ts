@@ -4,7 +4,7 @@ import type { AuthState, SignedMessage } from '../services/auth';
 import type { NetworkConfig } from '../networks';
 import { signMessage, verifyMessage } from '../services/auth';
 import { z } from 'zod';
-import { debug, createMessageDeduplicator, type MessageDeduplicator } from '../utils';
+import { debug, delay, createMessageDeduplicator, type MessageDeduplicator } from '../utils';
 import {
   createHandshakeMessage,
   createHandshakeResponse,
@@ -19,6 +19,7 @@ import { createConstitutionMismatchNotice, computeConstitutionHash } from '../pr
 
 const MAX_QUEUED_MESSAGES_PER_PEER = 100;
 const QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE = 0.01;
+const MAX_MESSAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const MessageSchema = z.object({
   id: z.string(),
@@ -70,10 +71,25 @@ export interface HandshakeInitiation {
   message: Message | null;
 }
 
+const MessageBridgeConfigSchema = z.object({
+  nodeId: z.string().min(1),
+  authEnabled: z.boolean(),
+  networkConfig: z.object({
+    protocol: z.object({
+      enforcementLevel: z.string(),
+    }),
+  }).optional(),
+});
+
 export function createMessageBridge(
   config: MessageBridgeConfig,
   authState?: AuthState
 ): MessageBridgeState {
+  const configResult = MessageBridgeConfigSchema.safeParse(config);
+  if (!configResult.success) {
+    throw new Error(`Invalid MessageBridgeConfig: ${configResult.error.message}`);
+  }
+
   return {
     config,
     authState,
@@ -147,10 +163,16 @@ export async function deserializeMessage(
   transportMessage: TransportMessage
 ): Promise<{ message: Message | null; valid: boolean; updatedState: MessageBridgeState }> {
   try {
+    if (transportMessage.data.byteLength > MAX_MESSAGE_SIZE_BYTES) {
+      debug('deserializeMessage', `Message too large: ${transportMessage.data.byteLength} bytes exceeds ${MAX_MESSAGE_SIZE_BYTES}`);
+      return { message: null, valid: false, updatedState: state };
+    }
+
     const json = new TextDecoder().decode(transportMessage.data);
     const result = MessageSchema.safeParse(JSON.parse(json));
 
     if (!result.success) {
+      debug('deserializeMessage', `Schema validation failed: ${result.error.message}`);
       return { message: null, valid: false, updatedState: state };
     }
 
@@ -183,7 +205,8 @@ export async function deserializeMessage(
       valid: true,
       updatedState: state,
     };
-  } catch {
+  } catch (error) {
+    debug('deserializeMessage', `Deserialization error: ${error instanceof Error ? error.message : String(error)}`);
     return { message: null, valid: false, updatedState: state };
   }
 }
@@ -204,11 +227,19 @@ export function createMessage(
   };
 }
 
+const TopicSchema = z.string().min(1).max(256);
+
 export function subscribeToTopic(
   state: MessageBridgeState,
   topic: string,
   handler: (message: Message) => void
 ): MessageBridgeState {
+  const topicResult = TopicSchema.safeParse(topic);
+  if (!topicResult.success) {
+    debug('subscribeToTopic', `Invalid topic: ${topic}`);
+    return state;
+  }
+
   const handlers = state.topicHandlers.get(topic) ?? new Set();
   handlers.add(handler);
   const topicHandlers = new Map(state.topicHandlers);
@@ -577,9 +608,10 @@ export async function handleVersionHandshake(
       await state.sendMessage(peerId, notice);
     }
 
-    setTimeout(() => {
-      state.disconnectPeer?.(peerId);
-    }, DISCONNECT_DELAY_MS);
+    if (state.disconnectPeer) {
+      const disconnectPeer = state.disconnectPeer;
+      delay(DISCONNECT_DELAY_MS).then(() => disconnectPeer(peerId)).catch(() => {});
+    }
 
     state.onPeerRejected?.(peerId, responsePayload?.reason ?? 'Handshake rejected');
     return state;
