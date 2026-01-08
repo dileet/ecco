@@ -95,6 +95,9 @@ function isAsyncIterable(data: unknown): data is Stream {
 }
 
 function encodeVarint(value: number): Uint8Array {
+  if (value < 0 || !Number.isInteger(value)) {
+    throw new Error(`Invalid varint value: ${value}. Must be a non-negative integer.`);
+  }
   const bytes: number[] = [];
   while (value >= 0x80) {
     bytes.push((value & 0x7f) | 0x80);
@@ -105,18 +108,26 @@ function encodeVarint(value: number): Uint8Array {
 }
 
 function decodeVarint(data: Uint8Array, offset: number): { value: number; bytesRead: number } {
+  if (!(data instanceof Uint8Array)) {
+    throw new Error('Invalid data: expected Uint8Array');
+  }
+
   let value = 0;
   let shift = 0;
   let bytesRead = 0;
-  
+  const maxShift = 28;
+
   while (offset + bytesRead < data.length) {
+    if (shift > maxShift) {
+      throw new Error('Varint too large: exceeds 32-bit integer');
+    }
     const byte = data[offset + bytesRead];
     value |= (byte & 0x7f) << shift;
     bytesRead++;
     if ((byte & 0x80) === 0) break;
     shift += 7;
   }
-  
+
   return { value, bytesRead };
 }
 
@@ -354,8 +365,12 @@ export async function connect(
 
   if (peer?.addresses.length) {
     const { multiaddr } = await import('@multiformats/multiaddr');
-    const addr = multiaddr(peer.addresses[0]);
-    await node.dial(addr);
+    try {
+      const addr = multiaddr(peer.addresses[0]);
+      await node.dial(addr);
+    } catch (error) {
+      throw new Error(`Failed to parse multiaddr or dial peer ${peerId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
