@@ -1,4 +1,19 @@
 export { delay, spinFor, spinBackoff, withTimeout, retryWithBackoff, type RetryOptions } from './timing';
+export {
+  safeJsonParse,
+  safeParseFloat,
+  safeParseInt,
+  isValidSemver,
+  parseSemver,
+  isValidUrl,
+  isValidMultiaddr,
+  clamp,
+  isNonNegativeInteger,
+  isPositiveNumber,
+  validateArrayBounds,
+  ensureNonEmptyArray,
+  validateRange,
+} from './validation';
 export { createLRUCache, cloneLRUCache, fromRecord, type LRUCache } from './lru-cache';
 export {
   createBloomFilter,
