@@ -46,9 +46,9 @@ export const announceCapabilities = async (
   node: DHTCapableNode,
   capabilities: Capability[],
   minPeers: number = 1
-): Promise<void> => {
+): Promise<{ announced: number; failed: number }> => {
   if (!isDHTReady(node, minPeers)) {
-    return;
+    return { announced: 0, failed: 0 };
   }
 
   const announcements = capabilities.flatMap((capability) => [
@@ -56,7 +56,20 @@ export const announceCapabilities = async (
     announceKey(node, generateCapabilityKey({ type: capability.type })),
   ]);
 
-  await Promise.allSettled(announcements);
+  const results = await Promise.allSettled(announcements);
+  let announced = 0;
+  let failed = 0;
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      announced++;
+    } else {
+      failed++;
+      console.warn('[dht] Capability announcement failed:', result.reason);
+    }
+  }
+
+  return { announced, failed };
 };
 
 const queryProviders = async (
@@ -74,6 +87,9 @@ const queryProviders = async (
     providerCount++;
 
     const peerId = provider.id.toString();
+    if (!provider.multiaddrs || provider.multiaddrs.length === 0) {
+      continue;
+    }
     const existing = discoveredPeers.get(peerId);
 
     const capabilityEntry: Capability = {

@@ -376,14 +376,24 @@ export function serializeFilter(filter: ReputationBloomFilter): string {
   });
 }
 
-export function deserializeFilter(data: string): ReputationBloomFilter {
-  const parsed = JSON.parse(data);
-  return {
-    ...parsed,
-    filter: new Uint8Array(parsed.filter),
-    signature: parsed.signature ? new Uint8Array(parsed.signature) : undefined,
-    publicKey: parsed.publicKey ? new Uint8Array(parsed.publicKey) : undefined,
-  };
+export function deserializeFilter(data: string): ReputationBloomFilter | null {
+  try {
+    const parsed = JSON.parse(data);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    if (!Array.isArray(parsed.filter)) {
+      return null;
+    }
+    return {
+      ...parsed,
+      filter: new Uint8Array(parsed.filter),
+      signature: parsed.signature ? new Uint8Array(parsed.signature) : undefined,
+      publicKey: parsed.publicKey ? new Uint8Array(parsed.publicKey) : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function gossipFilters(
@@ -428,6 +438,9 @@ async function handleFilterEvent(ref: StateRef<NodeState>, event: EccoEvent): Pr
 
   try {
     const filter = deserializeFilter(event.payload);
+    if (!filter) {
+      return;
+    }
 
     if (!validateFilterParams(filter, state.bloomFilters.filterSize)) {
       return;

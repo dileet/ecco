@@ -25,6 +25,7 @@ export type { StateRef } from './types';
 const MAX_CAS_RETRIES = 100;
 const CAS_BACKOFF_STEP_MS = 1;
 const MAX_CAS_BACKOFF_MS = 10;
+const MAX_SAFE_VERSION = Number.MAX_SAFE_INTEGER - 1;
 const DEFAULT_MAX_PEERS = 10000;
 const DEFAULT_STALE_PEER_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_DEDUP_MAX_MESSAGES = 10000;
@@ -105,7 +106,7 @@ export const getVersion = <T>(ref: StateRef<T>): number => ref.version;
 
 export const setState = <T>(ref: StateRef<T>, value: T): void => {
   ref.current = value;
-  ref.version += 1;
+  ref.version = ref.version >= MAX_SAFE_VERSION ? 0 : ref.version + 1;
 };
 
 export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
@@ -115,7 +116,7 @@ export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
     const newState = fn(ref.current);
     if (ref.version === versionBefore) {
       ref.current = newState;
-      ref.version = versionBefore + 1;
+      ref.version = versionBefore >= MAX_SAFE_VERSION ? 0 : versionBefore + 1;
       return;
     }
   }
@@ -129,7 +130,7 @@ export const modifyState = <T, A>(ref: StateRef<T>, fn: (state: T) => readonly [
     const [result, newState] = fn(ref.current);
     if (ref.version === versionBefore) {
       ref.current = newState;
-      ref.version = versionBefore + 1;
+      ref.version = versionBefore >= MAX_SAFE_VERSION ? 0 : versionBefore + 1;
       return result;
     }
   }

@@ -207,7 +207,9 @@ export function setupEventListeners(
             debug('handshake', `Sent handshake to peer ${peerId}`);
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          debug('discovery', `Handshake error with peer: ${err}`);
+        });
     }
 
     handlePeerConnect(stateRef).catch(() => {});
@@ -382,8 +384,18 @@ const pollForMatches = async (
   let matches = checkMatches();
   if (matches.length > 0) return matches;
 
-  while (Date.now() < deadline) {
-    await delay(pollIntervalMs);
+  while (true) {
+    const now = Date.now();
+    if (now >= deadline) {
+      break;
+    }
+    const remainingMs = deadline - now;
+    const waitMs = Math.min(pollIntervalMs, remainingMs);
+    await delay(waitMs);
+
+    if (Date.now() >= deadline) {
+      break;
+    }
     matches = checkMatches();
     if (matches.length > 0) return matches;
   }

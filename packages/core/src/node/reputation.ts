@@ -78,7 +78,12 @@ export function getLocalReputation(state: ReputationState, peerId: string): Loca
 export function updateLocalScore(state: ReputationState, peerId: string, delta: number): void {
   const peer = state.peers.get(peerId);
   if (peer) {
-    peer.localScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, peer.localScore + delta));
+    const newScore = peer.localScore + delta;
+    const clampedScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, newScore));
+    if (clampedScore !== newScore) {
+      console.warn(`[reputation] Score for peer ${peerId} clamped: ${newScore} -> ${clampedScore}`);
+    }
+    peer.localScore = clampedScore;
     peer.lastInteractionAt = Date.now();
     if (delta > 0) {
       peer.successfulJobs += 1;
