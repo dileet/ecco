@@ -14,6 +14,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant MAX_DISTRIBUTORS = 100;
+    uint256 public constant MIN_REWARD = 0.001 ether;
 
     IERC20 public immutable eccoToken;
     IReputationRegistry public immutable reputationRegistry;
@@ -86,6 +87,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         rewardedJobs[jobId] = true;
 
         uint256 reward = calculateReward(peer, difficulty, consensusAchieved, fastResponse);
+        require(reward >= MIN_REWARD, "Reward below minimum");
 
         uint256 balance = eccoToken.balanceOf(address(this));
         if (reward > balance) {

@@ -180,6 +180,11 @@ export const consensusThreshold = async (
   threshold: number,
   config?: MultiAgentConfig
 ): Promise<AggregationResult> => {
+  const minResponses = config?.minAgents ?? 2;
+  if (responses.length < minResponses) {
+    throw new Error(`Consensus requires at least ${minResponses} responses, got ${responses.length}`);
+  }
+
   const { result, confidence, agreement } = await majorityVote(responses, config);
 
   if (confidence < threshold) {

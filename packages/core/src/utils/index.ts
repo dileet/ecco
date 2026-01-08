@@ -1,4 +1,4 @@
-export { delay, spinFor, spinBackoff, withTimeout, retryWithBackoff, type RetryOptions } from './timing';
+export { delay, spinFor, spinBackoff, withTimeout, retryWithBackoff, monotonicNow, type RetryOptions } from './timing';
 export {
   safeJsonParse,
   safeParseFloat,

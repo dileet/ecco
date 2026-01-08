@@ -98,10 +98,17 @@ contract ReputationRegistry is ReentrancyGuard, Ownable {
         require(amount > 0, "Must stake positive amount");
         require(bytes(peerIdOf[msg.sender]).length > 0, "Must register peerId first");
 
+        PeerReputation storage rep = reputations[msg.sender];
+        if (rep.unstakeRequestTime > 0) {
+            rep.unstakeRequestTime = 0;
+            rep.unstakeAmount = 0;
+            unstakeRequestBlock[msg.sender] = 0;
+        }
+
         eccoToken.safeTransferFrom(msg.sender, address(this), amount);
-        reputations[msg.sender].stake += amount;
-        if (block.timestamp >= reputations[msg.sender].lastActive + activityCooldown) {
-            reputations[msg.sender].lastActive = block.timestamp;
+        rep.stake += amount;
+        if (block.timestamp >= rep.lastActive + activityCooldown) {
+            rep.lastActive = block.timestamp;
         }
         totalStaked += amount;
         if (address(feeCollector) != address(0)) {

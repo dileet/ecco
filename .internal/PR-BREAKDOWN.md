@@ -356,7 +356,7 @@
 | [x] #216 RSSI value not validated | fix/issue-216-rssi-value-not-validated | packages/core/src/transport/manager.ts | Validate range | Tier 3 |
 | [ ] #225 Weak message ID entropy | fix/issue-225-weak-message-id-entropy | packages/core/src/services/generation.ts | Add more entropy | Tier 3 |
 | [x] #228 Message schema union type ambiguity | fix/issue-228-message-schema-union-type-ambiguity | packages/core/src/node/messaging.ts | Stricter schema | Tier 3 |
-| [ ] #243 Semantic similarity tie-breaking bias | fix/issue-243-semantic-similarity-tie-breaking-bias | packages/core/src/orchestrator/semantic-similarity.ts | Random tie-break | Tier 3 |
+| [x] #243 Semantic similarity tie-breaking bias | fix/issue-243-semantic-similarity-tie-breaking-bias | packages/core/src/orchestrator/semantic-similarity.ts | Random tie-break | Tier 3 |
 | [ ] #253 Zone selection deadlock | fix/issue-253-zone-selection-deadlock | packages/core/src/orchestrator/index.ts | Fallback | Tier 3 |
 | [x] #270 Invoice ID UUID collision risk | fix/issue-270-invoice-id-uuid-collision-risk | packages/core/src/services/payment.ts | Add uniqueness | Tier 3 |
 | [x] #272 Payment ledger no unique job ID | fix/issue-272-payment-ledger-no-unique-job-id | packages/core/src/storage/schema.ts | Add constraint | Tier 3 |
@@ -368,26 +368,26 @@
 | [ ] #300 AsyncIterator partial consumption cleanup | fix/issue-300-asynciterator-partial-consumption-cleanup | agent/index.ts; packages/core/src/agent/index.ts | Explicit cleanup | Tier 3 |
 | [ ] #302 JSON.stringify vote key collision (dupes: #478) | fix/issue-302-json-stringify-vote-key-collision | packages/core/src/orchestrator/aggregation.ts | Canonical JSON | Tier 3 |
 | [ ] #303 Payment timeout fires after rejection | fix/issue-303-payment-timeout-fires-after-rejection | packages/core/src/agent/payments.ts | Guard timeout | Tier 3 |
-| [ ] #314 PendingHandshake optional timeoutId | fix/issue-314-pendinghandshake-optional-timeoutid | packages/core/src/transport/message-bridge.ts | Always set | Tier 3 |
+| [x] #314 PendingHandshake optional timeoutId | fix/issue-314-pendinghandshake-optional-timeoutid | packages/core/src/transport/message-bridge.ts | Always set | Tier 3 |
 | [ ] #327 No network partition detection | fix/issue-327-no-network-partition-detection | packages/core/src/transport/message-bridge.ts | Add detection | Tier 3 |
-| [ ] #328 PubSub topic injection | fix/issue-328-pubsub-topic-injection | packages/core/src/transport/message-bridge.ts | Validate topic | Tier 3 |
+| [x] #328 PubSub topic injection | fix/issue-328-pubsub-topic-injection | packages/core/src/transport/message-bridge.ts | Validate topic | Tier 3 |
 | [ ] #331 Disconnect timer fires after rejected | fix/issue-331-disconnect-timer-fires-after-rejected | packages/core/src/transport/message-bridge.ts | Guard callback | Tier 3 |
-| [ ] #338 Round-robin without fairness | fix/issue-338-round-robin-without-fairness | packages/core/src/orchestrator/index.ts | Reset counts | Tier 3 |
+| [x] #338 Round-robin without fairness | fix/issue-338-round-robin-without-fairness | packages/core/src/orchestrator/index.ts | Reset counts | Tier 3 |
 | [x] #343 Rating delta clamping silent | fix/issue-343-rating-delta-clamping-silent | packages/core/src/node/reputation.ts | Log clamping | Tier 3 |
-| [ ] #348 Consensus threshold single response | fix/issue-348-consensus-threshold-single-response | packages/core/src/orchestrator/aggregation.ts | Min responses | Tier 3 |
+| [x] #348 Consensus threshold single response | fix/issue-348-consensus-threshold-single-response | packages/core/src/orchestrator/aggregation.ts | Min responses | Tier 3 |
 | [ ] #349 Ranking contribution unbounded | fix/issue-349-ranking-contribution-unbounded | packages/core/src/orchestrator/aggregation.ts | Normalize | Tier 3 |
 | [ ] #535 Constitution mismatch notice uses local config | fix/issue-535-constitution-mismatch-notice-uses-local-config | message-bridge.ts | Use effective constitution hash | Tier 3 |
 | [x] #355 Floating point precision loss | fix/issue-355-floating-point-precision-loss | packages/core/src/node/peer-performance.ts | Better scaling | Tier 3 |
-| [ ] #356 Reputation manipulation via whale | fix/issue-356-reputation-manipulation-via-whale | packages/contracts/src/ReputationRegistry.sol | Cap weight | Tier 3 |
+| [x] #356 Reputation manipulation via whale | fix/issue-356-reputation-manipulation-via-whale | packages/contracts/src/ReputationRegistry.sol | Cap weight | Tier 3 |
 | [ ] #357 Unstake denial via activity penalty | fix/issue-357-unstake-denial-via-activity-penalty | packages/contracts/src/ReputationRegistry.sol | Cap penalty | Tier 3 |
-| [ ] #359 Payment ID collision exploitation | fix/issue-359-payment-id-collision-exploitation | packages/core/src/services/reputation-contract.ts | Add random | Tier 3 |
-| [ ] #360 Zero-reward job spam attack | fix/issue-360-zero-reward-job-spam-attack | packages/contracts/src/WorkRewards.sol | Require min reward | Tier 3 |
+| [x] #359 Payment ID collision exploitation | fix/issue-359-payment-id-collision-exploitation | packages/core/src/services/reputation-contract.ts | Add random | Tier 3 |
+| [x] #360 Zero-reward job spam attack | fix/issue-360-zero-reward-job-spam-attack | packages/contracts/src/WorkRewards.sol | Require min reward | Tier 3 |
 | [ ] #361 Fee distribution precision loss | fix/issue-361-fee-distribution-precision-loss | packages/contracts/src/FeeCollector.sol | Track dust | Tier 3 |
 | [x] #362 Bloom filter false positive amplification | fix/issue-362-bloom-filter-false-positive-amplification | packages/core/src/utils/bloom-filter.ts | Lower rate | Tier 3 |
 | [ ] #363 LRU cache eviction timing attack | fix/issue-363-lru-cache-eviction-timing-attack | packages/core/src/utils/lru-cache.ts | Constant time | Tier 3 |
-| [ ] #364 Governance vote manipulation | fix/issue-364-governance-vote-manipulation | packages/contracts/src/EccoToken.sol | Fix clock | Tier 3 |
-| [ ] #365 Rate limiter clock manipulation | fix/issue-365-rate-limiter-clock-manipulation | packages/core/src/utils/bloom-filter.ts | Monotonic time | Tier 3 |
-| [ ] #366 Unstake cooldown bypass | fix/issue-366-unstake-cooldown-bypass | packages/contracts/src/ReputationRegistry.sol | Cancel on stake | Tier 3 |
+| [x] #364 Governance vote manipulation | fix/issue-364-governance-vote-manipulation | packages/contracts/src/EccoToken.sol | Fix clock | Tier 3 |
+| [x] #365 Rate limiter clock manipulation | fix/issue-365-rate-limiter-clock-manipulation | packages/core/src/utils/bloom-filter.ts | Monotonic time | Tier 3 |
+| [x] #366 Unstake cooldown bypass | fix/issue-366-unstake-cooldown-bypass | packages/contracts/src/ReputationRegistry.sol | Cancel on stake | Tier 3 |
 | [ ] #412 Activity penalty timestamp underflow | fix/issue-412-activity-penalty-timestamp-underflow | packages/contracts/src/ReputationRegistry.sol | Check bounds | Tier 3 |
 | [x] #433 Bloom filter config allows zero/negative | fix/issue-433-bloom-filter-config-allows-zero-negative | packages/core/src/node/state.ts | Validate > 0 | Tier 3 |
 | [ ] #434 Message timestamp without clock skew | fix/issue-434-message-timestamp-without-clock-skew | packages/core/src/services/auth.ts | Add tolerance | Tier 3 |
