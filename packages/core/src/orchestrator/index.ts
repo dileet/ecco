@@ -79,7 +79,7 @@ const defaultLoadState = (peerId: string): AgentLoadState => ({
   totalErrors: 0,
   averageLatency: 0,
   lastRequestTime: 0,
-  successRate: 1.0,
+  successRate: 0.5,
 });
 
 const selectAgents = (
@@ -88,7 +88,7 @@ const selectAgents = (
   loadStates: Record<string, AgentLoadState>,
   nodeState?: NodeState
 ): CapabilityMatch[] => {
-  const n = config.agentCount || 3;
+  const n = config.agentCount ?? 3;
   let candidates = matches;
 
   if (config.stakeRequirement?.requireStake && nodeState?.reputationState) {
@@ -155,11 +155,18 @@ const selectAgents = (
       return sorted.slice(0, n);
     }
 
-    case 'random':
-      return [...candidates].sort(() => secureRandom() - 0.5).slice(0, n);
+    case 'random': {
+      const shuffled = [...candidates];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(secureRandom() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled.slice(0, n);
+    }
 
     case 'weighted': {
-      const loadWeight = config.loadBalancing?.loadWeight ?? 0.3;
+      const rawLoadWeight = config.loadBalancing?.loadWeight ?? 0.3;
+      const loadWeight = Math.max(0, Math.min(1, rawLoadWeight));
       const loadBalancingEnabled = config.loadBalancing?.enabled ?? false;
       const selected: CapabilityMatch[] = [];
       const available = [...candidates];
@@ -501,13 +508,17 @@ export const executeOrchestration = async (
     }
 
     if (message.type === 'agent-response') {
-      const responsePayload = message.payload as { requestId?: string; response?: unknown };
+      const responsePayload = message.payload as { requestId?: string; response?: unknown; error?: string };
       const msgRequestId = responsePayload?.requestId ?? message.id;
 
       const resolver = takeResolver(msgRequestId);
       if (resolver) {
         finalizeRequest(msgRequestId);
-        resolver.resolve(responsePayload?.response ?? message.payload);
+        if (responsePayload?.error) {
+          resolver.reject(new Error(responsePayload.error));
+        } else {
+          resolver.resolve(responsePayload?.response ?? message.payload);
+        }
       }
     }
   };
