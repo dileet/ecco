@@ -188,7 +188,7 @@
 | [x] #40 RPC URL not validated (dupes: #217, #418) | fix/issue-040-rpc-url-not-validated | packages/core/src/services/wallet.ts | Validate URL | Tier 3 |
 | [x] #63 parseDecimalToBigInt no validation | fix/issue-063-parsedecimaltobigint-no-validation | packages/core/src/services/payment.ts | Validate format | Tier 3 |
 | [x] #64 Varint decode integer overflow (dupes: #158, #307, #390, #508, #509) | fix/issue-064-varint-decode-integer-overflow | packages/core/src/transport/adapters/libp2p.ts | Limit shift | Tier 3 |
-| [ ] #67 parseEther no range validation | fix/issue-067-parseether-no-range-validation | packages/core/src/services/wallet.ts | Validate range | Tier 3 |
+| [x] #67 parseEther no range validation | fix/issue-067-parseether-no-range-validation | packages/core/src/services/wallet.ts | Validate range | Tier 3 |
 | [x] #68 addresses[0] without length check | fix/issue-068-addresses-0-without-length-check | packages/core/src/node/bootstrap.ts | Check length | Tier 3 |
 | [x] #69 Hash slice without length validation (dupes: #317) | fix/issue-069-hash-slice-without-length-validation | packages/core/src/protocol/constitution.ts | Check >= 16 | Tier 3 |
 | [ ] #89 Unsafe type assertion on payload | fix/issue-089-unsafe-type-assertion-on-payload | index.ts | Runtime validation | Tier 3 |
@@ -376,7 +376,7 @@
 | [x] #343 Rating delta clamping silent | fix/issue-343-rating-delta-clamping-silent | packages/core/src/node/reputation.ts | Log clamping | Tier 3 |
 | [x] #348 Consensus threshold single response | fix/issue-348-consensus-threshold-single-response | packages/core/src/orchestrator/aggregation.ts | Min responses | Tier 3 |
 | [ ] #349 Ranking contribution unbounded | fix/issue-349-ranking-contribution-unbounded | packages/core/src/orchestrator/aggregation.ts | Normalize | Tier 3 |
-| [ ] #535 Constitution mismatch notice uses local config | fix/issue-535-constitution-mismatch-notice-uses-local-config | message-bridge.ts | Use effective constitution hash | Tier 3 |
+| [x] #535 Constitution mismatch notice uses local config | fix/issue-535-constitution-mismatch-notice-uses-local-config | message-bridge.ts | Use effective constitution hash | Tier 3 |
 | [x] #355 Floating point precision loss | fix/issue-355-floating-point-precision-loss | packages/core/src/node/peer-performance.ts | Better scaling | Tier 3 |
 | [x] #356 Reputation manipulation via whale | fix/issue-356-reputation-manipulation-via-whale | packages/contracts/src/ReputationRegistry.sol | Cap weight | Tier 3 |
 | [ ] #357 Unstake denial via activity penalty | fix/issue-357-unstake-denial-via-activity-penalty | packages/contracts/src/ReputationRegistry.sol | Cap penalty | Tier 3 |
