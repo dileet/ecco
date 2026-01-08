@@ -1,13 +1,23 @@
 import type { ProtocolVersion } from '../types';
 
+const VERSION_PART_REGEX = /^(0|[1-9]\d*)$/;
+
 export function parseVersion(versionString: string): ProtocolVersion {
+  if (typeof versionString !== 'string' || versionString.length === 0) {
+    throw new Error(`Invalid version string: ${versionString}`);
+  }
   const parts = versionString.split('.');
   if (parts.length !== 3) {
     throw new Error(`Invalid version string: ${versionString}`);
   }
-  const [major, minor, patch] = parts.map(Number);
-  if (isNaN(major) || isNaN(minor) || isNaN(patch)) {
-    throw new Error(`Invalid version string: ${versionString}`);
+  for (const part of parts) {
+    if (!VERSION_PART_REGEX.test(part)) {
+      throw new Error(`Invalid version string: ${versionString}`);
+    }
+  }
+  const [major, minor, patch] = parts.map((p) => parseInt(p, 10));
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    throw new Error(`Version number out of bounds: ${versionString}`);
   }
   return { major, minor, patch };
 }
