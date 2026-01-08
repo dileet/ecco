@@ -282,36 +282,43 @@ export const clusterResponses = async (
     }
   }
 
-  const visited = new Set<number>();
-  const clusters: number[][] = [];
+  const parent = [...Array(n).keys()];
+
+  const find = (x: number): number => {
+    if (parent[x] !== x) {
+      parent[x] = find(parent[x]);
+    }
+    return parent[x];
+  };
+
+  const union = (x: number, y: number): void => {
+    const px = find(x);
+    const py = find(y);
+    if (px !== py) {
+      parent[px] = py;
+    }
+  };
 
   for (let i = 0; i < n; i++) {
-    if (visited.has(i)) continue;
-
-    const cluster = [i];
-    visited.add(i);
-
     for (let j = i + 1; j < n; j++) {
-      if (visited.has(j)) continue;
-
-      let isSimilar = false;
-      for (const member of cluster) {
-        if (similarities[member][j] >= threshold) {
-          isSimilar = true;
-          break;
-        }
-      }
-
-      if (isSimilar) {
-        cluster.push(j);
-        visited.add(j);
+      if (similarities[i][j] >= threshold) {
+        union(i, j);
       }
     }
-
-    clusters.push(cluster);
   }
 
-  return clusters;
+  const clusterMap = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    const existing = clusterMap.get(root);
+    if (existing) {
+      existing.push(i);
+    } else {
+      clusterMap.set(root, [i]);
+    }
+  }
+
+  return Array.from(clusterMap.values());
 };
 
 export const findConsensus = async (
@@ -332,12 +339,11 @@ export const findConsensus = async (
 
   const clusters = await clusterResponses(responses, config);
 
-  let largestCluster = clusters[0];
-  for (const cluster of clusters) {
-    if (cluster.length > largestCluster.length) {
-      largestCluster = cluster;
-    }
-  }
+  const maxSize = Math.max(...clusters.map(c => c.length));
+  const largestClusters = clusters.filter(c => c.length === maxSize);
+  const largestCluster = largestClusters.length === 1
+    ? largestClusters[0]
+    : largestClusters[Math.floor(Math.random() * largestClusters.length)];
 
   const confidence = largestCluster.length / responses.length;
 
