@@ -120,6 +120,17 @@ export const initialize = async (nodeId: string): Promise<void> => {
   await initializeDatabase(nodeId, false);
 };
 
+export const close = (): void => {
+  if (sqliteDb) {
+    sqliteDb.close();
+    sqliteDb = null;
+  }
+  dbInstance = null;
+  currentNodeId = null;
+  dbNodeId = null;
+  initPromise = null;
+};
+
 export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgreement>> => {
   const db = getDb();
   if (!db) {
