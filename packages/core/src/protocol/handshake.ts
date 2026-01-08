@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type {
   Message,
   ProtocolVersion,
@@ -12,6 +13,28 @@ import type { NetworkConfig } from '../networks';
 import { isCompatible, formatVersion } from './version';
 import { computeConstitutionHash, validateConstitution, parseConstitutionHash } from './constitution';
 import { fetchOnChainConstitution } from './on-chain-constitution';
+
+const ProtocolVersionSchema = z.object({
+  major: z.number().int().nonnegative(),
+  minor: z.number().int().nonnegative(),
+  patch: z.number().int().nonnegative(),
+});
+
+const HandshakePayloadSchema = z.object({
+  protocolVersion: ProtocolVersionSchema,
+  networkId: z.string(),
+  timestamp: z.number(),
+  constitutionHash: z.string(),
+});
+
+const HandshakeResponseSchema = z.object({
+  accepted: z.boolean(),
+  protocolVersion: ProtocolVersionSchema,
+  minProtocolVersion: ProtocolVersionSchema,
+  reason: z.string().optional(),
+  upgradeUrl: z.string().optional(),
+  constitutionMismatch: z.boolean().optional(),
+});
 
 export const HANDSHAKE_TIMEOUT_MS = 5000;
 export const DISCONNECT_DELAY_MS = 1000;
@@ -149,92 +172,36 @@ export function isHandshakeMessage(message: Message): boolean {
 }
 
 export function parseHandshakePayload(payload: unknown): VersionHandshakePayload | null {
-  if (typeof payload !== 'object' || payload === null) {
+  const result = HandshakePayloadSchema.safeParse(payload);
+  if (!result.success) {
     return null;
   }
 
-  const p = payload as Record<string, unknown>;
-
-  if (
-    typeof p.protocolVersion !== 'object' ||
-    p.protocolVersion === null ||
-    typeof p.networkId !== 'string' ||
-    typeof p.timestamp !== 'number'
-  ) {
-    return null;
-  }
-
-  const version = p.protocolVersion as Record<string, unknown>;
-  if (
-    typeof version.major !== 'number' ||
-    typeof version.minor !== 'number' ||
-    typeof version.patch !== 'number'
-  ) {
-    return null;
-  }
-
-  const constitutionHash = parseConstitutionHash(p.constitutionHash);
+  const constitutionHash = parseConstitutionHash(result.data.constitutionHash);
   if (!constitutionHash) {
     return null;
   }
 
   return {
-    protocolVersion: {
-      major: version.major,
-      minor: version.minor,
-      patch: version.patch,
-    },
-    networkId: p.networkId,
-    timestamp: p.timestamp,
+    protocolVersion: result.data.protocolVersion,
+    networkId: result.data.networkId,
+    timestamp: result.data.timestamp,
     constitutionHash,
   };
 }
 
 export function parseHandshakeResponse(payload: unknown): VersionHandshakeResponse | null {
-  if (typeof payload !== 'object' || payload === null) {
-    return null;
-  }
-
-  const p = payload as Record<string, unknown>;
-
-  if (
-    typeof p.accepted !== 'boolean' ||
-    typeof p.protocolVersion !== 'object' ||
-    p.protocolVersion === null ||
-    typeof p.minProtocolVersion !== 'object' ||
-    p.minProtocolVersion === null
-  ) {
-    return null;
-  }
-
-  const version = p.protocolVersion as Record<string, unknown>;
-  const minVersion = p.minProtocolVersion as Record<string, unknown>;
-
-  if (
-    typeof version.major !== 'number' ||
-    typeof version.minor !== 'number' ||
-    typeof version.patch !== 'number' ||
-    typeof minVersion.major !== 'number' ||
-    typeof minVersion.minor !== 'number' ||
-    typeof minVersion.patch !== 'number'
-  ) {
+  const result = HandshakeResponseSchema.safeParse(payload);
+  if (!result.success) {
     return null;
   }
 
   return {
-    accepted: p.accepted,
-    protocolVersion: {
-      major: version.major,
-      minor: version.minor,
-      patch: version.patch,
-    },
-    minProtocolVersion: {
-      major: minVersion.major,
-      minor: minVersion.minor,
-      patch: minVersion.patch,
-    },
-    reason: typeof p.reason === 'string' ? p.reason : undefined,
-    upgradeUrl: typeof p.upgradeUrl === 'string' ? p.upgradeUrl : undefined,
-    constitutionMismatch: typeof p.constitutionMismatch === 'boolean' ? p.constitutionMismatch : undefined,
+    accepted: result.data.accepted,
+    protocolVersion: result.data.protocolVersion,
+    minProtocolVersion: result.data.minProtocolVersion,
+    reason: result.data.reason,
+    upgradeUrl: result.data.upgradeUrl,
+    constitutionMismatch: result.data.constitutionMismatch,
   };
 }
