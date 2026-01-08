@@ -139,6 +139,7 @@ function lengthPrefixDecode(data: Uint8Array): Uint8Array[] {
       messages.push(data.slice(offset, offset + length));
       offset += length;
     } else {
+      console.warn(`Partial frame detected: expected ${length} bytes but only ${data.length - offset} available`);
       break;
     }
   }
@@ -225,21 +226,21 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
   });
 
   node.handle(protocol, async (incomingData) => {
-    try {
-      const stream = isIncomingStreamData(incomingData) 
-        ? incomingData.stream 
-        : isAsyncIterable(incomingData) 
-          ? incomingData 
-          : null;
-      
-      const remotePeerIdFromConnection = isIncomingStreamData(incomingData)
-        ? incomingData.connection.remotePeer.toString()
+    const stream = isIncomingStreamData(incomingData)
+      ? incomingData.stream
+      : isAsyncIterable(incomingData)
+        ? incomingData
         : null;
-      
-      if (!stream) {
-        return;
-      }
-      
+
+    if (!stream) {
+      return;
+    }
+
+    const remotePeerIdFromConnection = isIncomingStreamData(incomingData)
+      ? incomingData.connection.remotePeer.toString()
+      : null;
+
+    try {
       const chunks: Uint8Array[] = [];
       let totalLength = 0;
 
@@ -262,9 +263,9 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
         combined.set(chunk, offset);
         offset += chunk.length;
       }
-      
+
       const messages = lengthPrefixDecode(combined);
-      
+
       for (const data of messages) {
         const decoded = decodeMessage(data);
         if (decoded) {
@@ -278,6 +279,8 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
       if (error instanceof Error && !error.message.includes('aborted')) {
         console.warn('Failed to handle direct stream message:', error);
       }
+    } finally {
+      await stream.close().catch(() => {});
     }
   });
 
@@ -459,12 +462,18 @@ export async function send(
   const framedData = lengthPrefixEncode(data);
   stream = await ensureWritableStream(stream);
 
+  let sendSucceeded = false;
   try {
     await stream.send(framedData);
-    await stream.close();
-  } catch (err) {
-    stream.abort(err instanceof Error ? err : new Error(String(err)));
-    throw err;
+    sendSucceeded = true;
+  } finally {
+    if (sendSucceeded) {
+      await stream.close().catch((err) => {
+        console.warn('Error closing stream:', err);
+      });
+    } else {
+      stream.abort(new Error('Send failed'));
+    }
   }
 }
 
