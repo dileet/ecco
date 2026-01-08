@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   escrowAgreements,
   paymentLedger,
@@ -25,6 +26,24 @@ import type {
   Invoice,
 } from '../types';
 import { toHexAddress } from '../utils';
+
+const MilestoneSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  amount: z.string(),
+  status: z.enum(['pending', 'approved', 'released', 'cancelled']),
+  releasedAt: z.number().optional(),
+});
+
+const MilestonesSchema = z.array(MilestoneSchema);
+
+const ParticipantSchema = z.object({
+  peerId: z.string(),
+  walletAddress: z.string(),
+  share: z.number(),
+});
+
+const ParticipantsSchema = z.array(ParticipantSchema);
 
 export interface TimedOutPaymentRecord {
   invoice: Invoice;
@@ -148,7 +167,7 @@ export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgree
         chainId: row.chainId,
         token: row.token,
         totalAmount: row.totalAmount,
-        milestones: JSON.parse(row.milestones),
+        milestones: MilestonesSchema.parse(JSON.parse(row.milestones)),
         status: row.status as EscrowAgreement['status'],
         createdAt: row.createdAt,
         requiresApproval: row.requiresApproval,
@@ -160,7 +179,8 @@ export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgree
     if (isNoSuchTableError(error)) {
       return {};
     }
-    throw new Error('Failed to load escrow agreements');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load escrow agreements: ${message}`);
   }
 };
 
@@ -194,7 +214,8 @@ export const loadPaymentLedger = async (): Promise<Record<string, PaymentLedgerE
     if (isNoSuchTableError(error)) {
       return {};
     }
-    throw new Error('Failed to load payment ledger');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load payment ledger: ${message}`);
   }
 };
 
@@ -227,7 +248,8 @@ export const loadStreamingChannels = async (): Promise<Record<string, StreamingA
     if (isNoSuchTableError(error)) {
       return {};
     }
-    throw new Error('Failed to load streaming channels');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load streaming channels: ${message}`);
   }
 };
 
@@ -262,7 +284,8 @@ export const loadStakePositions = async (): Promise<Record<string, StakePosition
     if (isNoSuchTableError(error)) {
       return {};
     }
-    throw new Error('Failed to load stake positions');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load stake positions: ${message}`);
   }
 };
 
@@ -282,7 +305,7 @@ export const loadSwarmSplits = async (): Promise<Record<string, SwarmSplit>> => 
         totalAmount: row.totalAmount,
         chainId: row.chainId,
         token: row.token,
-        participants: JSON.parse(row.participants),
+        participants: ParticipantsSchema.parse(JSON.parse(row.participants)),
         status: row.status as SwarmSplit['status'],
         createdAt: row.createdAt,
         distributedAt: row.distributedAt || undefined,
@@ -293,7 +316,8 @@ export const loadSwarmSplits = async (): Promise<Record<string, SwarmSplit>> => 
     if (isNoSuchTableError(error)) {
       return {};
     }
-    throw new Error('Failed to load swarm splits');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load swarm splits: ${message}`);
   }
 };
 
@@ -322,7 +346,8 @@ export const loadPendingSettlements = async (): Promise<SettlementIntent[]> => {
     if (isNoSuchTableError(error)) {
       return [];
     }
-    throw new Error('Failed to load pending settlements');
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load pending settlements: ${message}`);
   }
 };
 
