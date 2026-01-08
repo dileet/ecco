@@ -65,6 +65,9 @@ function clearPendingPayment(paymentState: PaymentState, pending: PendingPayment
 }
 
 function bigintToDecimalString(value: bigint): string {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) * 10n ** 18n) {
+    console.warn(`bigintToDecimalString: value ${value} may lose precision when converted to string`)
+  }
   const str = value.toString()
   const padded = str.padStart(19, '0')
   const intPart = padded.slice(0, -18) || '0'
@@ -73,10 +76,43 @@ function bigintToDecimalString(value: bigint): string {
 }
 
 function toWei(value: string | bigint): bigint {
-  if (typeof value === 'bigint') return value
+  if (typeof value === 'bigint') {
+    if (value < 0n) {
+      throw new Error('toWei: value cannot be negative')
+    }
+    return value
+  }
+  if (value.startsWith('-')) {
+    throw new Error('toWei: value cannot be negative')
+  }
   const [intPart, fracPart = ''] = value.split('.')
   const paddedFrac = fracPart.padEnd(18, '0').slice(0, 18)
   return BigInt(intPart + paddedFrac)
+}
+
+function validateMilestonesTotal(milestones: Array<{ amount: string }>, totalAmount: string): void {
+  const total = toWei(totalAmount)
+  const sum = milestones.reduce((acc, m) => acc + toWei(m.amount), 0n)
+  if (sum !== total) {
+    throw new Error(`Milestones sum (${sum}) does not equal total amount (${total})`)
+  }
+}
+
+function validateStreamingRate(rate: string | undefined): void {
+  if (!rate) return
+  const rateWei = toWei(rate)
+  if (rateWei <= 0n) {
+    throw new Error('Streaming rate must be greater than 0')
+  }
+}
+
+function validateEscrowAmounts(milestones: Array<{ amount: string }>): void {
+  for (const m of milestones) {
+    const amount = toWei(m.amount)
+    if (amount <= 0n) {
+      throw new Error('Escrow milestone amounts must be greater than 0')
+    }
+  }
 }
 
 export function createPaymentHelpers(
@@ -706,6 +742,14 @@ export async function setupEscrowAgreement(
   recipient: string,
   pricing: PricingConfig
 ): Promise<EscrowAgreement> {
+  const milestones = pricing.milestones ?? []
+  if (milestones.length > 0) {
+    validateEscrowAmounts(milestones)
+    if (pricing.amount) {
+      validateMilestonesTotal(milestones, pricing.amount)
+    }
+  }
+
   const agreement: EscrowAgreement = {
     id: crypto.randomUUID(),
     jobId,
@@ -714,7 +758,7 @@ export async function setupEscrowAgreement(
     chainId: pricing.chainId,
     token: pricing.token ?? 'ETH',
     totalAmount: bigintToDecimalString(pricing.amount ? toWei(pricing.amount) : 0n),
-    milestones: (pricing.milestones ?? []).map((m) => ({
+    milestones: milestones.map((m) => ({
       id: m.id,
       amount: bigintToDecimalString(toWei(m.amount)),
       released: false,
@@ -725,7 +769,11 @@ export async function setupEscrowAgreement(
     approver: pricing.approver ?? payer,
   }
 
-  await writeEscrowAgreement(agreement)
+  try {
+    await writeEscrowAgreement(agreement)
+  } catch (error) {
+    throw new Error(`Failed to write escrow agreement: ${error instanceof Error ? error.message : String(error)}`)
+  }
   paymentState.escrowAgreements.set(jobId, agreement)
 
   const ledgerEntry: PaymentLedgerEntry = {
@@ -740,7 +788,12 @@ export async function setupEscrowAgreement(
     jobId: agreement.jobId,
     createdAt: agreement.createdAt,
   }
-  await writePaymentLedgerEntry(ledgerEntry)
+  try {
+    await writePaymentLedgerEntry(ledgerEntry)
+  } catch (error) {
+    paymentState.escrowAgreements.delete(jobId)
+    throw new Error(`Failed to write payment ledger entry: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   return agreement
 }
@@ -752,6 +805,8 @@ export async function setupStreamingAgreement(
   recipient: string,
   pricing: PricingConfig
 ): Promise<StreamingAgreement> {
+  validateStreamingRate(pricing.ratePerToken)
+
   const agreement: StreamingAgreement = {
     id: crypto.randomUUID(),
     jobId,
@@ -766,7 +821,11 @@ export async function setupStreamingAgreement(
     createdAt: Date.now(),
   }
 
-  await writeStreamingChannel(agreement)
+  try {
+    await writeStreamingChannel(agreement)
+  } catch (error) {
+    throw new Error(`Failed to write streaming channel: ${error instanceof Error ? error.message : String(error)}`)
+  }
   paymentState.streamingAgreements.set(jobId, agreement)
 
   const ledgerEntry: PaymentLedgerEntry = {
@@ -781,7 +840,12 @@ export async function setupStreamingAgreement(
     jobId: agreement.jobId,
     createdAt: agreement.createdAt,
   }
-  await writePaymentLedgerEntry(ledgerEntry)
+  try {
+    await writePaymentLedgerEntry(ledgerEntry)
+  } catch (error) {
+    paymentState.streamingAgreements.delete(jobId)
+    throw new Error(`Failed to write payment ledger entry: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   return agreement
 }
