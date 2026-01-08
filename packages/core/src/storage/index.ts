@@ -29,10 +29,11 @@ import { toHexAddress } from '../utils';
 
 const MilestoneSchema = z.object({
   id: z.string(),
-  description: z.string(),
   amount: z.string(),
-  status: z.enum(['pending', 'approved', 'released', 'cancelled']),
+  released: z.boolean(),
+  status: z.enum(['pending', 'approved', 'released', 'cancelled']).optional(),
   releasedAt: z.number().optional(),
+  txHash: z.string().optional(),
 });
 
 const MilestonesSchema = z.array(MilestoneSchema);
@@ -40,7 +41,8 @@ const MilestonesSchema = z.array(MilestoneSchema);
 const ParticipantSchema = z.object({
   peerId: z.string(),
   walletAddress: z.string(),
-  share: z.number(),
+  contribution: z.number(),
+  amount: z.string(),
 });
 
 const ParticipantsSchema = z.array(ParticipantSchema);
@@ -421,7 +423,7 @@ export const updateEscrowAgreementIfUnchanged = async (
     throw new Error('Database not initialized');
   }
   const expectedMilestonesJson = JSON.stringify(expectedMilestones);
-  const result = db.update(escrowAgreements)
+  const updated = db.update(escrowAgreements)
     .set({
       jobId: agreement.jobId,
       payer: agreement.payer,
@@ -438,9 +440,10 @@ export const updateEscrowAgreementIfUnchanged = async (
       eq(escrowAgreements.id, agreement.id),
       eq(escrowAgreements.milestones, expectedMilestonesJson)
     ))
-    .run();
+    .returning({ id: escrowAgreements.id })
+    .all();
 
-  return result.changes > 0;
+  return updated.length > 0;
 };
 
 export const writePaymentLedgerEntry = async (entry: PaymentLedgerEntry): Promise<void> => {

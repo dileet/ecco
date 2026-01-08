@@ -90,25 +90,29 @@ function toWei(value: string | bigint): bigint {
   return BigInt(intPart + paddedFrac)
 }
 
-function validateMilestonesTotal(milestones: Array<{ amount: string }>, totalAmount: string): void {
-  const total = toWei(totalAmount)
-  const sum = milestones.reduce((acc, m) => acc + toWei(m.amount), 0n)
+function toWeiOrBigint(value: string | bigint): bigint {
+  return typeof value === 'bigint' ? value : toWei(value)
+}
+
+function validateMilestonesTotal(milestones: Array<{ amount: string | bigint }>, totalAmount: string | bigint): void {
+  const total = toWeiOrBigint(totalAmount)
+  const sum = milestones.reduce((acc, m) => acc + toWeiOrBigint(m.amount), 0n)
   if (sum !== total) {
     throw new Error(`Milestones sum (${sum}) does not equal total amount (${total})`)
   }
 }
 
-function validateStreamingRate(rate: string | undefined): void {
+function validateStreamingRate(rate: string | bigint | undefined): void {
   if (!rate) return
-  const rateWei = toWei(rate)
+  const rateWei = toWeiOrBigint(rate)
   if (rateWei <= 0n) {
     throw new Error('Streaming rate must be greater than 0')
   }
 }
 
-function validateEscrowAmounts(milestones: Array<{ amount: string }>): void {
+function validateEscrowAmounts(milestones: Array<{ amount: string | bigint }>): void {
   for (const m of milestones) {
-    const amount = toWei(m.amount)
+    const amount = toWeiOrBigint(m.amount)
     if (amount <= 0n) {
       throw new Error('Escrow milestone amounts must be greater than 0')
     }

@@ -72,6 +72,7 @@ async function main() {
     votingPeriod,
     proposalThreshold,
     quorumPercent,
+    reputationRegistry.address,
   ]);
   console.log("EccoGovernor deployed to:", eccoGovernor.address);
 

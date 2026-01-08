@@ -251,6 +251,7 @@ export interface EscrowMilestone {
   id: string;
   amount: string;
   released: boolean;
+  status?: 'pending' | 'approved' | 'released' | 'cancelled';
   releasedAt?: number;
   txHash?: string;
 }
@@ -264,7 +265,7 @@ export interface EscrowAgreement {
   token: string;
   totalAmount: string;
   milestones: EscrowMilestone[];
-  status: 'locked' | 'partially-released' | 'fully-released' | 'cancelled';
+  status: 'pending' | 'locked' | 'partially-released' | 'fully-released' | 'cancelled';
   createdAt: number;
   requiresApproval: boolean;
   approver?: string;
