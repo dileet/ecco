@@ -463,17 +463,37 @@ async function setupTransport(stateRef: StateRef<NodeState>): Promise<void> {
 export async function start(state: NodeState): Promise<StateRef<NodeState>> {
   const stateRef = createStateRef(state);
 
-  await initializeStorage(stateRef);
-  await setupAuthentication(stateRef);
-  await createLibp2pNode(stateRef);
-  await setupTransport(stateRef);
-  setupEventListeners(getState(stateRef), stateRef);
-  setupCapabilityTracking(stateRef);
-  await setupBootstrap(stateRef);
-  await announceCapabilities(getState(stateRef));
-  await startSettlementWorker(stateRef);
+  try {
+    await initializeStorage(stateRef);
+    await setupAuthentication(stateRef);
+    await createLibp2pNode(stateRef);
+    await setupTransport(stateRef);
+    setupEventListeners(getState(stateRef), stateRef);
+    setupCapabilityTracking(stateRef);
+    await setupBootstrap(stateRef);
+    await announceCapabilities(getState(stateRef));
+    await startSettlementWorker(stateRef);
 
-  return stateRef;
+    return stateRef;
+  } catch (error) {
+    const currentState = getState(stateRef);
+
+    if (currentState.transport) {
+      await shutdownHybridDiscovery(currentState.transport).catch(() => {});
+    }
+
+    if (currentState.connectionPool) {
+      await closePool(currentState.connectionPool).catch(() => {});
+    }
+
+    if (currentState.node) {
+      try {
+        await currentState.node.stop();
+      } catch (_) {}
+    }
+
+    throw error;
+  }
 }
 
 export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
