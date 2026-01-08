@@ -1,8 +1,36 @@
-import { createPublicClient, createWalletClient, defineChain, http, type PublicClient, type WalletClient, type Chain } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, type PublicClient, type WalletClient, type Chain, isAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { parseEther } from 'viem';
+import { z } from 'zod';
 import type { Invoice, PaymentProof } from '../types';
 import { aggregateInvoices, type AggregatedInvoice } from './payment';
+import { isValidUrl } from '../utils';
+
+const ChainIdSchema = z.number().int().positive();
+const EthAddressSchema = z.string().refine(isAddress, { message: 'Invalid Ethereum address' });
+const RpcUrlSchema = z.string().url().optional();
+
+function validateChainId(chainId: number, context: string): void {
+  const result = ChainIdSchema.safeParse(chainId);
+  if (!result.success) {
+    throw new Error(`Invalid chain ID in ${context}: ${chainId}`);
+  }
+}
+
+function validateAddress(address: string, context: string): asserts address is `0x${string}` {
+  const result = EthAddressSchema.safeParse(address);
+  if (!result.success) {
+    throw new Error(`Invalid address format in ${context}: ${address}`);
+  }
+}
+
+function validateRpcUrl(url: string | undefined, chainId: number): void {
+  if (url === undefined) return;
+  const result = RpcUrlSchema.safeParse(url);
+  if (!result.success && !isValidUrl(url)) {
+    throw new Error(`Invalid RPC URL for chain ${chainId}: ${url}`);
+  }
+}
 
 interface NonceState {
   currentNonce: number;
@@ -154,7 +182,9 @@ export function createWalletState(config: WalletConfig): WalletState {
   const nonceManager = createNonceManager();
 
   for (const chain of chains) {
+    validateChainId(chain.id, 'chain config');
     const rpcUrl = config.rpcUrls?.[chain.id];
+    validateRpcUrl(rpcUrl, chain.id);
     publicClients.set(chain.id, createPublicClient({ chain, transport: http(rpcUrl) }) as PublicClient);
     walletClients.set(chain.id, createWalletClient({ chain, account, transport: http(rpcUrl) }) as WalletClient);
   }
@@ -196,6 +226,9 @@ export async function getBalance(state: WalletState, chainId: number): Promise<b
 }
 
 export async function pay(state: WalletState, invoice: Invoice): Promise<PaymentProof> {
+  validateChainId(invoice.chainId, 'invoice');
+  validateAddress(invoice.recipient, 'invoice recipient');
+
   if (invoice.token !== 'ETH' && invoice.token !== 'ETHEREUM') {
     throw new Error(`Token ${invoice.token} not supported yet`);
   }
@@ -235,7 +268,7 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
     txHash = await walletClient.sendTransaction({
       account: walletClient.account,
       chain,
-      to: invoice.recipient as `0x${string}`,
+      to: invoice.recipient,
       value: amount,
       nonce,
     });
@@ -265,12 +298,24 @@ export async function verifyPayment(
   paymentProof: PaymentProof,
   invoice: Invoice
 ): Promise<boolean> {
+  validateChainId(paymentProof.chainId, 'payment proof');
+  validateChainId(invoice.chainId, 'invoice');
+  validateAddress(invoice.recipient, 'invoice recipient');
+
   if (paymentProof.chainId !== invoice.chainId) {
     throw new Error('Payment proof chain ID does not match invoice chain ID');
   }
 
+  if (!paymentProof.txHash || typeof paymentProof.txHash !== 'string') {
+    throw new Error('Invalid transaction hash in payment proof');
+  }
+
   const publicClient = getPublicClient(state, paymentProof.chainId);
   const receipt = await publicClient.getTransactionReceipt({ hash: paymentProof.txHash as `0x${string}` });
+
+  if (!receipt) {
+    throw new Error('Transaction receipt not found');
+  }
 
   if (receipt.status !== 'success') {
     throw new Error('Transaction failed');
@@ -279,7 +324,11 @@ export async function verifyPayment(
   if (invoice.token === 'ETH' || invoice.token === 'ETHEREUM') {
     const expectedAmount = parseEther(invoice.amount);
 
-    if (receipt.to?.toLowerCase() !== invoice.recipient.toLowerCase()) {
+    if (!receipt.to) {
+      throw new Error('Transaction is a contract creation, not a payment');
+    }
+
+    if (receipt.to.toLowerCase() !== invoice.recipient.toLowerCase()) {
       throw new Error('Transaction recipient does not match invoice recipient');
     }
 
