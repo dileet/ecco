@@ -329,7 +329,7 @@
 | [ ] #528 publish fanout blocks on slow peers | fix/issue-528-publish-fanout-blocks-on-slow-peers | messaging.ts | Parallelize with timeout | Tier 3 |
 | [ ] #529 On-chain constitution fetch no timeout | fix/issue-529-on-chain-constitution-fetch-no-timeout | on-chain-constitution.ts | Wrap with timeout | Tier 3 |
 | [ ] #536 OpenAI embedding fetch no timeout | fix/issue-536-openai-embedding-fetch-no-timeout | semantic-similarity.ts | Add timeout/abort | Tier 3 |
-| [ ] #29 Direct state mutations | fix/issue-029-direct-state-mutations | Multiple files | Use immutable | Tier 3 |
+| [x] #29 Direct state mutations | fix/issue-029-direct-state-mutations | Multiple files | Use immutable | Tier 3 |
 | [ ] #30 Cleanup handlers run once | fix/issue-030-cleanup-handlers-run-once | state.ts | Clear after run | Tier 3 |
 | [ ] #43 Missing transaction retry | fix/issue-043-missing-transaction-retry | Payment services | Add retry | Tier 3 |
 | [ ] #44 No circuit breakers | fix/issue-044-no-circuit-breakers | Smart contracts | Add limits | Tier 3 |

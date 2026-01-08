@@ -77,85 +77,86 @@ export function getLocalReputation(state: ReputationState, peerId: string): Loca
 
 export function updateLocalScore(state: ReputationState, peerId: string, delta: number): void {
   const peer = state.peers.get(peerId);
-  if (peer) {
-    const newScore = peer.localScore + delta;
-    const clampedScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, newScore));
-    if (clampedScore !== newScore) {
-      console.warn(`[reputation] Score for peer ${peerId} clamped: ${newScore} -> ${clampedScore}`);
-    }
-    peer.localScore = clampedScore;
-    peer.lastInteractionAt = Date.now();
-    if (delta > 0) {
-      peer.successfulJobs += 1;
-    } else if (delta < 0) {
-      peer.failedJobs += 1;
-    }
-    peer.totalJobs += 1;
+  if (!peer) return;
+
+  const newScore = peer.localScore + delta;
+  const clampedScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, newScore));
+  if (clampedScore !== newScore) {
+    console.warn(`[reputation] Score for peer ${peerId} clamped: ${newScore} -> ${clampedScore}`);
   }
+
+  const updatedPeer: LocalPeerReputation = {
+    ...peer,
+    localScore: clampedScore,
+    lastInteractionAt: Date.now(),
+    successfulJobs: delta > 0 ? peer.successfulJobs + 1 : peer.successfulJobs,
+    failedJobs: delta < 0 ? peer.failedJobs + 1 : peer.failedJobs,
+    totalJobs: peer.totalJobs + 1,
+  };
+
+  state.peers.set(peerId, updatedPeer);
 }
 
 export function recordLocalSuccess(state: ReputationState, peerId: string, walletAddress?: string): void {
   const now = Date.now();
-  let peer = state.peers.get(peerId);
+  const existingPeer = state.peers.get(peerId);
 
-  if (!peer) {
-    peer = {
-      peerId,
-      walletAddress: walletAddress ?? null,
-      localScore: 0,
-      onChainScore: null,
-      stake: 0n,
-      canWork: false,
-      totalJobs: 0,
-      successfulJobs: 0,
-      failedJobs: 0,
-      pendingRatings: [],
-      lastSyncedAt: 0,
-      lastInteractionAt: now,
-    };
-    state.peers.set(peerId, peer);
-  }
+  const basePeer: LocalPeerReputation = existingPeer ?? {
+    peerId,
+    walletAddress: walletAddress ?? null,
+    localScore: 0,
+    onChainScore: null,
+    stake: 0n,
+    canWork: false,
+    totalJobs: 0,
+    successfulJobs: 0,
+    failedJobs: 0,
+    pendingRatings: [],
+    lastSyncedAt: 0,
+    lastInteractionAt: now,
+  };
 
-  peer.localScore = Math.min(MAX_LOCAL_SCORE, peer.localScore + 1);
-  peer.successfulJobs += 1;
-  peer.totalJobs += 1;
-  peer.lastInteractionAt = now;
+  const updatedPeer: LocalPeerReputation = {
+    ...basePeer,
+    localScore: Math.min(MAX_LOCAL_SCORE, basePeer.localScore + 1),
+    successfulJobs: basePeer.successfulJobs + 1,
+    totalJobs: basePeer.totalJobs + 1,
+    lastInteractionAt: now,
+    walletAddress: walletAddress && !basePeer.walletAddress ? walletAddress : basePeer.walletAddress,
+  };
 
-  if (walletAddress && !peer.walletAddress) {
-    peer.walletAddress = walletAddress;
-  }
+  state.peers.set(peerId, updatedPeer);
 }
 
 export function recordLocalFailure(state: ReputationState, peerId: string, walletAddress?: string): void {
   const now = Date.now();
-  let peer = state.peers.get(peerId);
+  const existingPeer = state.peers.get(peerId);
 
-  if (!peer) {
-    peer = {
-      peerId,
-      walletAddress: walletAddress ?? null,
-      localScore: 0,
-      onChainScore: null,
-      stake: 0n,
-      canWork: false,
-      totalJobs: 0,
-      successfulJobs: 0,
-      failedJobs: 0,
-      pendingRatings: [],
-      lastSyncedAt: 0,
-      lastInteractionAt: now,
-    };
-    state.peers.set(peerId, peer);
-  }
+  const basePeer: LocalPeerReputation = existingPeer ?? {
+    peerId,
+    walletAddress: walletAddress ?? null,
+    localScore: 0,
+    onChainScore: null,
+    stake: 0n,
+    canWork: false,
+    totalJobs: 0,
+    successfulJobs: 0,
+    failedJobs: 0,
+    pendingRatings: [],
+    lastSyncedAt: 0,
+    lastInteractionAt: now,
+  };
 
-  peer.localScore = Math.max(MIN_LOCAL_SCORE, peer.localScore - 1);
-  peer.failedJobs += 1;
-  peer.totalJobs += 1;
-  peer.lastInteractionAt = now;
+  const updatedPeer: LocalPeerReputation = {
+    ...basePeer,
+    localScore: Math.max(MIN_LOCAL_SCORE, basePeer.localScore - 1),
+    failedJobs: basePeer.failedJobs + 1,
+    totalJobs: basePeer.totalJobs + 1,
+    lastInteractionAt: now,
+    walletAddress: walletAddress && !basePeer.walletAddress ? walletAddress : basePeer.walletAddress,
+  };
 
-  if (walletAddress && !peer.walletAddress) {
-    peer.walletAddress = walletAddress;
-  }
+  state.peers.set(peerId, updatedPeer);
 }
 
 export async function queueRating(
@@ -185,13 +186,19 @@ export async function queueRating(
 
   const peer = state.peers.get(peerId);
   if (peer) {
-    if (peer.pendingRatings.length >= MAX_PENDING_RATINGS) {
-      peer.pendingRatings.shift();
-    }
-    peer.pendingRatings.push(rating);
+    const trimmedRatings =
+      peer.pendingRatings.length >= MAX_PENDING_RATINGS
+        ? peer.pendingRatings.slice(1)
+        : peer.pendingRatings;
+
+    const updatedPeer: LocalPeerReputation = {
+      ...peer,
+      pendingRatings: [...trimmedRatings, rating],
+    };
+    state.peers.set(peerId, updatedPeer);
   }
 
-  state.pendingCommits.push(rating);
+  state.pendingCommits = [...state.pendingCommits, rating];
 }
 
 export async function commitPendingRatings(
@@ -206,6 +213,7 @@ export async function commitPendingRatings(
 
   let committed = 0;
   let failed = 0;
+  const recordedPaymentIds = new Set<string>();
 
   for (const rating of unrecorded) {
     try {
@@ -216,13 +224,13 @@ export async function commitPendingRatings(
         rating.payee as `0x${string}`,
         rating.amount
       );
-      rating.recorded = true;
+      recordedPaymentIds.add(rating.paymentId);
     } catch {
       failed += 1;
     }
   }
 
-  const recorded = unrecorded.filter((r) => r.recorded);
+  const recorded = unrecorded.filter((r) => recordedPaymentIds.has(r.paymentId));
   if (recorded.length > 0) {
     try {
       const ratings = recorded.map((r) => ({
@@ -232,10 +240,18 @@ export async function commitPendingRatings(
       await batchRate(wallet, state.chainId, ratings);
       committed = recorded.length;
 
-      state.pendingCommits = state.pendingCommits.filter((r) => !r.recorded);
+      state.pendingCommits = state.pendingCommits
+        .map((r) => (recordedPaymentIds.has(r.paymentId) ? { ...r, recorded: true } : r))
+        .filter((r) => !r.recorded);
 
-      for (const peer of state.peers.values()) {
-        peer.pendingRatings = peer.pendingRatings.filter((r) => !r.recorded);
+      for (const [peerId, peer] of state.peers) {
+        const updatedRatings = peer.pendingRatings
+          .map((r) => (recordedPaymentIds.has(r.paymentId) ? { ...r, recorded: true } : r))
+          .filter((r) => !r.recorded);
+
+        if (updatedRatings.length !== peer.pendingRatings.length) {
+          state.peers.set(peerId, { ...peer, pendingRatings: updatedRatings });
+        }
       }
     } catch {
       failed += recorded.length;
@@ -273,33 +289,34 @@ export async function syncPeerFromChain(
   ]);
 
   const now = Date.now();
-  let peer = state.peers.get(peerId);
+  const existingPeer = state.peers.get(peerId);
 
-  if (!peer) {
-    peer = {
-      peerId,
-      walletAddress,
-      localScore: 0,
-      onChainScore: null,
-      stake: 0n,
-      canWork: false,
-      totalJobs: 0,
-      successfulJobs: 0,
-      failedJobs: 0,
-      pendingRatings: [],
-      lastSyncedAt: now,
-      lastInteractionAt: now,
-    };
-    state.peers.set(peerId, peer);
-  }
+  const basePeer: LocalPeerReputation = existingPeer ?? {
+    peerId,
+    walletAddress,
+    localScore: 0,
+    onChainScore: null,
+    stake: 0n,
+    canWork: false,
+    totalJobs: 0,
+    successfulJobs: 0,
+    failedJobs: 0,
+    pendingRatings: [],
+    lastSyncedAt: now,
+    lastInteractionAt: now,
+  };
 
-  peer.onChainScore = reputation.score;
-  peer.stake = stakeInfo.stake;
-  peer.canWork = stakeInfo.canWork;
-  peer.lastSyncedAt = now;
-  peer.walletAddress = walletAddress;
+  const updatedPeer: LocalPeerReputation = {
+    ...basePeer,
+    onChainScore: reputation.score,
+    stake: stakeInfo.stake,
+    canWork: stakeInfo.canWork,
+    lastSyncedAt: now,
+    walletAddress,
+  };
 
-  return peer;
+  state.peers.set(peerId, updatedPeer);
+  return updatedPeer;
 }
 
 export async function syncAllPeersFromChain(
@@ -356,7 +373,7 @@ export function setCachedWallet(state: ReputationState, peerId: string, wallet: 
   state.peerIdToWallet.set(peerId, wallet);
   const peer = state.peers.get(peerId);
   if (peer) {
-    peer.walletAddress = wallet;
+    state.peers.set(peerId, { ...peer, walletAddress: wallet });
   }
 }
 
@@ -375,7 +392,7 @@ export async function resolveWalletForPeer(
     state.peerIdToWallet.set(peerId, walletAddress);
     const peer = state.peers.get(peerId);
     if (peer) {
-      peer.walletAddress = walletAddress;
+      state.peers.set(peerId, { ...peer, walletAddress });
     }
   }
 

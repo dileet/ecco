@@ -104,7 +104,11 @@ const queryProviders = async (
         (c) => c.type === capabilityEntry.type && c.name === capabilityEntry.name
       );
       if (!hasCapability && existing.capabilities.length < MAX_CAPABILITIES_PER_PEER) {
-        existing.capabilities.push(capabilityEntry);
+        const updatedPeerInfo: PeerInfo = {
+          ...existing,
+          capabilities: [...existing.capabilities, capabilityEntry],
+        };
+        discoveredPeers.set(peerId, updatedPeerInfo);
       }
     } else {
       discoveredPeers.set(peerId, {
