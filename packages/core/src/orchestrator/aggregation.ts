@@ -1,6 +1,7 @@
 import type { AgentResponse, AggregatedResult, MultiAgentConfig } from './types';
 import { findConsensus } from './semantic-similarity';
 import { getMetrics, calculatePerformanceScore } from '../node/peer-performance';
+import { safeStringify } from '../utils/validation';
 
 export type AggregationResult = {
   result: unknown;
@@ -15,19 +16,30 @@ export type AggregationStrategyFn = (
 
 const rankAgents = (
   responses: AgentResponse[]
-): { peer: AgentResponse['peer']; score: number; contribution: number }[] =>
-  responses.map((r) => ({
+): { peer: AgentResponse['peer']; score: number; contribution: number }[] => {
+  const contributions = responses.map((r) => ({
     peer: r.peer,
     score: r.matchScore,
-    contribution: r.matchScore * (1 / (r.latency + 1)),
+    rawContribution: r.matchScore * (1 / (r.latency + 1)),
   }));
+  const maxContribution = Math.max(...contributions.map(c => c.rawContribution), 1);
+  return contributions.map(c => ({
+    peer: c.peer,
+    score: c.score,
+    contribution: Math.min(1.0, c.rawContribution / maxContribution),
+  }));
+};
 
 export const majorityVote: AggregationStrategyFn = async (responses, config) => {
   if (config?.semanticSimilarity?.enabled) {
+    const threshold = config.semanticSimilarity.threshold;
+    if (threshold !== undefined && (threshold < 0 || threshold > 1)) {
+      throw new Error(`Invalid semantic similarity threshold: ${threshold}. Must be between 0 and 1.`);
+    }
     const values = responses.map((r) => r.response);
     const consensusResult = await findConsensus(values, {
       method: config.semanticSimilarity.method,
-      threshold: config.semanticSimilarity.threshold,
+      threshold: threshold,
       openaiApiKey: config.semanticSimilarity.openaiApiKey,
       embeddingModel: config.semanticSimilarity.embeddingModel,
       requireExchange: config.semanticSimilarity.requireExchange,
@@ -49,7 +61,7 @@ export const majorityVote: AggregationStrategyFn = async (responses, config) => 
   const votes = new Map<string, { value: unknown; count: number }>();
 
   for (const response of responses) {
-    const key = JSON.stringify(response.response);
+    const key = safeStringify(response.response);
     const existing = votes.get(key);
     if (existing) {
       existing.count++;
@@ -83,12 +95,16 @@ export const weightedVote: AggregationStrategyFn = async (responses, config) => 
   const votes = new Map<string, { value: unknown; weight: number; count: number }>();
 
   for (const response of responses) {
-    const key = JSON.stringify(response.response);
+    const key = safeStringify(response.response);
 
     let performanceScore = 0.5;
     if (config?.nodeRef?.current.performanceTracker) {
-      const metrics = await getMetrics(config.nodeRef.current.performanceTracker, response.peer.id);
-      performanceScore = metrics ? calculatePerformanceScore(metrics) : 0.5;
+      try {
+        const metrics = await getMetrics(config.nodeRef.current.performanceTracker, response.peer.id);
+        performanceScore = metrics ? calculatePerformanceScore(metrics) : 0.5;
+      } catch {
+        performanceScore = 0.5;
+      }
     }
 
     const weight = response.matchScore * (performanceScore + 0.5);

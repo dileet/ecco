@@ -126,3 +126,22 @@ export function validateRange(value: number, min: number, max: number, name: str
     throw new Error(`${name} must be between ${min} and ${max}, got ${value}`);
   }
 }
+
+export function safeStringify(value: unknown): string {
+  const seen = new WeakSet();
+  return JSON.stringify(value, (_key, val) => {
+    if (val instanceof Map) {
+      return Object.fromEntries(val);
+    }
+    if (val instanceof Set) {
+      return Array.from(val);
+    }
+    if (typeof val === 'object' && val !== null) {
+      if (seen.has(val)) {
+        return '[Circular]';
+      }
+      seen.add(val);
+    }
+    return val;
+  });
+}
