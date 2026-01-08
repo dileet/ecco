@@ -7,7 +7,6 @@ import {
   generatePaymentId,
 } from '../services/reputation-contract';
 import { getWalletForPeerId, computePeerIdHash } from '../services/peer-binding';
-import { withTimeout } from '../utils';
 
 export interface LocalPeerReputation {
   peerId: string;
@@ -55,7 +54,6 @@ export interface ReputationConfig {
 const DEFAULT_COMMIT_THRESHOLD = 10;
 const DEFAULT_COMMIT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-const CHAIN_SYNC_TIMEOUT_MS = 30000;
 const MAX_PENDING_RATINGS = 1000;
 const MIN_LOCAL_SCORE = -1000;
 const MAX_LOCAL_SCORE = 1000;
@@ -269,14 +267,10 @@ export async function syncPeerFromChain(
   peerId: string,
   walletAddress: `0x${string}`
 ): Promise<LocalPeerReputation> {
-  const [reputation, stakeInfo] = await withTimeout(
-    Promise.all([
-      getReputation(wallet, state.chainId, walletAddress),
-      getStakeInfo(wallet, state.chainId, walletAddress),
-    ]),
-    CHAIN_SYNC_TIMEOUT_MS,
-    `Chain sync timeout for peer ${peerId}`
-  );
+  const [reputation, stakeInfo] = await Promise.all([
+    getReputation(wallet, state.chainId, walletAddress),
+    getStakeInfo(wallet, state.chainId, walletAddress),
+  ]);
 
   const now = Date.now();
   let peer = state.peers.get(peerId);
