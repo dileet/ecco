@@ -39,7 +39,7 @@ const HandshakeResponseSchema = z.object({
 export const HANDSHAKE_TIMEOUT_MS = 5000;
 export const DISCONNECT_DELAY_MS = 1000;
 
-async function getEffectiveConstitution(networkConfig: NetworkConfig): Promise<Constitution> {
+export async function getEffectiveConstitution(networkConfig: NetworkConfig): Promise<Constitution> {
   const onChainConfig = networkConfig.onChainConstitution;
   if (onChainConfig?.enabled) {
     try {

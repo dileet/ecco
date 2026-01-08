@@ -32,6 +32,22 @@ function validateRpcUrl(url: string | undefined, chainId: number): void {
   }
 }
 
+const MAX_ETH_AMOUNT = 1e15;
+
+function validateAmount(amount: string, context: string): void {
+  const trimmed = amount.trim();
+  if (!trimmed || isNaN(Number(trimmed))) {
+    throw new Error(`Invalid amount format in ${context}: "${amount}"`);
+  }
+  const numericAmount = Number(trimmed);
+  if (numericAmount < 0) {
+    throw new Error(`Amount cannot be negative in ${context}: ${amount}`);
+  }
+  if (numericAmount > MAX_ETH_AMOUNT) {
+    throw new Error(`Amount exceeds maximum allowed (${MAX_ETH_AMOUNT} ETH) in ${context}: ${amount}`);
+  }
+}
+
 interface NonceState {
   currentNonce: number;
   pendingCount: number;
@@ -234,9 +250,7 @@ export async function pay(state: WalletState, invoice: Invoice): Promise<Payment
   }
 
   const amountStr = String(invoice.amount).trim();
-  if (!amountStr || isNaN(Number(amountStr))) {
-    throw new Error(`Invalid amount format: "${invoice.amount}"`);
-  }
+  validateAmount(amountStr, 'invoice');
 
   const amount = parseEther(amountStr);
   const walletClient = getWalletClient(state, invoice.chainId);
@@ -320,6 +334,8 @@ export async function verifyPayment(
   if (receipt.status !== 'success') {
     throw new Error('Transaction failed');
   }
+
+  validateAmount(invoice.amount, 'invoice verification');
 
   if (invoice.token === 'ETH' || invoice.token === 'ETHEREUM') {
     const expectedAmount = parseEther(invoice.amount);

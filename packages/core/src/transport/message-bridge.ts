@@ -11,6 +11,7 @@ import {
   createIncompatibleNotice,
   parseHandshakePayload,
   parseHandshakeResponse,
+  getEffectiveConstitution,
   HANDSHAKE_TIMEOUT_MS,
   DISCONNECT_DELAY_MS,
 } from '../protocol/handshake';
@@ -588,7 +589,8 @@ export async function handleVersionHandshake(
   const responsePayload = parseHandshakeResponse(response.payload);
   if (!responsePayload?.accepted) {
     if (responsePayload?.constitutionMismatch) {
-      const localHash = await computeConstitutionHash(networkConfig.constitution);
+      const effectiveConstitution = await getEffectiveConstitution(networkConfig);
+      const localHash = await computeConstitutionHash(effectiveConstitution);
       const notice = createConstitutionMismatchNotice(
         state.config.nodeId,
         peerId,
