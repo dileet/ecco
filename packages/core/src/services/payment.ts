@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { z } from 'zod';
 import type {
   Invoice,
   StreamingAgreement,
@@ -11,13 +12,40 @@ const PRECISION_DECIMALS = 18;
 const MAX_SAFE_CONTRIBUTION = Number.MAX_SAFE_INTEGER / 1e9;
 const INVOICE_EXPIRATION_GRACE_MS = 60000;
 
+const DecimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Invalid decimal format');
+
+const VALID_ESCROW_TRANSITIONS: Record<EscrowAgreement['status'], EscrowAgreement['status'][]> = {
+  'pending': ['locked', 'cancelled'],
+  'locked': ['partially-released', 'fully-released', 'cancelled'],
+  'partially-released': ['fully-released', 'cancelled'],
+  'fully-released': [],
+  'cancelled': [],
+};
+
 function parseDecimalToBigInt(value: string): bigint {
+  const result = DecimalStringSchema.safeParse(value);
+  if (!result.success) {
+    throw new Error(`Invalid decimal format: ${value}`);
+  }
   const [integerPart, fractionalPart = ''] = value.split('.');
+  if (integerPart.length > 60) {
+    throw new Error(`Decimal value too large: ${value}`);
+  }
   const paddedFractional = fractionalPart
     .slice(0, PRECISION_DECIMALS)
     .padEnd(PRECISION_DECIMALS, '0');
   const combined = integerPart + paddedFractional;
   return BigInt(combined);
+}
+
+function validateStatusTransition(
+  current: EscrowAgreement['status'],
+  next: EscrowAgreement['status']
+): void {
+  const allowed = VALID_ESCROW_TRANSITIONS[current];
+  if (!allowed.includes(next)) {
+    throw new Error(`Invalid status transition from ${current} to ${next}`);
+  }
 }
 
 function bigIntToDecimalString(value: bigint): string {
@@ -30,11 +58,21 @@ function bigIntToDecimalString(value: bigint): string {
   return isNegative ? `-${result}` : result;
 }
 
-export function validateInvoice(invoice: Invoice): boolean {
-  if (Date.now() > invoice.validUntil + INVOICE_EXPIRATION_GRACE_MS) {
-    throw new Error('Invoice has expired');
+export function validateInvoice(invoice: Invoice, clockTolerance = INVOICE_EXPIRATION_GRACE_MS): boolean {
+  const now = Date.now();
+  const expirationWithGrace = invoice.validUntil + clockTolerance;
+  if (now > expirationWithGrace) {
+    throw new Error(`Invoice has expired (expired at ${new Date(invoice.validUntil).toISOString()}, current time ${new Date(now).toISOString()}, grace period ${clockTolerance}ms)`);
   }
   return true;
+}
+
+export function resetStreamingAccumulated(agreement: StreamingAgreement): StreamingAgreement {
+  return {
+    ...agreement,
+    accumulatedAmount: '0',
+    lastTick: Date.now(),
+  };
 }
 
 export function recordStreamingTick(
@@ -63,12 +101,22 @@ export function releaseEscrowMilestone(
   milestoneId: string,
   txHash?: string
 ): EscrowAgreement {
+  if (agreement.status === 'cancelled') {
+    throw new Error(`Cannot release milestone: agreement ${agreement.id} is cancelled`);
+  }
+  if (agreement.status === 'fully-released') {
+    throw new Error(`Cannot release milestone: agreement ${agreement.id} is fully released`);
+  }
+
   const existingMilestone = agreement.milestones.find((m) => m.id === milestoneId);
   if (!existingMilestone) {
     throw new Error(`Milestone ${milestoneId} not found in agreement ${agreement.id}`);
   }
   if (existingMilestone.released) {
     throw new Error(`Milestone ${milestoneId} has already been released`);
+  }
+  if (existingMilestone.status === 'cancelled') {
+    throw new Error(`Milestone ${milestoneId} has been cancelled`);
   }
 
   const milestones = agreement.milestones.map((m) =>
@@ -78,24 +126,32 @@ export function releaseEscrowMilestone(
           released: true,
           releasedAt: Date.now(),
           txHash,
+          status: 'released' as const,
         }
       : m
   );
 
-  const releasedCount = milestones.filter((m) => m.released).length;
-  const totalCount = milestones.length;
+  const activeMilestones = milestones.filter((m) => m.status !== 'cancelled');
+  const releasedCount = activeMilestones.filter((m) => m.released).length;
+  const totalActiveCount = activeMilestones.length;
 
-  let status: EscrowAgreement['status'] = 'locked';
-  if (releasedCount === totalCount) {
-    status = 'fully-released';
+  let newStatus: EscrowAgreement['status'];
+  if (totalActiveCount === 0) {
+    newStatus = 'cancelled';
+  } else if (releasedCount === totalActiveCount) {
+    newStatus = 'fully-released';
   } else if (releasedCount > 0) {
-    status = 'partially-released';
+    newStatus = 'partially-released';
+  } else {
+    newStatus = 'locked';
   }
+
+  validateStatusTransition(agreement.status, newStatus);
 
   return {
     ...agreement,
     milestones,
-    status,
+    status: newStatus,
   };
 }
 
