@@ -5,6 +5,7 @@ import { subscribeToTopic, getId, publish, findPeers, getState, setState, getPee
 import type { CapabilityQuery, PeerInfo } from '../types'
 import { MessageEventSchema, type MessageEvent } from '../events'
 import { withTimeout } from '../utils'
+import { validateTimeout } from '../utils/validation'
 import type { GenerateFn, StreamGenerateFn } from '../agent/types'
 
 export const GenerationRequestSchema = z.object({
@@ -181,7 +182,7 @@ export async function requestGeneration(
   prompt: string,
   config: GenerationConfig = {}
 ): Promise<string> {
-  const timeoutMs = config.timeout ?? 60000
+  const timeoutMs = validateTimeout(config.timeout)
 
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'model' }],
@@ -291,7 +292,7 @@ export async function* streamGeneration(
   prompt: string,
   config: GenerationConfig = {}
 ): AsyncGenerator<{ text: string; tokens?: number }> {
-  const timeoutMs = config.timeout ?? 60000
+  const timeoutMs = validateTimeout(config.timeout)
 
   const query: CapabilityQuery = {
     requiredCapabilities: [{ type: 'model' }],

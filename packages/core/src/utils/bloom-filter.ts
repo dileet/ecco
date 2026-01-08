@@ -61,12 +61,18 @@ const getHashPositions = (item: string, size: number, hashCount: number): number
 
 const setBit = (bits: Uint8Array, position: number): void => {
   const byteIndex = Math.floor(position / 8);
+  if (byteIndex < 0 || byteIndex >= bits.length) {
+    return;
+  }
   const bitIndex = position % 8;
   bits[byteIndex] |= (1 << bitIndex);
 };
 
 const getBit = (bits: Uint8Array, position: number): boolean => {
   const byteIndex = Math.floor(position / 8);
+  if (byteIndex < 0 || byteIndex >= bits.length) {
+    return false;
+  }
   const bitIndex = position % 8;
   return (bits[byteIndex] & (1 << bitIndex)) !== 0;
 };
@@ -85,8 +91,14 @@ export const calculateOptimalHashCount = (size: number, expectedItems: number): 
 
 export const createBloomFilter = (
   expectedItems: number = 10000,
-  falsePositiveRate: number = 0.01
+  falsePositiveRate: number = 0.001
 ): BloomFilter => {
+  if (falsePositiveRate <= 0 || falsePositiveRate >= 1) {
+    throw new Error(`Invalid false positive rate: ${falsePositiveRate}. Must be between 0 and 1 exclusive.`);
+  }
+  if (expectedItems <= 0 || !Number.isInteger(expectedItems)) {
+    throw new Error(`Invalid expectedItems: ${expectedItems}. Must be a positive integer.`);
+  }
   const size = calculateOptimalSize(expectedItems, falsePositiveRate);
   const hashCount = calculateOptimalHashCount(size, expectedItems);
   const byteSize = Math.ceil(size / 8);
@@ -165,6 +177,9 @@ export const createRateLimiter = (
   refillRate: number = 10,
   refillIntervalMs: number = 1000
 ): RateLimiter => {
+  if (maxTokens <= 0 || refillRate <= 0 || refillIntervalMs <= 0) {
+    throw new Error('Rate limiter parameters must be positive numbers');
+  }
   const state: RateLimiterState = {
     buckets: new Map(),
     maxTokens,

@@ -77,8 +77,12 @@ const evictLRU = <K, V>(state: LRUCacheState<K, V>): void => {
 };
 
 export const createLRUCache = <K, V>(capacity: number): LRUCache<K, V> => {
+  const effectiveCapacity = Math.max(1, Math.floor(capacity));
+  if (effectiveCapacity !== capacity) {
+    console.warn(`[lru-cache] Capacity adjusted from ${capacity} to ${effectiveCapacity}`);
+  }
   const state: LRUCacheState<K, V> = {
-    capacity: Math.max(1, capacity),
+    capacity: effectiveCapacity,
     map: new Map(),
     head: null,
     tail: null,

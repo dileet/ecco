@@ -9,6 +9,7 @@ import { getState, updateState, addPeer, updatePeer, setCapabilityTrackingSetup,
 import type { CapabilityAnnouncementEvent, CapabilityRequestEvent, CapabilityResponseEvent, EccoEvent } from '../events';
 import { announceCapabilities as announceDHT } from './dht';
 import { canonicalJsonStringify } from '../utils/canonical-json';
+import { deepEqual } from '../utils/validation';
 
 const ED25519_SIGNATURE_LENGTH = 64;
 
@@ -130,7 +131,7 @@ async function verifyCapabilityEvent<T extends CapabilityAnnouncementPayload | C
 }
 
 const hasCapabilitiesChanged = (existing: Capability[], updated: Capability[]): boolean =>
-  JSON.stringify(existing) !== JSON.stringify(updated);
+  !deepEqual(existing, updated);
 
 const updateOrAddPeer = (
   stateRef: StateRef<NodeState>,
