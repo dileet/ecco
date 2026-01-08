@@ -21,16 +21,19 @@ export function matchPeers(
   query: CapabilityQuery,
   weights: MatchWeights = DEFAULT_WEIGHTS
 ): CapabilityMatch[] {
-  const filteredPeers = query.preferredPeers?.length
+  const hasPreferredPeers = query.preferredPeers && query.preferredPeers.length > 0;
+  const filteredPeers = hasPreferredPeers
     ? peers.filter((p) => query.preferredPeers!.includes(p.id))
     : peers;
 
   if (query.requiredCapabilities.length === 0) {
-    return filteredPeers.map((peer) => ({
-      peer,
-      matchScore: 1.0,
-      matchedCapabilities: peer.capabilities,
-    }));
+    return filteredPeers
+      .filter((peer) => peer.capabilities.length > 0)
+      .map((peer) => ({
+        peer,
+        matchScore: 0.5,
+        matchedCapabilities: peer.capabilities,
+      }));
   }
 
   const matches: CapabilityMatch[] = [];
@@ -66,6 +69,9 @@ function matchPeer(
   weights: MatchWeights
 ): CapabilityMatch | null {
   if (peer.capabilities.length === 0) {
+    if (query.preferredPeers?.includes(peer.id)) {
+      console.warn(`[capability-matcher] Preferred peer ${peer.id} has no capabilities`);
+    }
     return null;
   }
 
@@ -168,7 +174,7 @@ function fuzzyMatch(str1: string, str2: string): boolean {
   const maxLength = Math.max(s1.length, s2.length);
   const similarity = 1 - distance / maxLength;
 
-  return similarity > 0.8;
+  return similarity >= 0.85;
 }
 
 function levenshtein(str1: string, str2: string): number {
@@ -208,6 +214,15 @@ function matchVersion(have: string, want: string): number {
   }
 
   if (haveV.major === wantV.major && haveV.minor === wantV.minor && haveV.patch === wantV.patch) {
+    if (haveV.prerelease && !wantV.prerelease) {
+      return 0.95;
+    }
+    if (!haveV.prerelease && wantV.prerelease) {
+      return 0.95;
+    }
+    if (haveV.prerelease !== wantV.prerelease) {
+      return 0.9;
+    }
     return 1.0;
   }
 
@@ -255,8 +270,12 @@ function matchFeatures(
     if (key === 'features' && Array.isArray(value) && Array.isArray(have.features)) {
       const wantFeatures = value as string[];
       const haveFeatures = have.features as string[];
-      const matched = wantFeatures.filter(f => haveFeatures.includes(f)).length;
-      matchCount += matched / wantFeatures.length;
+      if (wantFeatures.length > 0) {
+        const matched = wantFeatures.filter(f => haveFeatures.includes(f)).length;
+        matchCount += Math.min(1.0, matched / wantFeatures.length);
+      } else {
+        matchCount += 1.0;
+      }
     } else if (have[key] === value) {
       matchCount++;
     } else if (typeof value === 'string' && typeof have[key] === 'string') {
