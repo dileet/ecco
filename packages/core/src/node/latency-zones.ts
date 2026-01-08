@@ -20,6 +20,7 @@ export interface ZoneStat {
   avgLatency: number;
   minLatency: number;
   maxLatency: number;
+  totalLatency: bigint;
 }
 
 export interface LatencyZoneConfig {
@@ -50,10 +51,10 @@ export function createLatencyZoneState(config?: LatencyZoneConfig): LatencyZoneS
     },
     peerZones: new Map(),
     zoneStats: new Map([
-      ['local', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0 }],
-      ['regional', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0 }],
-      ['continental', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0 }],
-      ['global', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0 }],
+      ['local', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0, totalLatency: 0n }],
+      ['regional', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0, totalLatency: 0n }],
+      ['continental', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0, totalLatency: 0n }],
+      ['global', { peerCount: 0, avgLatency: 0, minLatency: Infinity, maxLatency: 0, totalLatency: 0n }],
     ]),
   };
 }
@@ -103,12 +104,16 @@ export function updatePeerZone(
       avgLatency: 0,
       minLatency: Infinity,
       maxLatency: 0,
+      totalLatency: 0n,
     };
+    const newTotalLatency = newStat.totalLatency + BigInt(Math.round(latencyMs * 1000));
+    const newPeerCount = newStat.peerCount + 1;
     newZoneStats.set(zone, {
-      peerCount: newStat.peerCount + 1,
-      avgLatency: (newStat.avgLatency * newStat.peerCount + latencyMs) / (newStat.peerCount + 1),
+      peerCount: newPeerCount,
+      avgLatency: Number(newTotalLatency / BigInt(newPeerCount)) / 1000,
       minLatency: Math.min(newStat.minLatency, latencyMs),
       maxLatency: Math.max(newStat.maxLatency, latencyMs),
+      totalLatency: newTotalLatency,
     });
   }
 

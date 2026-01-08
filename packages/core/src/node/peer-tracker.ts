@@ -158,7 +158,11 @@ export function getAllPeerScores(state: PeerTrackerState): PeerScore[] {
     }
   }
 
-  return scores.sort((a, b) => b.combinedScore - a.combinedScore);
+  return scores.sort((a, b) => {
+    const scoreDiff = b.combinedScore - a.combinedScore;
+    if (scoreDiff !== 0) return scoreDiff;
+    return a.peerId.localeCompare(b.peerId);
+  });
 }
 
 export function getTopPeers(state: PeerTrackerState, limit: number): PeerScore[] {

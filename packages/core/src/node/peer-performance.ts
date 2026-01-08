@@ -48,7 +48,6 @@ const evictStaleEntries = (state: PeerPerformanceState): void => {
   }
 };
 
-// Removes least recently accessed peers when capacity exceeds maxPeers
 const evictLRU = (state: PeerPerformanceState): void => {
   if (state.metrics.size <= state.maxPeers) {
     return;
@@ -56,6 +55,9 @@ const evictLRU = (state: PeerPerformanceState): void => {
 
   const entries = Array.from(state.metrics.entries());
   entries.sort((a, b) => b[1].lastAccessed - a[1].lastAccessed);
+
+  const evictCount = state.metrics.size - state.maxPeers;
+  console.warn(`[peer-performance] Evicting ${evictCount} peers (capacity: ${state.maxPeers})`);
 
   state.metrics.clear();
   for (const [peerId, metrics] of entries.slice(0, state.maxPeers)) {
@@ -187,18 +189,27 @@ export const calculateRecentErrorRate = (metrics: PeerMetrics): number => {
   return metrics.recentErrors.length / recentTotal;
 };
 
+const PERFORMANCE_WEIGHTS = {
+  success: 50,
+  error: 30,
+  latency: 20,
+} as const;
+const WEIGHT_TOTAL = PERFORMANCE_WEIGHTS.success + PERFORMANCE_WEIGHTS.error + PERFORMANCE_WEIGHTS.latency;
+const MAX_LATENCY_MS = 10000;
+
 export const calculatePerformanceScore = (metrics: PeerMetrics): number => {
   const successRate = calculateSuccessRate(metrics);
   const recentErrorRate = calculateRecentErrorRate(metrics);
   const avgLatency = calculateRecentAverageLatency(metrics);
 
-  const successWeight = 0.5;
-  const errorWeight = 0.3;
-  const latencyWeight = 0.2;
+  const latencyScore = avgLatency === Infinity ? 0 : Math.max(0, 1 - avgLatency / MAX_LATENCY_MS);
 
-  const latencyScore = avgLatency === Infinity ? 0 : Math.max(0, 1 - avgLatency / 10000);
+  const rawScore =
+    PERFORMANCE_WEIGHTS.success * successRate +
+    PERFORMANCE_WEIGHTS.error * (1 - recentErrorRate) +
+    PERFORMANCE_WEIGHTS.latency * latencyScore;
 
-  return successWeight * successRate + errorWeight * (1 - recentErrorRate) + latencyWeight * latencyScore;
+  return rawScore / WEIGHT_TOTAL;
 };
 
 export const getAllMetrics = (state: PeerPerformanceState): Map<string, PeerMetrics> => {
