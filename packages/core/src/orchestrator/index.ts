@@ -562,7 +562,7 @@ export const executeOrchestration = async (
       const sendTime = Date.now();
 
       try {
-        const response = await responsePromises.get(req.message.id)!;
+        const response = await responsePromises.get(req.message.id);
 
         const latency = Date.now() - sendTime;
 
