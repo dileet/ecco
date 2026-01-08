@@ -22,6 +22,7 @@ import { writeExpectedInvoice } from '../storage';
 const MAX_FANOUT = 33;
 const MAX_STREAM_BUFFER_BYTES = 10 * 1024 * 1024;
 const MAX_STREAM_CHUNKS = 4096;
+const MAX_TOTAL_REQUESTS = 1_000_000;
 
 const StreamChunkPayloadSchema = z.object({
   requestId: z.string(),
@@ -239,12 +240,15 @@ const updateLoadStatesForExecution = (
   let result = { ...loadStates };
   for (const match of selectedAgents) {
     const current = result[match.peer.id] ?? defaultLoadState(match.peer.id);
+    const nextTotalRequests = current.totalRequests >= MAX_TOTAL_REQUESTS
+      ? current.totalRequests
+      : current.totalRequests + 1;
     result = {
       ...result,
       [match.peer.id]: {
         ...current,
         activeRequests: current.activeRequests + 1,
-        totalRequests: current.totalRequests + 1,
+        totalRequests: nextTotalRequests,
         lastRequestTime: Date.now(),
       },
     };
@@ -281,8 +285,9 @@ const applyLoadUpdate = (
   update: LoadUpdate
 ): Record<string, AgentLoadState> => {
   const current = loadStates[update.peerId] ?? defaultLoadState(update.peerId);
-  const totalErrors = current.totalErrors + (update.success ? 0 : 1);
   const totalRequests = current.totalRequests;
+  const nextErrors = current.totalErrors + (update.success ? 0 : 1);
+  const totalErrors = Math.min(nextErrors, totalRequests);
   const successRate =
     totalRequests > 0 ? (totalRequests - totalErrors) / totalRequests : 1;
   return {
