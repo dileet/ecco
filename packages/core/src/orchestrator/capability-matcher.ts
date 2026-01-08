@@ -65,6 +65,10 @@ function matchPeer(
   query: CapabilityQuery,
   weights: MatchWeights
 ): CapabilityMatch | null {
+  if (peer.capabilities.length === 0) {
+    return null;
+  }
+
   const matchedCapabilities: Capability[] = [];
   let totalScore = 0;
 
@@ -152,6 +156,10 @@ function fuzzyMatch(str1: string, str2: string): boolean {
   const s1 = str1.toLowerCase().replace(/[^a-z0-9]/g, '');
   const s2 = str2.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+  if (s1.length === 0 || s2.length === 0) {
+    return s1 === s2;
+  }
+
   if (s1.includes(s2) || s2.includes(s1)) {
     return true;
   }
@@ -160,7 +168,7 @@ function fuzzyMatch(str1: string, str2: string): boolean {
   const maxLength = Math.max(s1.length, s2.length);
   const similarity = 1 - distance / maxLength;
 
-  return similarity > 0.7;
+  return similarity > 0.8;
 }
 
 function levenshtein(str1: string, str2: string): number {
@@ -216,8 +224,8 @@ function matchVersion(have: string, want: string): number {
   return 0.2;
 }
 
-function parseVersion(version: string): { major: number; minor: number; patch: number } | null {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/);
+function parseVersion(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?/);
   if (!match) {
     return null;
   }
@@ -226,6 +234,7 @@ function parseVersion(version: string): { major: number; minor: number; patch: n
     major: parseInt(match[1], 10),
     minor: parseInt(match[2], 10),
     patch: parseInt(match[3], 10),
+    prerelease: match[4],
   };
 }
 
@@ -257,5 +266,6 @@ function matchFeatures(
     }
   }
 
-  return totalCount > 0 ? matchCount / totalCount : 0;
+  const score = totalCount > 0 ? matchCount / totalCount : 0;
+  return Math.min(1.0, score);
 }
