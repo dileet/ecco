@@ -239,11 +239,11 @@
 | [ ] #33 Handler errors silently logged | fix/issue-033-handler-errors-silently-logged | handlers.ts | Propagate error | Tier 3 |
 | [ ] #34 No transport fallback | fix/issue-034-no-transport-fallback | messaging.ts | Add fallback | Tier 3 |
 | [x] #56 Silent error suppression | fix/issue-056-silent-error-suppression | packages/core/src/node/discovery.ts | Log error | Tier 3 |
-| [ ] #57 Stream generation promise missing handler | fix/issue-057-stream-generation-promise-missing-handler | packages/core/src/services/generation.ts | Add .catch() | Tier 3 |
+| [x] #57 Stream generation promise missing handler | fix/issue-057-stream-generation-promise-missing-handler | packages/core/src/services/generation.ts | Add .catch() | Tier 3 |
 | [x] #58 unloadModel polling without timeout | fix/issue-058-unloadmodel-polling-without-timeout | packages/core/src/services/llm.ts | Add max wait | Tier 3 |
 | [x] #60 Handlers called sync without await | fix/issue-060-handlers-called-sync-without-await | packages/core/src/node/messaging.ts | Use Promise.all | Tier 3 |
 | [ ] #61 State mutations while async in-flight | fix/issue-061-state-mutations-while-async-in-flight | agent/index.ts; packages/core/src/agent/index.ts | Await init | Tier 3 |
-| [ ] #62 Timeout not cleared on send failure | fix/issue-062-timeout-not-cleared-on-send-failure | agent/index.ts; packages/core/src/agent/index.ts | Clear timeout | Tier 3 |
+| [x] #62 Timeout not cleared on send failure | fix/issue-062-timeout-not-cleared-on-send-failure | agent/index.ts; packages/core/src/agent/index.ts | Clear timeout | Tier 3 |
 | [x] #103 Async DB writes not awaited | fix/issue-103-async-db-writes-not-awaited | storage/index.ts; packages/core/src/storage/index.ts | Await writes | Tier 3 |
 | [x] #104 Generic error messages | fix/issue-104-generic-error-messages | storage/index.ts; packages/core/src/storage/index.ts | Preserve original | Tier 3 |
 | [x] #109 Failed announcements silently ignored | fix/issue-109-failed-announcements-silently-ignored | packages/core/src/node/dht.ts | Check results | Tier 3 |

@@ -275,7 +275,9 @@ async function sendGenerationRequest(
       payload: message,
       timestamp: Date.now(),
     }
-    publish(ref, `peer:${targetPeerId}`, messageEvent)
+    publish(ref, `peer:${targetPeerId}`, messageEvent).catch((err) => {
+      console.warn('[generation] Failed to publish generation request:', err)
+    })
   })
 
   try {
