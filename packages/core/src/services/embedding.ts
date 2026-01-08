@@ -101,14 +101,27 @@ function processEmbeddingResponse(
     }
 
     const chunks = state.chunksByEmbedding.get(embeddingIndex)!;
-    chunks.set(response.chunkIndex, response.embeddings[0]!);
+    const chunkData = response.embeddings[0];
+    if (chunkData) {
+      chunks.set(response.chunkIndex, chunkData);
+    }
 
-    if (chunks.size === state.expectedChunks.get(embeddingIndex)) {
-      const fullEmbedding: number[] = [];
-      for (let i = 0; i < chunks.size; i++) {
-        fullEmbedding.push(...chunks.get(i)!);
+    const expectedCount = state.expectedChunks.get(embeddingIndex) ?? 0;
+    if (chunks.size === expectedCount && expectedCount > 0) {
+      let allPresent = true;
+      for (let i = 0; i < expectedCount; i++) {
+        if (!chunks.has(i)) {
+          allPresent = false;
+          break;
+        }
       }
-      state.collectedEmbeddings[embeddingIndex] = fullEmbedding;
+      if (allPresent) {
+        const fullEmbedding: number[] = [];
+        for (let i = 0; i < expectedCount; i++) {
+          fullEmbedding.push(...chunks.get(i)!);
+        }
+        state.collectedEmbeddings[embeddingIndex] = fullEmbedding;
+      }
     }
   } else {
     if (response.index !== undefined && response.embeddings[0]) {
