@@ -581,7 +581,8 @@ export async function handleVersionHandshake(
     networkConfig,
     payload.protocolVersion,
     payload.constitutionHash,
-    message.id
+    message.id,
+    payload.networkId
   );
 
   await state.sendMessage(peerId, response);

@@ -82,7 +82,8 @@ export async function createHandshakeResponse(
   networkConfig: NetworkConfig,
   peerVersion: ProtocolVersion,
   peerConstitutionHash: ConstitutionHash,
-  requestId: string
+  requestId: string,
+  peerNetworkId?: string
 ): Promise<Message> {
   const protocolConfig = networkConfig.protocol;
   const compatibility = isCompatible(peerVersion, protocolConfig.minVersion);
@@ -93,11 +94,15 @@ export async function createHandshakeResponse(
 
   const versionAccepted = compatibility.compatible || protocolConfig.enforcementLevel === 'none';
   const constitutionAccepted = constitutionValidation.valid;
-  const accepted = versionAccepted && constitutionAccepted;
+  const networkIdMatches = !peerNetworkId || peerNetworkId === networkConfig.networkId;
+  const accepted = versionAccepted && constitutionAccepted && networkIdMatches;
 
   let reason = compatibility.reason;
   if (!constitutionAccepted) {
     reason = constitutionValidation.reason;
+  }
+  if (!networkIdMatches) {
+    reason = `Network ID mismatch: expected ${networkConfig.networkId}, got ${peerNetworkId}`;
   }
 
   const payload: VersionHandshakeResponse = {

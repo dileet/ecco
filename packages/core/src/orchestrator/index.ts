@@ -91,7 +91,10 @@ const selectAgents = (
   const n = config.agentCount ?? 3;
   let candidates = matches;
 
-  if (config.stakeRequirement?.requireStake && nodeState?.reputationState) {
+  if (config.stakeRequirement?.requireStake) {
+    if (!nodeState?.reputationState) {
+      throw new Error('Stake requirement enabled but reputation state is not configured');
+    }
     const minStake = config.stakeRequirement.minStake ?? 0n;
     const beforeCount = candidates.length;
     candidates = candidates.filter((match) => {
