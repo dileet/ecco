@@ -177,6 +177,7 @@ export interface PaymentHelpers {
   sendEscrowInvoice: (ctx: MessageContext) => Promise<void>
   recordTokens: (ctx: MessageContext, count: number, options?: RecordTokensOptions) => Promise<RecordTokensResult>
   sendStreamingInvoice: (ctx: MessageContext, channelId: string) => Promise<void>
+  closeStreamingChannel: (channelId: string) => Promise<void>
   distributeToSwarm: (jobId: string, options: DistributeToSwarmOptions) => Promise<DistributeToSwarmResult>
   queueInvoice: (invoice: Invoice) => void
   settleAll: () => Promise<BatchSettlementResult[]>

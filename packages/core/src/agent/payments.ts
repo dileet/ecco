@@ -443,6 +443,44 @@ export function createPaymentHelpers(
     await ctx.reply({ invoice: signedInvoice }, 'invoice')
   }
 
+  const closeStreamingChannel = async (channelId: string): Promise<void> => {
+    const mutex = getStreamingMutex(paymentState, channelId)
+    const release = await mutex.acquire()
+
+    try {
+      const agreement = paymentState.streamingAgreements.get(channelId)
+      if (!agreement) {
+        return
+      }
+
+      const closedAgreement: StreamingAgreement = {
+        ...agreement,
+        status: 'closed',
+      }
+
+      await updateStreamingChannel(closedAgreement)
+
+      await updatePaymentLedgerEntry({
+        id: agreement.id,
+        type: 'streaming',
+        status: 'settled',
+        chainId: agreement.chainId,
+        token: agreement.token,
+        amount: agreement.accumulatedAmount,
+        recipient: agreement.recipient,
+        payer: agreement.payer,
+        jobId: agreement.jobId,
+        createdAt: agreement.createdAt,
+        settledAt: Date.now(),
+      })
+
+      paymentState.streamingAgreements.delete(channelId)
+      paymentState.streamingLocks.delete(channelId)
+    } finally {
+      release()
+    }
+  }
+
   const distributeToSwarm = async (
     jobId: string,
     options: DistributeToSwarmOptions
@@ -574,6 +612,7 @@ export function createPaymentHelpers(
     sendEscrowInvoice,
     recordTokens,
     sendStreamingInvoice,
+    closeStreamingChannel,
     distributeToSwarm,
     queueInvoice,
     settleAll,
