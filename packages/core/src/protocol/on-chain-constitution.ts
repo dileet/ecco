@@ -37,18 +37,23 @@ export async function fetchOnChainConstitution(
     client,
   });
 
-  const items = await contract.read.getAllItems() as string[];
+  try {
+    const items = await contract.read.getAllItems() as string[];
 
-  const constitution: Constitution = {
-    rules: items,
-  };
+    const constitution: Constitution = {
+      rules: items,
+    };
 
-  cache.set(chainId, {
-    constitution,
-    timestamp: Date.now(),
-  });
+    cache.set(chainId, {
+      constitution,
+      timestamp: Date.now(),
+    });
 
-  return constitution;
+    return constitution;
+  } catch (error) {
+    cache.delete(chainId);
+    throw error;
+  }
 }
 
 export function clearConstitutionCache(chainId?: number): void {

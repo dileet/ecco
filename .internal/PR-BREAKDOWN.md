@@ -232,7 +232,7 @@
 | [x] #540 streaming-tick accepts negative/float tokens | fix/issue-540-streaming-tick-accepts-negative-float-tokens | agent/index.ts; payment.ts | Validate tokensGenerated as non-negative integer | Tier 3 |
 | [ ] #530 Shallow config merge drops nested defaults | fix/issue-530-shallow-config-merge-drops-nested-defaults | config.ts; networks.ts | Deep merge nested config | Tier 3 |
 | [ ] #25 Insufficient DHT readiness check | fix/issue-025-insufficient-dht-readiness-check | dht.ts | Verify bootstrap | Tier 3 |
-| [ ] #26 No chain sync timeout | fix/issue-026-no-chain-sync-timeout | reputation.ts | Add timeout | Tier 3 |
+| [x] #26 No chain sync timeout | fix/issue-026-no-chain-sync-timeout | reputation.ts | Add timeout | Tier 3 |
 | [x] #27 Silent DHT announcement failures | fix/issue-027-silent-dht-announcement-failures | dht.ts | Log failures | Tier 3 |
 | [ ] #28 Hybrid discovery handler never removed | fix/issue-028-hybrid-discovery-handler-never-removed | lifecycle.ts | Add cleanup | Tier 3 |
 | [x] #32 deserializeMessage swallows errors | fix/issue-032-deserializemessage-swallows-errors | message-bridge.ts | Log error | Tier 3 |
@@ -240,7 +240,7 @@
 | [ ] #34 No transport fallback | fix/issue-034-no-transport-fallback | messaging.ts | Add fallback | Tier 3 |
 | [x] #56 Silent error suppression | fix/issue-056-silent-error-suppression | packages/core/src/node/discovery.ts | Log error | Tier 3 |
 | [ ] #57 Stream generation promise missing handler | fix/issue-057-stream-generation-promise-missing-handler | packages/core/src/services/generation.ts | Add .catch() | Tier 3 |
-| [ ] #58 unloadModel polling without timeout | fix/issue-058-unloadmodel-polling-without-timeout | packages/core/src/services/llm.ts | Add max wait | Tier 3 |
+| [x] #58 unloadModel polling without timeout | fix/issue-058-unloadmodel-polling-without-timeout | packages/core/src/services/llm.ts | Add max wait | Tier 3 |
 | [x] #60 Handlers called sync without await | fix/issue-060-handlers-called-sync-without-await | packages/core/src/node/messaging.ts | Use Promise.all | Tier 3 |
 | [ ] #61 State mutations while async in-flight | fix/issue-061-state-mutations-while-async-in-flight | agent/index.ts; packages/core/src/agent/index.ts | Await init | Tier 3 |
 | [ ] #62 Timeout not cleared on send failure | fix/issue-062-timeout-not-cleared-on-send-failure | agent/index.ts; packages/core/src/agent/index.ts | Clear timeout | Tier 3 |
@@ -252,7 +252,7 @@
 | [ ] #161 Message ordering lost after handshake flush | fix/issue-161-message-ordering-lost-after-handshake-flush | packages/core/src/transport/message-bridge.ts | Order by timestamp | Tier 3 |
 | [ ] #162 LibP2P adapter state mismatch | fix/issue-162-libp2p-adapter-state-mismatch | packages/core/src/transport/adapters/libp2p.ts | Wait for ready | Tier 3 |
 | [x] #164 BLE send without connection validation | fix/issue-164-ble-send-without-connection-validation | packages/core/src/transport/adapters/bluetooth-le.ts | Check connected | Tier 3 |
-| [ ] #165 Constitution cache not invalidated on error | fix/issue-165-constitution-cache-not-invalidated-on-error | packages/core/src/protocol/on-chain-constitution.ts | Clear on error | Tier 3 |
+| [x] #165 Constitution cache not invalidated on error | fix/issue-165-constitution-cache-not-invalidated-on-error | packages/core/src/protocol/on-chain-constitution.ts | Clear on error | Tier 3 |
 | [ ] #174 Streaming tick partial failure no reconciliation | fix/issue-174-streaming-tick-partial-failure-no-reconciliation | packages/core/src/agent/payments.ts | Retry mechanism | Tier 3 |
 | [ ] #185 Cleanup handlers reference freed resources | fix/issue-185-cleanup-handlers-reference-freed-resources | packages/core/src/node/state.ts | Validate resources | Tier 3 |
 | [ ] #226 RPC response not validated before caching | fix/issue-226-rpc-response-not-validated-before-caching | packages/core/src/protocol/on-chain-constitution.ts | Validate first | Tier 3 |

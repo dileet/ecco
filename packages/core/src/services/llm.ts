@@ -287,11 +287,19 @@ export function createLocalEmbedFn(state: LocalModelState): EmbedFn {
   }
 }
 
+const UNLOAD_TIMEOUT_MS = 30000
+const UNLOAD_POLL_INTERVAL_MS = 100
+
 export async function unloadModel(state: LocalModelState): Promise<void> {
   state.disposed = true
 
+  const deadline = Date.now() + UNLOAD_TIMEOUT_MS
   while (state.mutex.isLocked() || state.mutex.queueLength() > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    if (Date.now() >= deadline) {
+      console.warn('[llm] unloadModel timeout waiting for mutex, forcing disposal')
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, UNLOAD_POLL_INTERVAL_MS))
   }
 
   await state.context.dispose()
