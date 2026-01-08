@@ -170,13 +170,15 @@ function addConnection(
   const conns = connections.get(connection.peerId) || [];
   let newConns = [...conns];
 
-  if (newConns.length >= config.maxConnectionsPerPeer) {
+  if (newConns.length > 0 && newConns.length >= config.maxConnectionsPerPeer) {
     const toRemoveIndex = newConns.reduce((oldestIdx, conn, idx, arr) =>
       conn.lastUsed < arr[oldestIdx].lastUsed ? idx : oldestIdx, 0
     );
     const toRemove = newConns[toRemoveIndex];
     newConns.splice(toRemoveIndex, 1);
-    toRemove.stream.close().catch(() => {});
+    toRemove.stream.close().catch((err) => {
+      console.warn(`Error closing evicted connection to ${connection.peerId}:`, err);
+    });
   }
 
   newConns.push(connection);
