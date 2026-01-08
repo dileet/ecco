@@ -45,7 +45,7 @@ export interface MessageBridgeConfig {
 
 export interface PendingHandshake {
   initiated: number;
-  timeoutId?: ReturnType<typeof setTimeout>;
+  timeoutId: ReturnType<typeof setTimeout>;
 }
 
 export interface MessageBridgeState {
@@ -113,9 +113,7 @@ export function shutdownMessageBridge(
   state: MessageBridgeState
 ): MessageBridgeState {
   for (const pending of state.pendingHandshakes.values()) {
-    if (pending.timeoutId) {
-      clearTimeout(pending.timeoutId);
-    }
+    clearTimeout(pending.timeoutId);
   }
 
   return {
@@ -227,7 +225,7 @@ export function createMessage(
   };
 }
 
-const TopicSchema = z.string().min(1).max(256);
+const TopicSchema = z.string().min(1).max(256).regex(/^[a-zA-Z0-9:_-]+$/, 'Topic contains invalid characters');
 
 export function subscribeToTopic(
   state: MessageBridgeState,
@@ -636,9 +634,7 @@ export async function handleVersionHandshakeResponse(
     return state;
   }
 
-  if (pending.timeoutId) {
-    clearTimeout(pending.timeoutId);
-  }
+  clearTimeout(pending.timeoutId);
 
   const pendingHandshakes = new Map(state.pendingHandshakes);
   pendingHandshakes.delete(peerId);
@@ -802,7 +798,7 @@ export function removePeerValidation(
   validatedPeers.delete(peerId);
   const pendingHandshakes = new Map(state.pendingHandshakes);
   const pending = pendingHandshakes.get(peerId);
-  if (pending?.timeoutId) {
+  if (pending) {
     clearTimeout(pending.timeoutId);
   }
   pendingHandshakes.delete(peerId);

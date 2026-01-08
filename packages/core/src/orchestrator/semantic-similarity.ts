@@ -1,6 +1,7 @@
 import type { NodeState, StateRef } from '../node/types';
 import type { EmbedFn } from '../agent/types';
 import { requestEmbeddings } from '../services/embedding';
+import { secureRandom } from '../utils';
 
 export type SimilarityMethod = 'text-overlap' | 'local-embedding' | 'peer-embedding' | 'openai-embedding' | 'custom';
 
@@ -343,7 +344,7 @@ export const findConsensus = async (
   const largestClusters = clusters.filter(c => c.length === maxSize);
   const largestCluster = largestClusters.length === 1
     ? largestClusters[0]
-    : largestClusters[Math.floor(Math.random() * largestClusters.length)];
+    : largestClusters[Math.floor(secureRandom() * largestClusters.length)];
 
   const confidence = largestCluster.length / responses.length;
 

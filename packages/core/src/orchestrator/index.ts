@@ -162,9 +162,9 @@ const selectAgents = (
 
     case 'round-robin': {
       const sorted = [...candidates].sort((a, b) => {
-        const loadA = loadStates[a.peer.id]?.totalRequests ?? 0;
-        const loadB = loadStates[b.peer.id]?.totalRequests ?? 0;
-        return loadA - loadB;
+        const timeA = loadStates[a.peer.id]?.lastRequestTime ?? 0;
+        const timeB = loadStates[b.peer.id]?.lastRequestTime ?? 0;
+        return timeA - timeB;
       });
       return sorted.slice(0, n);
     }

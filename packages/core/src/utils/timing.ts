@@ -1,5 +1,12 @@
 export const delay = (ms: number): Promise<void> => Bun.sleep(ms);
 
+export const monotonicNow = (): number => {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+};
+
 export const spinFor = (ms: number): void => {
   if (ms <= 0) return;
   let now = Date.now();

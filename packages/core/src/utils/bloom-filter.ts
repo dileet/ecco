@@ -1,3 +1,5 @@
+import { monotonicNow } from './timing';
+
 export interface BloomFilter {
   readonly size: number;
   readonly hashCount: number;
@@ -203,7 +205,7 @@ export const createRateLimiter = (
   const getOrCreateBucket = (peerId: string): RateLimitBucket => {
     let bucket = state.buckets.get(peerId);
     if (!bucket) {
-      bucket = { tokens: state.maxTokens, lastRefill: Date.now() };
+      bucket = { tokens: state.maxTokens, lastRefill: monotonicNow() };
       state.buckets.set(peerId, bucket);
     }
     return bucket;
@@ -212,7 +214,7 @@ export const createRateLimiter = (
   return {
     checkAndConsume(peerId: string, tokens: number = 1): boolean {
       const bucket = getOrCreateBucket(peerId);
-      const now = Date.now();
+      const now = monotonicNow();
       refillBucket(bucket, now);
 
       if (bucket.tokens >= tokens) {
@@ -224,7 +226,7 @@ export const createRateLimiter = (
 
     getRemainingTokens(peerId: string): number {
       const bucket = getOrCreateBucket(peerId);
-      const now = Date.now();
+      const now = monotonicNow();
       refillBucket(bucket, now);
       return bucket.tokens;
     },
