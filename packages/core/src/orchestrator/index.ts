@@ -93,11 +93,22 @@ const selectAgents = (
 
   if (config.stakeRequirement?.requireStake && nodeState?.reputationState) {
     const minStake = config.stakeRequirement.minStake ?? 0n;
+    const beforeCount = candidates.length;
     candidates = candidates.filter((match) => {
       const rep = nodeState.reputationState?.peers.get(match.peer.id);
-      if (!rep) return false;
-      return rep.canWork && rep.stake >= minStake;
+      if (!rep) {
+        console.warn(`[orchestrator] Peer ${match.peer.id} excluded: no reputation data`);
+        return false;
+      }
+      if (!rep.canWork || rep.stake < minStake) {
+        console.warn(`[orchestrator] Peer ${match.peer.id} excluded: canWork=${rep.canWork}, stake=${rep.stake}, required=${minStake}`);
+        return false;
+      }
+      return true;
     });
+    if (beforeCount !== candidates.length) {
+      console.warn(`[orchestrator] Stake filter excluded ${beforeCount - candidates.length} peers`);
+    }
   }
 
   if (config.stakeRequirement?.preferStaked && nodeState?.reputationState) {
