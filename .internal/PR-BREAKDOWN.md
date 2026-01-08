@@ -272,7 +272,7 @@
 | [ ] #319 Queued messages dropped on handler exception | fix/issue-319-queued-messages-dropped-on-handler-exception | packages/core/src/transport/message-bridge.ts | Try-catch each | Tier 3 |
 | [x] #335 Status transition violation | fix/issue-335-status-transition-violation | packages/core/src/services/payment.ts | Enforce state machine | Tier 3 |
 | [x] #346 Performance metrics LRU eviction | fix/issue-346-performance-metrics-lru-eviction | packages/core/src/node/peer-performance.ts | Log eviction | Tier 3 |
-| [ ] #350 Wallet resolution cache never invalidated | fix/issue-350-wallet-resolution-cache-never-invalidated | packages/core/src/node/reputation.ts | Add TTL | Tier 3 |
+| [x] #350 Wallet resolution cache never invalidated | fix/issue-350-wallet-resolution-cache-never-invalidated | packages/core/src/node/reputation.ts | Add TTL | Tier 3 |
 | [ ] #351 On-chain reputation sync stale window | fix/issue-351-on-chain-reputation-sync-stale-window | packages/core/src/node/reputation.ts | Atomic check | Tier 3 |
 | [ ] #352 Clearing stale entries before pending | fix/issue-352-clearing-stale-entries-before-pending | packages/core/src/node/reputation.ts | Commit first | Tier 3 |
 | [ ] #354 Streaming channel timeout missing | fix/issue-354-streaming-channel-timeout-missing | packages/core/src/agent/payments.ts | Add expiration | Tier 3 |
@@ -400,7 +400,7 @@
 | [ ] #467 Zero difficulty handling | fix/issue-467-zero-difficulty-handling | packages/contracts/src/WorkRewards.sol | Handle zero | Tier 3 |
 | [x] #469 LRU cache minimum capacity masks errors | fix/issue-469-lru-cache-minimum-capacity-masks-errors | packages/core/src/utils/lru-cache.ts | Warn on fix | Tier 3 |
 | [ ] #470 Bloom filter empty items edge case | fix/issue-470-bloom-filter-empty-items-edge-case | packages/core/src/utils/bloom-filter.ts | Document | Tier 3 |
-| [ ] #471 Deduplicator hash collision during rotation | fix/issue-471-deduplicator-hash-collision-during-rotation | packages/core/src/utils/bloom-filter.ts | Accept FP | Tier 3 |
+| [x] #471 Deduplicator hash collision during rotation | fix/issue-471-deduplicator-hash-collision-during-rotation | packages/core/src/utils/bloom-filter.ts | Accept FP | Tier 3 |
 | [ ] #473 Aggregation empty response fragility | fix/issue-473-aggregation-empty-response-fragility | packages/core/src/orchestrator/aggregation.ts | Validate path | Tier 3 |
 | [x] #474 Zone latency precision loss at scale | fix/issue-474-zone-latency-precision-loss-at-scale | packages/core/src/node/latency-zones.ts | Use BigInt | Tier 3 |
 | [x] #475 Peer ranking sort stability | fix/issue-475-peer-ranking-sort-stability | packages/core/src/node/peer-tracker.ts | Document | Tier 3 |
