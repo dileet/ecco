@@ -222,7 +222,7 @@
 | [x] #324 Multiaddr parsing exception uncaught | fix/issue-324-multiaddr-parsing-exception-uncaught | packages/core/src/transport/adapters/libp2p.ts | Try-catch | Tier 3 |
 | [x] #332 Zero-amount invoices in streaming | fix/issue-332-zero-amount-invoices-in-streaming | packages/core/src/agent/payments.ts | Validate rate > 0 | Tier 3 |
 | [x] #333 Negative amount in escrow milestones | fix/issue-333-negative-amount-in-escrow-milestones | packages/core/src/agent/payments.ts | Validate > 0 | Tier 3 |
-| [ ] #336 Capability version backward compatibility | fix/issue-336-capability-version-backward-compatibility | packages/core/src/orchestrator/capability-matcher.ts | Add warnings | Tier 3 |
+| [x] #336 Capability version backward compatibility | fix/issue-336-capability-version-backward-compatibility | packages/core/src/orchestrator/capability-matcher.ts | Add warnings | Tier 3 |
 | [x] #337 Fuzzy matching vulnerability | fix/issue-337-fuzzy-matching-vulnerability | packages/core/src/orchestrator/capability-matcher.ts | Stricter threshold | Tier 3 |
 | [x] #394 Hash hex case sensitivity | fix/issue-394-hash-hex-case-sensitivity | packages/core/src/protocol/constitution.ts | Normalize case | Tier 3 |
 | [x] #396 Unsafe Uint8Array reconstruction | fix/issue-396-unsafe-uint8array-reconstruction | packages/core/src/transport/adapters/libp2p.ts | Validate data | Tier 3 |

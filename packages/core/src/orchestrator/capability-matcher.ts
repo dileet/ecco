@@ -233,9 +233,11 @@ function matchVersion(have: string, want: string): number {
     if (haveV.minor > wantV.minor) {
       return 0.7;
     }
+    console.warn(`[capability-matcher] Version ${have} has lower minor than required ${want}`);
     return 0.5;
   }
 
+  console.warn(`[capability-matcher] Major version mismatch: have ${have}, want ${want}`);
   return 0.2;
 }
 
