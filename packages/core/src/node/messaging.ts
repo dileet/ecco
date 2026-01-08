@@ -38,6 +38,41 @@ const PubSubEventDetailSchema = z.object({
   from: PeerIdSchema.optional(),
 });
 
+const MAX_TIMESTAMP_DRIFT_MS = 5 * 60 * 1000;
+const MAX_MESSAGE_AGE_MS = 60 * 60 * 1000;
+
+const TimestampSchema = z.number().finite().nonnegative().refine(
+  (ts) => {
+    const now = Date.now();
+    return ts <= now + MAX_TIMESTAMP_DRIFT_MS && ts >= now - MAX_MESSAGE_AGE_MS;
+  },
+  { message: 'Timestamp outside valid range' }
+);
+
+function isValidTimestamp(timestamp: number): boolean {
+  return TimestampSchema.safeParse(timestamp).success;
+}
+
+async function invokeHandlers(
+  handlers: Array<(event: EccoEvent) => void>,
+  event: EccoEvent,
+  nodeId: string
+): Promise<void> {
+  const results = await Promise.allSettled(
+    handlers.map(async (handler) => {
+      try {
+        await handler(event);
+      } catch (err) {
+        console.error(`[${nodeId}] Handler error:`, err);
+      }
+    })
+  );
+  const failures = results.filter((r) => r.status === 'rejected');
+  if (failures.length > 0) {
+    console.warn(`[${nodeId}] ${failures.length}/${handlers.length} handlers failed`);
+  }
+}
+
 const MessageDetailSchema = z.union([
   z.object({ msg: PubSubMessageSchema }).transform(({ msg }) => msg),
   PubSubMessageSchema,
@@ -408,11 +443,17 @@ export function subscribeWithRef(
           }
 
           const validatedEvent = validateEvent(rawData);
+
+          if (validatedEvent.timestamp !== undefined && !isValidTimestamp(validatedEvent.timestamp)) {
+            console.warn(`[${currentState.id}] Invalid timestamp ${validatedEvent.timestamp}, dropping message`);
+            return;
+          }
+
           const latestState = getState(stateRef);
           const handlers = latestState.subscriptions[topic];
 
           if (handlers && handlers.length > 0) {
-            handlers.forEach((h) => h(validatedEvent));
+            await invokeHandlers(handlers, validatedEvent, latestState.id);
           }
         } catch (error) {
           const currentState = getState(stateRef);
@@ -452,13 +493,20 @@ export function subscribeWithRef(
                 const payload = message.payload as { topic?: string; event?: EccoEvent };
                 debug('subscribeWithRef bridge handler', `Payload has event=${!!payload?.event}`);
 
+                if (!isValidTimestamp(message.timestamp)) {
+                  console.warn(`[${latestState.id}] Invalid message timestamp ${message.timestamp}, dropping`);
+                  return;
+                }
+
                 const handlers = latestState.subscriptions[topic];
                 debug('subscribeWithRef bridge handler', `Found ${handlers?.length ?? 0} handlers for topic ${topic}`);
 
                 if (handlers && handlers.length > 0) {
                   if (payload?.event && isValidEvent(payload.event)) {
                     const validatedEvent = validateEvent(payload.event);
-                    handlers.forEach((h) => h(validatedEvent));
+                    invokeHandlers(handlers, validatedEvent, latestState.id).catch((err) => {
+                      console.error(`[${latestState.id}] Handler invocation failed:`, err);
+                    });
                   } else {
                     const wrappedEvent: EccoEvent = {
                       type: 'message',
@@ -467,7 +515,9 @@ export function subscribeWithRef(
                       payload: message,
                       timestamp: message.timestamp,
                     };
-                    handlers.forEach((h) => h(wrappedEvent));
+                    invokeHandlers(handlers, wrappedEvent, latestState.id).catch((err) => {
+                      console.error(`[${latestState.id}] Handler invocation failed:`, err);
+                    });
                   }
                 }
               } catch (error) {

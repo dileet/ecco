@@ -138,7 +138,13 @@ function handleConnectionEvent(
   return { ...state, connectedPeers };
 }
 
+const MIN_RSSI = -100;
+const MAX_RSSI = 0;
+
 function rssiToDistance(rssi: number): ProximityInfo['distance'] {
+  if (!Number.isFinite(rssi) || rssi < MIN_RSSI || rssi > MAX_RSSI) {
+    return 'unknown';
+  }
   if (rssi >= -50) return 'immediate';
   if (rssi >= -70) return 'near';
   if (rssi >= -90) return 'far';

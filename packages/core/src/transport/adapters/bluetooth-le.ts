@@ -241,7 +241,11 @@ export async function send(
   message: TransportMessage
 ): Promise<void> {
   if (!state.nativeBridge) return;
-  
+
+  if (!state.connectedPeers.has(peerId)) {
+    throw new Error(`Cannot send to peer ${peerId}: not connected`);
+  }
+
   const data = encodeMessage(message);
   await state.nativeBridge.write(peerId, data);
 }

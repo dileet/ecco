@@ -225,7 +225,9 @@ function schedulePhaseEscalation(state: HybridDiscoveryState): void {
 
       if (!hasFreshPeers) {
         const nextPhase = phases[currentIndex + 1];
-        startPhase(state, nextPhase);
+        startPhase(state, nextPhase).catch((err) => {
+          console.error(`Failed to start phase ${nextPhase}:`, err);
+        });
         schedulePhaseEscalation(state);
       }
     }, phaseTimeout);
@@ -506,12 +508,12 @@ export function getCurrentPhase(state: HybridDiscoveryState): DiscoveryPhase {
   return state.currentPhase;
 }
 
-export function forcePhase(
+export async function forcePhase(
   state: HybridDiscoveryState,
   phase: DiscoveryPhase
-): HybridDiscoveryState {
+): Promise<HybridDiscoveryState> {
   clearEscalationTimers(state);
-  startPhase(state, phase);
+  await startPhase(state, phase);
   if (state.config.autoEscalate && state.isDiscovering) {
     schedulePhaseEscalation(state);
   }
