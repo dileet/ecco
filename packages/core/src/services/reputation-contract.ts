@@ -206,8 +206,10 @@ export async function batchRate(
     throw new Error('Wallet client account not available');
   }
 
-  const paymentIds = ratings.map((r) => r.paymentId);
-  const deltas = ratings.map((r) => {
+  const sortedRatings = [...ratings].sort((a, b) => a.paymentId.localeCompare(b.paymentId));
+
+  const paymentIds = sortedRatings.map((r) => r.paymentId);
+  const deltas = sortedRatings.map((r) => {
     if (r.delta < -5 || r.delta > 5) {
       throw new Error('Rating delta must be between -5 and 5');
     }
