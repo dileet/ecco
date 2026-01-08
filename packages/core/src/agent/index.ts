@@ -104,7 +104,7 @@ const InvoiceSchema = z.object({
 
 const StreamingTickSchema = z.object({
   channelId: z.string().optional(),
-  tokensGenerated: z.number(),
+  tokensGenerated: z.number().int().nonnegative(),
 })
 
 const EscrowApprovalSchema = z.object({
@@ -145,9 +145,21 @@ function resolveChainId(network: AgentConfig['network'], reputationConfig?: { ch
   return getDefaultChainId(networkName)
 }
 
+const RpcUrlSchema = z.string().url()
+
+function validateRpcUrls(urls: Record<number, string>): void {
+  for (const [chainId, url] of Object.entries(urls)) {
+    const result = RpcUrlSchema.safeParse(url)
+    if (!result.success) {
+      throw new Error(`Invalid RPC URL for chain ${chainId}: ${url}`)
+    }
+  }
+}
+
 function mergeRpcUrls(userRpcUrls: Record<number, string> | undefined): Record<number, string> {
   const defaultUrls = { ...DEFAULT_RPC_URLS }
   if (userRpcUrls) {
+    validateRpcUrls(userRpcUrls)
     return { ...defaultUrls, ...userRpcUrls }
   }
   return defaultUrls
@@ -416,39 +428,45 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
             let fullResponse = ''
             let totalTokens = 0
 
-            for await (const chunk of gen) {
-              fullResponse += chunk.text
+            try {
+              for await (const chunk of gen) {
+                fullResponse += chunk.text
 
-              if (config.pricing?.type === 'streaming' && chunk.tokens && chunk.tokens > 0) {
-                totalTokens += chunk.tokens
+                if (config.pricing?.type === 'streaming' && chunk.tokens && chunk.tokens > 0) {
+                  totalTokens += chunk.tokens
+                  const tempCtx: MessageContext = {
+                    agent: agentInstance!,
+                    message: msg,
+                    reply: baseCtx.reply,
+                    streamResponse: async () => {},
+                  }
+                  await payments.recordTokens(tempCtx, chunk.tokens, {
+                    channelId,
+                    pricing: config.pricing,
+                    autoInvoice: false,
+                  })
+                }
+
+                await baseCtx.reply({ requestId: msg.id, chunk: chunk.text, partial: true }, 'stream-chunk')
+              }
+
+              if (config.pricing?.type === 'streaming' && totalTokens > 0) {
                 const tempCtx: MessageContext = {
                   agent: agentInstance!,
                   message: msg,
                   reply: baseCtx.reply,
                   streamResponse: async () => {},
                 }
-                await payments.recordTokens(tempCtx, chunk.tokens, {
-                  channelId,
-                  pricing: config.pricing,
-                  autoInvoice: false,
-                })
+                await payments.sendStreamingInvoice(tempCtx, channelId)
               }
 
-              await baseCtx.reply({ requestId: msg.id, chunk: chunk.text, partial: true }, 'stream-chunk')
-            }
-
-            if (config.pricing?.type === 'streaming' && totalTokens > 0) {
-              const tempCtx: MessageContext = {
-                agent: agentInstance!,
-                message: msg,
-                reply: baseCtx.reply,
-                streamResponse: async () => {},
+              await baseCtx.reply({ requestId: msg.id, text: fullResponse, complete: true }, 'stream-complete')
+              await baseCtx.reply({ requestId: msg.id, response: { text: fullResponse, finishReason: 'stop' } }, 'agent-response')
+            } finally {
+              if (gen.return) {
+                await gen.return(undefined)
               }
-              await payments.sendStreamingInvoice(tempCtx, channelId)
             }
-
-            await baseCtx.reply({ requestId: msg.id, text: fullResponse, complete: true }, 'stream-complete')
-            await baseCtx.reply({ requestId: msg.id, response: { text: fullResponse, finishReason: 'stop' } }, 'agent-response')
           }
 
           const ctx: MessageContext = {
@@ -555,6 +573,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   }
 
   const request = async (peerId: string, prompt: string): Promise<AgentResponse> => {
+    if (!peerId || typeof peerId !== 'string' || peerId.trim() === '') {
+      throw new Error('Invalid peerId: must be a non-empty string')
+    }
+
     const requestMessage: Message = {
       id: crypto.randomUUID(),
       from: baseAgent.id,
@@ -851,6 +873,10 @@ Provide a unified consensus answer that incorporates the key insights from all p
   }
 
   const send = async (peerId: string, type: MessageType, payload: unknown): Promise<void> => {
+    if (!peerId || typeof peerId !== 'string' || peerId.trim() === '') {
+      throw new Error('Invalid peerId: must be a non-empty string')
+    }
+
     const message: Message = {
       id: crypto.randomUUID(),
       from: baseAgent.id,
