@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Invoice, PaymentProof } from '../types';
 import { aggregateInvoices, type AggregatedInvoice } from './payment';
 import { isValidUrl } from '../utils';
+import { createAsyncMutex, type AsyncMutex } from '../utils/concurrency';
 
 const ChainIdSchema = z.number().int().positive();
 const EthAddressSchema = z.string().refine(isAddress, { message: 'Invalid Ethereum address' });
@@ -52,8 +53,7 @@ interface NonceState {
   currentNonce: number;
   pendingCount: number;
   lastSyncBlock: bigint;
-  mutex: Promise<void>;
-  resolveMutex: (() => void) | null;
+  mutex: AsyncMutex;
 }
 
 interface NonceManager {
@@ -79,8 +79,7 @@ async function syncNonceFromChain(
     currentNonce: pendingNonce,
     pendingCount: 0,
     lastSyncBlock: blockNumber,
-    mutex: Promise.resolve(),
-    resolveMutex: null
+    mutex: createAsyncMutex()
   };
   
   manager.nonceStates.set(chainId, state);
@@ -94,22 +93,16 @@ async function acquireNonce(
   manager: NonceManager
 ): Promise<{ nonce: number; release: (success: boolean) => void }> {
   let state = manager.nonceStates.get(chainId);
-  
+
   if (!state) {
     state = await syncNonceFromChain(publicClient, address, chainId, manager);
   }
-  
-  await state.mutex;
-  
-  let resolveNext: (() => void) | null = null;
-  state.mutex = new Promise<void>((resolve) => {
-    resolveNext = resolve;
-  });
-  state.resolveMutex = resolveNext;
-  
+
+  const releaseMutex = await state.mutex.acquire();
+
   const currentBlock = await publicClient.getBlockNumber();
   const RESYNC_THRESHOLD = 10n;
-  
+
   if (currentBlock - state.lastSyncBlock > RESYNC_THRESHOLD) {
     const freshNonce = await publicClient.getTransactionCount({ address, blockTag: 'pending' });
     if (freshNonce > state.currentNonce) {
@@ -118,26 +111,23 @@ async function acquireNonce(
     }
     state.lastSyncBlock = currentBlock;
   }
-  
+
   const nonce = state.currentNonce + state.pendingCount;
   state.pendingCount++;
-  
+
   const release = (success: boolean) => {
     if (success) {
       state!.currentNonce++;
     }
     state!.pendingCount--;
-    
+
     if (state!.pendingCount < 0) {
       state!.pendingCount = 0;
     }
-    
-    if (state!.resolveMutex) {
-      state!.resolveMutex();
-      state!.resolveMutex = null;
-    }
+
+    releaseMutex();
   };
-  
+
   return { nonce, release };
 }
 
