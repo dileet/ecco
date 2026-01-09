@@ -170,7 +170,7 @@ export interface FeeHelpers {
 }
 
 export interface PaymentHelpers {
-  requirePayment: (ctx: MessageContext, pricing: PricingConfig) => Promise<PaymentProof>
+  requirePayment: (ctx: MessageContext, pricing: PricingConfig, options?: { signal?: AbortSignal }) => Promise<PaymentProof>
   createInvoice: (ctx: MessageContext, pricing: PricingConfig) => Promise<Invoice>
   verifyPayment: (proof: PaymentProof) => Promise<boolean>
   releaseMilestone: (ctx: MessageContext, milestoneId: string, options?: ReleaseMilestoneOptions) => Promise<void>
@@ -259,7 +259,7 @@ export interface Agent {
   protocolVersion: ProtocolVersion
   embed: ((texts: string[]) => Promise<number[][]>) | null
   findPeers: (query?: FindPeersOptions) => Promise<CapabilityMatch[]>
-  request: (peerId: string, prompt: string) => Promise<AgentResponse>
+  request: (peerId: string, prompt: string, options?: { signal?: AbortSignal }) => Promise<AgentResponse>
   requestConsensus: (options: ConsensusRequestOptions) => Promise<ConsensusResult>
   send: (peerId: string, type: MessageType, payload: unknown) => Promise<void>
   stop: () => Promise<void>

@@ -573,7 +573,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     return filteredPeers
   }
 
-  const request = async (peerId: string, prompt: string): Promise<AgentResponse> => {
+  const request = async (
+    peerId: string,
+    prompt: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<AgentResponse> => {
     if (!peerId || typeof peerId !== 'string' || peerId.trim() === '') {
       throw new Error('Invalid peerId: must be a non-empty string')
     }
@@ -594,6 +598,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     return new Promise((resolve, reject) => {
       let unsubscribe: (() => void) | undefined
+      let aborted = false
 
       const cleanup = () => {
         if (unsubscribe) {
@@ -601,16 +606,26 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         }
       }
 
-      const timeout = setTimeout(() => {
-        debug('request', `TIMEOUT waiting for response to ${requestMessage.id}`)
+      const onAbort = () => {
+        if (aborted) return
+        aborted = true
+        debug('request', `ABORTED waiting for response to ${requestMessage.id}`)
         cleanup()
-        reject(new Error('Request timeout'))
-      }, 30000)
+        reject(new Error('Request aborted'))
+      }
+
+      if (options?.signal?.aborted) {
+        onAbort()
+        return
+      }
+
+      options?.signal?.addEventListener('abort', onAbort, { once: true })
 
       const libp2pPeerId = getLibp2pPeerId(baseAgent.ref)
       debug('request', `Subscribing to topic peer:${libp2pPeerId}`)
 
       const handleResponse = (event: EccoEvent) => {
+        if (aborted) return
         debug('request', `Received event type=${event.type}`)
         if (event.type !== 'message') return
         const response = event.payload as Message
@@ -622,7 +637,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         if (responsePayload?.requestId !== requestMessage.id) return
 
         debug('request', 'MATCHED! Resolving response')
-        clearTimeout(timeout)
+        aborted = true
         cleanup()
         resolve({
           peer: {
@@ -644,7 +659,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
 
       sendMessage(baseAgent.ref, peerId, requestMessage).catch((error) => {
-        clearTimeout(timeout)
+        if (aborted) return
+        aborted = true
         cleanup()
         reject(error)
       })

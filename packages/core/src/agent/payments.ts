@@ -1,8 +1,8 @@
 import type { PrivateKey } from '@libp2p/interface'
 import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement, SignedInvoice, PaymentLedgerEntry } from '../types'
 import type { WalletState } from '../services/wallet'
-import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from '../services/wallet'
 import type { BatchSettlementResult, WorkRewardOptions, WorkRewardResult, FeeHelpers, FeeCalculation, PayWithFeeResult } from './types'
+import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from '../services/wallet'
 import { releaseEscrowMilestone, recordStreamingTick } from '../services/payment'
 import {
   writeEscrowAgreement,
@@ -27,15 +27,14 @@ import {
   claimRewards as claimRewardsOnChain,
   getPendingRewards as getPendingRewardsOnChain,
 } from '../services/fee-collector'
-import { signInvoice } from '../utils/invoice-signing'
-import { createAsyncMutex, type AsyncMutex } from '../utils/concurrency'
+import { bigintToDecimalString, toWei, validateMilestonesTotal, validateStreamingRate, validateEscrowAmounts } from '../utils/wei'
+import { createInvoice, createSignedInvoice } from './invoice-factory'
 
 const MAX_INVOICE_QUEUE = 1000
 
 interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
   streamingAgreements: Map<string, StreamingAgreement>
-  streamingLocks: Map<string, AsyncMutex>
   pendingPayments: Map<string, PendingPayment>
   invoiceQueue: Invoice[]
 }
@@ -44,79 +43,55 @@ interface PendingPayment {
   invoice: Invoice
   resolve: (proof: PaymentProof) => void
   reject: (error: Error) => void
-  timeoutId: ReturnType<typeof setTimeout>
-  mutex: AsyncMutex
-  settled: boolean
 }
 
-function getStreamingMutex(paymentState: PaymentState, channelId: string): AsyncMutex {
-  const existing = paymentState.streamingLocks.get(channelId)
-  if (existing) {
-    return existing
+function takePendingPayment(paymentState: PaymentState, invoiceId: string): PendingPayment | undefined {
+  const pending = paymentState.pendingPayments.get(invoiceId)
+  if (pending) {
+    paymentState.pendingPayments.delete(invoiceId)
   }
-  const mutex = createAsyncMutex()
-  paymentState.streamingLocks.set(channelId, mutex)
-  return mutex
+  return pending
 }
 
-function clearPendingPayment(paymentState: PaymentState, pending: PendingPayment): void {
-  clearTimeout(pending.timeoutId)
-  paymentState.pendingPayments.delete(pending.invoice.id)
-}
-
-function bigintToDecimalString(value: bigint): string {
-  if (value > BigInt(Number.MAX_SAFE_INTEGER) * 10n ** 18n) {
-    console.warn(`bigintToDecimalString: value ${value} may lose precision when converted to string`)
-  }
-  const str = value.toString()
-  const padded = str.padStart(19, '0')
-  const intPart = padded.slice(0, -18) || '0'
-  const fracPart = padded.slice(-18).replace(/0+$/, '')
-  return fracPart ? `${intPart}.${fracPart}` : intPart
-}
-
-function toWei(value: string | bigint): bigint {
-  if (typeof value === 'bigint') {
-    if (value < 0n) {
-      throw new Error('toWei: value cannot be negative')
-    }
-    return value
-  }
-  if (value.startsWith('-')) {
-    throw new Error('toWei: value cannot be negative')
-  }
-  const [intPart, fracPart = ''] = value.split('.')
-  const paddedFrac = fracPart.padEnd(18, '0').slice(0, 18)
-  return BigInt(intPart + paddedFrac)
-}
-
-function toWeiOrBigint(value: string | bigint): bigint {
-  return typeof value === 'bigint' ? value : toWei(value)
-}
-
-function validateMilestonesTotal(milestones: Array<{ amount: string | bigint }>, totalAmount: string | bigint): void {
-  const total = toWeiOrBigint(totalAmount)
-  const sum = milestones.reduce((acc, m) => acc + toWeiOrBigint(m.amount), 0n)
-  if (sum !== total) {
-    throw new Error(`Milestones sum (${sum}) does not equal total amount (${total})`)
+function timedOutPaymentToInvoice(timedOut: {
+  invoiceId: string
+  jobId: string
+  chainId: number
+  amount: string
+  token: string
+  tokenAddress: string | null
+  recipient: string
+  validUntil: number
+}): Invoice {
+  return {
+    id: timedOut.invoiceId,
+    jobId: timedOut.jobId,
+    chainId: timedOut.chainId,
+    amount: timedOut.amount,
+    token: timedOut.token,
+    tokenAddress: timedOut.tokenAddress as `0x${string}` | null,
+    recipient: timedOut.recipient,
+    validUntil: timedOut.validUntil,
+    signature: null,
+    publicKey: null,
   }
 }
 
-function validateStreamingRate(rate: string | bigint | undefined): void {
-  if (!rate) return
-  const rateWei = toWeiOrBigint(rate)
-  if (rateWei <= 0n) {
-    throw new Error('Streaming rate must be greater than 0')
+async function verifyAndProcessPayment(
+  wallet: WalletState,
+  proof: PaymentProof,
+  invoice: Invoice,
+  onSuccess: () => Promise<void>
+): Promise<boolean> {
+  let valid = false
+  try {
+    valid = await verifyPaymentOnChain(wallet, proof, invoice)
+  } catch {
+    return false
   }
-}
-
-function validateEscrowAmounts(milestones: Array<{ amount: string | bigint }>): void {
-  for (const m of milestones) {
-    const amount = toWeiOrBigint(m.amount)
-    if (amount <= 0n) {
-      throw new Error('Escrow milestone amounts must be greater than 0')
-    }
-  }
+  if (!valid) return false
+  await onSuccess()
+  return true
 }
 
 export function createPaymentHelpers(
@@ -124,46 +99,44 @@ export function createPaymentHelpers(
   paymentState: PaymentState,
   signingKey?: PrivateKey
 ): PaymentHelpers {
-  const createInvoice = async (
+  const requireWallet = (): WalletState => {
+    if (!wallet) throw new Error('Wallet not configured for payments')
+    return wallet
+  }
+
+  const createInvoiceForJob = async (
+    jobId: string,
+    chainId: number,
+    amount: string,
+    token: string
+  ): Promise<Invoice | SignedInvoice> => {
+    const w = requireWallet()
+    return createSignedInvoice(
+      { jobId, chainId, amount, token, recipient: getAddress(w) },
+      signingKey
+    )
+  }
+
+  const createInvoiceFromCtx = async (
     ctx: MessageContext,
     pricing: PricingConfig
   ): Promise<Invoice | SignedInvoice> => {
-    if (!wallet) {
-      throw new Error('Wallet not configured for payments')
-    }
-
     const amount = pricing.amount ? toWei(pricing.amount) : 0n
-    const jobId = ctx.message.id
-
-    const invoice: Invoice = {
-      id: crypto.randomUUID(),
-      jobId,
-      chainId: pricing.chainId,
-      amount: bigintToDecimalString(amount),
-      token: pricing.token ?? 'ETH',
-      tokenAddress: null,
-      recipient: getAddress(wallet),
-      validUntil: Date.now() + 3600000,
-      signature: null,
-      publicKey: null,
-    }
-
-    if (signingKey) {
-      return signInvoice(signingKey, invoice)
-    }
-
-    return invoice
+    return createInvoiceForJob(
+      ctx.message.id,
+      pricing.chainId,
+      bigintToDecimalString(amount),
+      pricing.token ?? 'ETH'
+    )
   }
 
   const requirePayment = async (
     ctx: MessageContext,
-    pricing: PricingConfig
+    pricing: PricingConfig,
+    options?: { signal?: AbortSignal }
   ): Promise<PaymentProof> => {
-    if (!wallet) {
-      throw new Error('Wallet not configured for payments')
-    }
-
-    const invoice = await createInvoice(ctx, pricing)
+    requireWallet()
+    const invoice = await createInvoiceFromCtx(ctx, pricing)
 
     const ledgerEntry: PaymentLedgerEntry = {
       id: invoice.id,
@@ -181,138 +154,87 @@ export function createPaymentHelpers(
       metadata: null,
     }
     await writePaymentLedgerEntry(ledgerEntry)
-
     await ctx.reply({ invoice }, 'invoice')
 
     return new Promise((resolve, reject) => {
-      const mutex = createAsyncMutex()
-      const handleTimeout = async () => {
-        const release = await mutex.acquire()
-        try {
-          const pending = paymentState.pendingPayments.get(invoice.id)
-          if (!pending || pending.settled) {
-            return
-          }
-          pending.settled = true
-          await writeTimedOutPayment(pending.invoice, Date.now())
-          clearPendingPayment(paymentState, pending)
-          reject(new Error('Payment timeout'))
-        } finally {
-          release()
-        }
+      const onAbort = async () => {
+        const pending = takePendingPayment(paymentState, invoice.id)
+        if (!pending) return
+        await writeTimedOutPayment(pending.invoice, Date.now())
+        reject(new Error('Payment aborted'))
       }
-      const timeoutId = setTimeout(() => {
-        void handleTimeout()
-      }, 60000)
 
-      paymentState.pendingPayments.set(invoice.id, {
-        invoice,
-        resolve: (proof: PaymentProof) => {
-          resolve(proof)
-        },
-        reject: (error: Error) => {
-          reject(error)
-        },
-        timeoutId,
-        mutex,
-        settled: false,
-      })
+      if (options?.signal?.aborted) {
+        void onAbort()
+        return
+      }
+
+      options?.signal?.addEventListener('abort', () => void onAbort(), { once: true })
+
+      paymentState.pendingPayments.set(invoice.id, { invoice, resolve, reject })
     })
   }
 
   const verifyPayment = async (proof: PaymentProof): Promise<boolean> => {
-    if (!wallet) {
-      throw new Error('Wallet not configured for payments')
-    }
+    const w = requireWallet()
+    if (await isPaymentProofProcessed(proof.txHash, proof.chainId)) return false
 
-    const alreadyProcessed = await isPaymentProofProcessed(proof.txHash, proof.chainId)
-    if (alreadyProcessed) {
-      return false
-    }
-
-    const pending = paymentState.pendingPayments.get(proof.invoiceId)
+    const pending = takePendingPayment(paymentState, proof.invoiceId)
     if (pending) {
-      const release = await pending.mutex.acquire()
+      let valid = false
       try {
-        const current = paymentState.pendingPayments.get(proof.invoiceId)
-        if (current && !current.settled) {
-          let valid = false
-          try {
-            valid = await verifyPaymentOnChain(wallet, proof, current.invoice)
-          } catch (error) {
-            current.settled = true
-            clearPendingPayment(paymentState, current)
-            current.reject(error instanceof Error ? error : new Error(String(error)))
-            return false
-          }
-          if (!valid) {
-            return false
-          }
-          await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-          await updatePaymentLedgerEntry({
-            id: proof.invoiceId,
-            type: 'standard',
-            status: 'settled',
-            chainId: proof.chainId,
-            token: current.invoice.token,
-            amount: current.invoice.amount,
-            recipient: current.invoice.recipient,
-            payer: '',
-            jobId: current.invoice.jobId,
-            createdAt: Date.now(),
-            settledAt: Date.now(),
-            txHash: proof.txHash,
-            metadata: null,
-          })
-          current.settled = true
-          clearPendingPayment(paymentState, current)
-          current.resolve(proof)
-          return true
-        }
-      } finally {
-        release()
+        valid = await verifyPaymentOnChain(w, proof, pending.invoice)
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error(String(error)))
+        return false
       }
+      if (!valid) {
+        pending.reject(new Error('Payment verification failed'))
+        return false
+      }
+
+      await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+      await updatePaymentLedgerEntry({
+        id: proof.invoiceId,
+        type: 'standard',
+        status: 'settled',
+        chainId: proof.chainId,
+        token: pending.invoice.token,
+        amount: pending.invoice.amount,
+        recipient: pending.invoice.recipient,
+        payer: '',
+        jobId: pending.invoice.jobId,
+        createdAt: Date.now(),
+        settledAt: Date.now(),
+        txHash: proof.txHash,
+        metadata: null,
+      })
+      pending.resolve(proof)
+      return true
     }
 
     const timedOut = await getTimedOutPayment(proof.invoiceId)
     if (timedOut && timedOut.status === 'pending') {
-      const timedOutInvoice: Invoice = {
-        id: timedOut.invoiceId,
-        jobId: timedOut.jobId,
-        chainId: timedOut.chainId,
-        amount: timedOut.amount,
-        token: timedOut.token,
-        tokenAddress: timedOut.tokenAddress as `0x${string}` | null,
-        recipient: timedOut.recipient,
-        validUntil: timedOut.validUntil,
-        signature: null,
-        publicKey: null,
-      }
-      try {
-        const valid = await verifyPaymentOnChain(wallet, proof, timedOutInvoice)
-        if (valid) {
-          await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
-          await updatePaymentLedgerEntry({
-            id: proof.invoiceId,
-            type: 'standard',
-            status: 'settled',
-            chainId: timedOut.chainId,
-            token: timedOut.token,
-            amount: timedOut.amount,
-            recipient: timedOut.recipient,
-            payer: '',
-            jobId: timedOut.jobId,
-            createdAt: timedOut.timedOutAt,
-            settledAt: Date.now(),
-            txHash: proof.txHash,
-            metadata: null,
-          })
-          return true
-        }
-        return false
-      } catch {
-        return false
-      }
+      const timedOutInvoice = timedOutPaymentToInvoice(timedOut)
+      const success = await verifyAndProcessPayment(w, proof, timedOutInvoice, async () => {
+        await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
+        await updatePaymentLedgerEntry({
+          id: proof.invoiceId,
+          type: 'standard',
+          status: 'settled',
+          chainId: timedOut.chainId,
+          token: timedOut.token,
+          amount: timedOut.amount,
+          recipient: timedOut.recipient,
+          payer: '',
+          jobId: timedOut.jobId,
+          createdAt: timedOut.timedOutAt,
+          settledAt: Date.now(),
+          txHash: proof.txHash,
+          metadata: null,
+        })
+      })
+      return success
     }
 
     return false
@@ -325,30 +247,20 @@ export function createPaymentHelpers(
   ): Promise<void> => {
     const jobId = ctx.message.id
     const currentAgreement = paymentState.escrowAgreements.get(jobId)
-
-    if (!currentAgreement) {
-      throw new Error(`No escrow agreement found for job ${jobId}`)
-    }
+    if (!currentAgreement) throw new Error(`No escrow agreement found for job ${jobId}`)
 
     if (currentAgreement.requiresApproval) {
-      if (!currentAgreement.approver) {
-        throw new Error(`Escrow agreement requires approval but no approver is set`)
-      }
+      if (!currentAgreement.approver) throw new Error(`Escrow agreement requires approval but no approver is set`)
       if (ctx.message.from !== currentAgreement.approver) {
         throw new Error(`Unauthorized: only the designated approver can release milestones`)
       }
     }
 
-    const expectedMilestones = currentAgreement.milestones
     const updatedAgreement = releaseEscrowMilestone(currentAgreement, milestoneId)
-
-    const didUpdate = await updateEscrowAgreementIfUnchanged(updatedAgreement, expectedMilestones)
+    const didUpdate = await updateEscrowAgreementIfUnchanged(updatedAgreement, currentAgreement.milestones)
     if (!didUpdate) {
-      const latestAgreement = paymentState.escrowAgreements.get(jobId)
-      const latestMilestone = latestAgreement?.milestones.find((m) => m.id === milestoneId)
-      if (latestMilestone?.released) {
-        throw new Error(`Milestone ${milestoneId} has already been released`)
-      }
+      const latestMilestone = paymentState.escrowAgreements.get(jobId)?.milestones.find((m) => m.id === milestoneId)
+      if (latestMilestone?.released) throw new Error(`Milestone ${milestoneId} has already been released`)
       throw new Error(`Escrow agreement ${currentAgreement.id} was updated concurrently`)
     }
 
@@ -357,52 +269,21 @@ export function createPaymentHelpers(
     const shouldSendInvoice = options?.sendInvoice !== false
     const milestone = updatedAgreement.milestones.find((m) => m.id === milestoneId)
     if (shouldSendInvoice && milestone && wallet) {
-      const invoice: Invoice = {
-        id: crypto.randomUUID(),
-        jobId: updatedAgreement.jobId,
-        chainId: updatedAgreement.chainId,
-        amount: milestone.amount,
-        token: updatedAgreement.token,
-        tokenAddress: null,
-        recipient: getAddress(wallet),
-        validUntil: Date.now() + 3600000,
-        signature: null,
-        publicKey: null,
-      }
-      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
-      await ctx.reply(signedInvoice, 'invoice')
+      const invoice = await createInvoiceForJob(updatedAgreement.jobId, updatedAgreement.chainId, milestone.amount, updatedAgreement.token)
+      await ctx.reply(invoice, 'invoice')
     }
   }
 
   const sendEscrowInvoice = async (ctx: MessageContext): Promise<void> => {
-    const jobId = ctx.message.id
-    const agreement = paymentState.escrowAgreements.get(jobId)
-
-    if (!agreement || !wallet) {
-      return
-    }
+    const agreement = paymentState.escrowAgreements.get(ctx.message.id)
+    if (!agreement || !wallet) return
 
     const releasedMilestones = agreement.milestones.filter((m) => m.released)
-    if (releasedMilestones.length === 0) {
-      return
-    }
+    if (releasedMilestones.length === 0) return
 
     const totalAmount = releasedMilestones.reduce((sum, m) => sum + toWei(m.amount), 0n)
-
-    const invoice: Invoice = {
-      id: crypto.randomUUID(),
-      jobId: agreement.jobId,
-      chainId: agreement.chainId,
-      amount: bigintToDecimalString(totalAmount),
-      token: agreement.token,
-      tokenAddress: null,
-      recipient: getAddress(wallet),
-      validUntil: Date.now() + 3600000,
-      signature: null,
-      publicKey: null,
-    }
-    const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
-    await ctx.reply(signedInvoice, 'invoice')
+    const invoice = await createInvoiceForJob(agreement.jobId, agreement.chainId, bigintToDecimalString(totalAmount), agreement.token)
+    await ctx.reply(invoice, 'invoice')
   }
 
   const recordTokens = async (
@@ -411,167 +292,90 @@ export function createPaymentHelpers(
     options?: RecordTokensOptions
   ): Promise<RecordTokensResult> => {
     const channelId = options?.channelId ?? ctx.message.id
-    const mutex = getStreamingMutex(paymentState, channelId)
-    const release = await mutex.acquire()
+    let agreement = paymentState.streamingAgreements.get(channelId)
 
-    try {
-      let agreement = paymentState.streamingAgreements.get(channelId)
+    if (!agreement) {
+      if (!options?.pricing) throw new Error(`No streaming agreement found for channel ${channelId} and no pricing config provided`)
+      const w = requireWallet()
 
-      if (!agreement) {
-        if (!options?.pricing) {
-          throw new Error(`No streaming agreement found for channel ${channelId} and no pricing config provided`)
-        }
-
-        if (!wallet) {
-          throw new Error('Wallet not configured for payments')
-        }
-
-        agreement = {
-          id: crypto.randomUUID(),
-          jobId: channelId,
-          payer: ctx.message.from,
-          recipient: getAddress(wallet),
-          chainId: options.pricing.chainId,
-          token: options.pricing.token ?? 'ETH',
-          ratePerToken: bigintToDecimalString(options.pricing.ratePerToken ? toWei(options.pricing.ratePerToken) : 0n),
-          accumulatedAmount: '0',
-          lastTick: Date.now(),
-          status: 'active',
-          createdAt: Date.now(),
-          closedAt: null,
-        }
-        await writeStreamingChannel(agreement)
-        paymentState.streamingAgreements.set(channelId, agreement)
+      agreement = {
+        id: crypto.randomUUID(),
+        jobId: channelId,
+        payer: ctx.message.from,
+        recipient: getAddress(w),
+        chainId: options.pricing.chainId,
+        token: options.pricing.token ?? 'ETH',
+        ratePerToken: bigintToDecimalString(options.pricing.ratePerToken ? toWei(options.pricing.ratePerToken) : 0n),
+        accumulatedAmount: '0',
+        lastTick: Date.now(),
+        status: 'active',
+        createdAt: Date.now(),
+        closedAt: null,
       }
-
-      const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
-
-      await updateStreamingChannel(updatedAgreement)
-      paymentState.streamingAgreements.set(channelId, updatedAgreement)
-
-      let invoiceSent = false
-      if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
-        const invoice: Invoice = {
-          id: crypto.randomUUID(),
-          jobId: channelId,
-          chainId: updatedAgreement.chainId,
-          amount: amountOwed,
-          token: updatedAgreement.token,
-          tokenAddress: null,
-          recipient: updatedAgreement.recipient,
-          validUntil: Date.now() + 3600000,
-          signature: null,
-          publicKey: null,
-        }
-        const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
-        await ctx.reply(signedInvoice, 'invoice')
-        invoiceSent = true
-      }
-
-      const ratePerToken = parseFloat(updatedAgreement.ratePerToken)
-      const totalTokens = ratePerToken > 0
-        ? Math.round(parseFloat(updatedAgreement.accumulatedAmount) / ratePerToken)
-        : 0
-
-      return {
-        channelId,
-        tokens: count,
-        totalTokens,
-        amountOwed,
-        totalAmount: updatedAgreement.accumulatedAmount,
-        invoiceSent,
-      }
-    } finally {
-      release()
+      await writeStreamingChannel(agreement)
+      paymentState.streamingAgreements.set(channelId, agreement)
     }
+
+    const { agreement: updatedAgreement, amountOwed } = recordStreamingTick(agreement, count)
+    await updateStreamingChannel(updatedAgreement)
+    paymentState.streamingAgreements.set(channelId, updatedAgreement)
+
+    let invoiceSent = false
+    if (options?.autoInvoice && parseFloat(amountOwed) > 0) {
+      const invoice = await createSignedInvoice(
+        { jobId: channelId, chainId: updatedAgreement.chainId, amount: amountOwed, token: updatedAgreement.token, recipient: updatedAgreement.recipient },
+        signingKey
+      )
+      await ctx.reply(invoice, 'invoice')
+      invoiceSent = true
+    }
+
+    const ratePerToken = parseFloat(updatedAgreement.ratePerToken)
+    const totalTokens = ratePerToken > 0 ? Math.round(parseFloat(updatedAgreement.accumulatedAmount) / ratePerToken) : 0
+
+    return { channelId, tokens: count, totalTokens, amountOwed, totalAmount: updatedAgreement.accumulatedAmount, invoiceSent }
   }
 
-  const sendStreamingInvoice = async (
-    ctx: MessageContext,
-    channelId: string
-  ): Promise<void> => {
+  const sendStreamingInvoice = async (ctx: MessageContext, channelId: string): Promise<void> => {
     const agreement = paymentState.streamingAgreements.get(channelId)
-    if (!agreement) {
-      return
-    }
+    if (!agreement || parseFloat(agreement.accumulatedAmount) <= 0) return
 
-    const amount = agreement.accumulatedAmount
-    if (parseFloat(amount) <= 0) {
-      return
-    }
-
-    const invoice: Invoice = {
-      id: crypto.randomUUID(),
-      jobId: channelId,
-      chainId: agreement.chainId,
-      amount,
-      token: agreement.token,
-      tokenAddress: null,
-      recipient: agreement.recipient,
-      validUntil: Date.now() + 3600000,
-      signature: null,
-      publicKey: null,
-    }
-    const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
-    await ctx.reply({ invoice: signedInvoice }, 'invoice')
+    const invoice = await createSignedInvoice(
+      { jobId: channelId, chainId: agreement.chainId, amount: agreement.accumulatedAmount, token: agreement.token, recipient: agreement.recipient },
+      signingKey
+    )
+    await ctx.reply({ invoice }, 'invoice')
   }
 
   const closeStreamingChannel = async (channelId: string): Promise<void> => {
-    const mutex = getStreamingMutex(paymentState, channelId)
-    const release = await mutex.acquire()
+    const agreement = paymentState.streamingAgreements.get(channelId)
+    if (!agreement) return
 
-    try {
-      const agreement = paymentState.streamingAgreements.get(channelId)
-      if (!agreement) {
-        return
-      }
+    const closedAgreement: StreamingAgreement = { ...agreement, status: 'closed', closedAt: Date.now() }
+    await updateStreamingChannel(closedAgreement)
 
-      const closedAgreement: StreamingAgreement = {
-        ...agreement,
-        status: 'closed',
-        closedAt: Date.now(),
-      }
+    await updatePaymentLedgerEntry({
+      id: agreement.id,
+      type: 'streaming',
+      status: 'settled',
+      chainId: agreement.chainId,
+      token: agreement.token,
+      amount: agreement.accumulatedAmount,
+      recipient: agreement.recipient,
+      payer: agreement.payer,
+      jobId: agreement.jobId,
+      createdAt: agreement.createdAt,
+      settledAt: Date.now(),
+      txHash: null,
+      metadata: null,
+    })
 
-      await updateStreamingChannel(closedAgreement)
-
-      await updatePaymentLedgerEntry({
-        id: agreement.id,
-        type: 'streaming',
-        status: 'settled',
-        chainId: agreement.chainId,
-        token: agreement.token,
-        amount: agreement.accumulatedAmount,
-        recipient: agreement.recipient,
-        payer: agreement.payer,
-        jobId: agreement.jobId,
-        createdAt: agreement.createdAt,
-        settledAt: Date.now(),
-        txHash: null,
-        metadata: null,
-      })
-
-      paymentState.streamingAgreements.delete(channelId)
-      paymentState.streamingLocks.delete(channelId)
-    } finally {
-      release()
-    }
+    paymentState.streamingAgreements.delete(channelId)
   }
 
-  const distributeToSwarm = async (
-    jobId: string,
-    options: DistributeToSwarmOptions
-  ): Promise<DistributeToSwarmResult> => {
+  const distributeToSwarm = async (jobId: string, options: DistributeToSwarmOptions): Promise<DistributeToSwarmResult> => {
     const agentId = wallet ? getAddress(wallet) : 'unknown'
-
-    const swarmSplit = createSwarmSplit(
-      jobId,
-      agentId,
-      options.totalAmount,
-      options.chainId,
-      options.token ?? 'ETH',
-      options.participants
-    )
-
+    const swarmSplit = createSwarmSplit(jobId, agentId, options.totalAmount, options.chainId, options.token ?? 'ETH', options.participants)
     const distribution = distributeSwarmSplit(swarmSplit)
     await createAndDistributeSwarmSplit(swarmSplit, distribution.split)
 
@@ -594,22 +398,20 @@ export function createPaymentHelpers(
       await writePaymentLedgerEntry(ledgerEntry)
     }
 
-    const invoicesToAdd = distribution.invoices.length
     const availableSlots = MAX_INVOICE_QUEUE - paymentState.invoiceQueue.length
-    if (invoicesToAdd > availableSlots) {
-      throw new Error(`Invoice queue limit would be exceeded. Available: ${availableSlots}, needed: ${invoicesToAdd}. Call settleAll() first.`)
+    if (distribution.invoices.length > availableSlots) {
+      throw new Error(`Invoice queue limit would be exceeded. Available: ${availableSlots}, needed: ${distribution.invoices.length}. Call settleAll() first.`)
     }
 
     for (const invoice of distribution.invoices) {
-      const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
+      const signedInvoice = await createSignedInvoice(
+        { jobId: invoice.jobId, chainId: invoice.chainId, amount: invoice.amount, token: invoice.token, recipient: invoice.recipient },
+        signingKey
+      )
       paymentState.invoiceQueue.push(signedInvoice)
     }
 
-    return {
-      splitId: swarmSplit.id,
-      invoicesSent: distribution.invoices.length,
-      totalAmount: options.totalAmount,
-    }
+    return { splitId: swarmSplit.id, invoicesSent: distribution.invoices.length, totalAmount: options.totalAmount }
   }
 
   const queueInvoice = (invoice: Invoice): void => {
@@ -620,23 +422,14 @@ export function createPaymentHelpers(
   }
 
   const settleAll = async (): Promise<BatchSettlementResult[]> => {
-    if (!wallet) {
-      throw new Error('Wallet not configured for payments')
-    }
-
-    if (paymentState.invoiceQueue.length === 0) {
-      return []
-    }
-
+    const w = requireWallet()
+    if (paymentState.invoiceQueue.length === 0) return []
     const invoices = [...paymentState.invoiceQueue]
     paymentState.invoiceQueue = []
-
-    return batchSettle(wallet, invoices)
+    return batchSettle(w, invoices)
   }
 
-  const getPendingInvoices = (): Invoice[] => {
-    return [...paymentState.invoiceQueue]
-  }
+  const getPendingInvoices = (): Invoice[] => [...paymentState.invoiceQueue]
 
   const rewardPeer = async (
     jobId: string,
@@ -644,9 +437,7 @@ export function createPaymentHelpers(
     chainId: number,
     options?: WorkRewardOptions
   ): Promise<WorkRewardResult | null> => {
-    if (!wallet) {
-      return null
-    }
+    if (!wallet) return null
 
     try {
       const jobIdHash = generateJobId(jobId)
@@ -654,29 +445,10 @@ export function createPaymentHelpers(
       const consensusAchieved = options?.consensusAchieved ?? false
       const fastResponse = options?.fastResponse ?? false
 
-      const estimated = await estimateReward(
-        wallet,
-        chainId,
-        peerAddress as `0x${string}`,
-        difficulty,
-        consensusAchieved,
-        fastResponse
-      )
+      const estimated = await estimateReward(wallet, chainId, peerAddress as `0x${string}`, difficulty, consensusAchieved, fastResponse)
+      const txHash = await distributeReward(wallet, chainId, jobIdHash, peerAddress as `0x${string}`, difficulty, consensusAchieved, fastResponse)
 
-      const txHash = await distributeReward(
-        wallet,
-        chainId,
-        jobIdHash,
-        peerAddress as `0x${string}`,
-        difficulty,
-        consensusAchieved,
-        fastResponse
-      )
-
-      return {
-        txHash,
-        estimatedReward: estimated,
-      }
+      return { txHash, estimatedReward: estimated }
     } catch {
       return null
     }
@@ -684,7 +456,7 @@ export function createPaymentHelpers(
 
   return {
     requirePayment,
-    createInvoice,
+    createInvoice: createInvoiceFromCtx,
     verifyPayment,
     releaseMilestone,
     sendEscrowInvoice,
@@ -703,7 +475,6 @@ export function createPaymentState(): PaymentState {
   return {
     escrowAgreements: new Map(),
     streamingAgreements: new Map(),
-    streamingLocks: new Map(),
     pendingPayments: new Map(),
     invoiceQueue: [],
   }
@@ -714,76 +485,35 @@ export async function handlePaymentProof(
   proof: PaymentProof,
   wallet: WalletState | null
 ): Promise<boolean> {
-  const alreadyProcessed = await isPaymentProofProcessed(proof.txHash, proof.chainId)
-  if (alreadyProcessed) {
-    return false
-  }
+  if (await isPaymentProofProcessed(proof.txHash, proof.chainId)) return false
+  if (!wallet) return false
 
-  if (!wallet) {
-    return false
-  }
-
-  const pending = paymentState.pendingPayments.get(proof.invoiceId)
+  const pending = takePendingPayment(paymentState, proof.invoiceId)
   if (pending) {
-    const release = await pending.mutex.acquire()
-    try {
-      const current = paymentState.pendingPayments.get(proof.invoiceId)
-      if (current && !current.settled) {
-        let valid = false
-        try {
-          valid = await verifyPaymentOnChain(wallet, proof, current.invoice)
-        } catch (error) {
-          current.settled = true
-          clearPendingPayment(paymentState, current)
-          current.reject(error instanceof Error ? error : new Error(String(error)))
-          return false
-        }
-
-        if (!valid) {
-          current.settled = true
-          clearPendingPayment(paymentState, current)
-          current.reject(new Error('Payment verification failed: transaction invalid'))
-          return false
-        }
-
-        await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
-        current.settled = true
-        clearPendingPayment(paymentState, current)
-        current.resolve(proof)
-        return true
-      }
-    } finally {
-      release()
-    }
-  }
-
-  const timedOut = await getTimedOutPayment(proof.invoiceId)
-  if (timedOut && timedOut.status === 'pending') {
-    const timedOutInvoice: Invoice = {
-      id: timedOut.invoiceId,
-      jobId: timedOut.jobId,
-      chainId: timedOut.chainId,
-      amount: timedOut.amount,
-      token: timedOut.token,
-      tokenAddress: timedOut.tokenAddress as `0x${string}` | null,
-      recipient: timedOut.recipient,
-      validUntil: timedOut.validUntil,
-      signature: null,
-      publicKey: null,
-    }
     let valid = false
     try {
-      valid = await verifyPaymentOnChain(wallet, proof, timedOutInvoice)
-    } catch {
+      valid = await verifyPaymentOnChain(wallet, proof, pending.invoice)
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)))
       return false
     }
 
     if (!valid) {
+      pending.reject(new Error('Payment verification failed'))
       return false
     }
 
-    await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
+    await markPaymentProofProcessed(proof.txHash, proof.chainId, proof.invoiceId)
+    pending.resolve(proof)
     return true
+  }
+
+  const timedOut = await getTimedOutPayment(proof.invoiceId)
+  if (timedOut && timedOut.status === 'pending') {
+    const timedOutInvoice = timedOutPaymentToInvoice(timedOut)
+    return verifyAndProcessPayment(wallet, proof, timedOutInvoice, async () => {
+      await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
+    })
   }
 
   return false
@@ -799,9 +529,7 @@ export async function setupEscrowAgreement(
   const milestones = pricing.milestones ?? []
   if (milestones.length > 0) {
     validateEscrowAmounts(milestones)
-    if (pricing.amount) {
-      validateMilestonesTotal(milestones, pricing.amount)
-    }
+    if (pricing.amount) validateMilestonesTotal(milestones, pricing.amount)
   }
 
   const agreement: EscrowAgreement = {
@@ -914,59 +642,39 @@ export async function setupStreamingAgreement(
 }
 
 export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null {
-  if (!wallet) {
-    return null
-  }
-
-  const calculateFee = async (chainId: number, amount: bigint): Promise<FeeCalculation> => {
-    const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
-    return {
-      feePercent: feeInfo.feePercent,
-      feeAmount: feeInfo.feeAmount,
-      netAmount: amount - feeInfo.feeAmount,
-      isEccoDiscount: false,
-    }
-  }
-
-  const payWithFee = async (
-    chainId: number,
-    recipient: `0x${string}`,
-    amount: bigint
-  ): Promise<PayWithFeeResult> => {
-    const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
-    const feeHash = await collectFeeOnChain(wallet, chainId, recipient, amount)
-    return {
-      paymentHash: feeHash,
-      feeHash,
-      feeAmount: feeInfo.feeAmount,
-      netAmount: amount - feeInfo.feeAmount,
-    }
-  }
-
-  const collectFeeWithEcco = async (
-    chainId: number,
-    payee: `0x${string}`,
-    amount: bigint
-  ): Promise<string> => {
-    return collectFeeOnChain(wallet, chainId, payee, amount)
-  }
-
-  const claimRewards = async (chainId: number): Promise<string> => {
-    return claimRewardsOnChain(wallet, chainId)
-  }
-
-  const getPendingRewards = async (
-    chainId: number
-  ): Promise<{ ethPending: bigint; eccoPending: bigint }> => {
-    const pending = await getPendingRewardsOnChain(wallet, chainId, wallet.account.address)
-    return { ethPending: 0n, eccoPending: pending }
-  }
+  if (!wallet) return null
 
   return {
-    calculateFee,
-    payWithFee,
-    collectFeeWithEcco,
-    claimRewards,
-    getPendingRewards,
+    calculateFee: async (chainId: number, amount: bigint): Promise<FeeCalculation> => {
+      const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
+      return {
+        feePercent: feeInfo.feePercent,
+        feeAmount: feeInfo.feeAmount,
+        netAmount: amount - feeInfo.feeAmount,
+        isEccoDiscount: false,
+      }
+    },
+
+    payWithFee: async (chainId: number, recipient: `0x${string}`, amount: bigint): Promise<PayWithFeeResult> => {
+      const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
+      const feeHash = await collectFeeOnChain(wallet, chainId, recipient, amount)
+      return {
+        paymentHash: feeHash,
+        feeHash,
+        feeAmount: feeInfo.feeAmount,
+        netAmount: amount - feeInfo.feeAmount,
+      }
+    },
+
+    collectFeeWithEcco: (chainId: number, payee: `0x${string}`, amount: bigint): Promise<string> =>
+      collectFeeOnChain(wallet, chainId, payee, amount),
+
+    claimRewards: (chainId: number): Promise<string> =>
+      claimRewardsOnChain(wallet, chainId),
+
+    getPendingRewards: async (chainId: number): Promise<{ ethPending: bigint; eccoPending: bigint }> => {
+      const pending = await getPendingRewardsOnChain(wallet, chainId, wallet.account.address)
+      return { ethPending: 0n, eccoPending: pending }
+    },
   }
 }
