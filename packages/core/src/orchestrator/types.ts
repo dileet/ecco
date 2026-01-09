@@ -2,12 +2,7 @@ import type { PeerInfo } from '../types';
 import type { NodeState, StateRef } from '../node/types';
 import type { EmbedFn } from '../agent/types';
 
-export type SelectionStrategy =
-  | 'all'
-  | 'top-n'
-  | 'round-robin'
-  | 'random'
-  | 'weighted';
+export type SelectionStrategy = 'all' | 'top-n' | 'round-robin' | 'random' | 'weighted';
 
 export type AggregationStrategy =
   | 'majority-vote'
@@ -20,31 +15,7 @@ export type AggregationStrategy =
   | 'synthesized-consensus'
   | 'custom';
 
-export type SynthesizeFn = (
-  query: string,
-  responses: AgentResponse[]
-) => Promise<string>;
-
-export interface MultiAgentConfig {
-  selectionStrategy: SelectionStrategy;
-  agentCount?: number;
-  aggregationStrategy: AggregationStrategy;
-  minAgents?: number;
-  consensusThreshold?: number;
-  timeout?: number;
-  allowPartialResults?: boolean;
-  customAggregator?: (responses: AgentResponse[]) => AggregatedResult;
-  loadBalancing?: LoadBalancingConfig;
-  semanticSimilarity?: SemanticSimilarityConfig;
-  zoneSelection?: ZoneSelectionConfig;
-  stakeRequirement?: StakeRequirementConfig;
-  nodeRef?: StateRef<NodeState>;
-  onStream?: (chunk: { text: string; peerId: string }) => void;
-  maxStreamBufferBytes?: number;
-  maxStreamChunks?: number;
-  synthesizeFn?: SynthesizeFn;
-  originalQuery?: string;
-}
+export type SynthesizeFn = (query: string, responses: AgentResponse[]) => Promise<string>;
 
 export interface SemanticSimilarityConfig {
   enabled: boolean;
@@ -77,6 +48,27 @@ export interface StakeRequirementConfig {
   minStake?: bigint;
   preferStaked?: boolean;
   stakedBonus?: number;
+}
+
+export interface MultiAgentConfig {
+  selectionStrategy: SelectionStrategy;
+  agentCount?: number;
+  aggregationStrategy: AggregationStrategy;
+  minAgents?: number;
+  consensusThreshold?: number;
+  timeout?: number;
+  allowPartialResults?: boolean;
+  customAggregator?: (responses: AgentResponse[]) => AggregatedResult;
+  loadBalancing?: LoadBalancingConfig;
+  semanticSimilarity?: SemanticSimilarityConfig;
+  zoneSelection?: ZoneSelectionConfig;
+  stakeRequirement?: StakeRequirementConfig;
+  nodeRef?: StateRef<NodeState>;
+  onStream?: (chunk: { text: string; peerId: string }) => void;
+  maxStreamBufferBytes?: number;
+  maxStreamChunks?: number;
+  synthesizeFn?: SynthesizeFn;
+  originalQuery?: string;
 }
 
 export interface AgentResponse {
@@ -121,3 +113,16 @@ export interface AgentLoadState {
   lastRequestTime: number;
   successRate: number;
 }
+
+export interface OrchestratorState {
+  loadStates: Record<string, AgentLoadState>;
+}
+
+export const initialOrchestratorState: OrchestratorState = {
+  loadStates: {},
+};
+
+export const isOrchestratorStateRef = (
+  value: OrchestratorState | StateRef<OrchestratorState>
+): value is StateRef<OrchestratorState> =>
+  'current' in value && 'version' in value && typeof value.version === 'number';
