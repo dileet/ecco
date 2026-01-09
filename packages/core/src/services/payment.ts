@@ -98,8 +98,7 @@ export function recordStreamingTick(
 
 export function releaseEscrowMilestone(
   agreement: EscrowAgreement,
-  milestoneId: string,
-  txHash?: string
+  milestoneId: string
 ): EscrowAgreement {
   if (agreement.status === 'cancelled') {
     throw new Error(`Cannot release milestone: agreement ${agreement.id} is cancelled`);
@@ -125,7 +124,6 @@ export function releaseEscrowMilestone(
           ...m,
           released: true,
           releasedAt: Date.now(),
-          txHash,
           status: 'released' as const,
         }
       : m
@@ -217,6 +215,7 @@ export function createSwarmSplit(
     participants: swarmParticipants,
     status: 'pending',
     createdAt: Date.now(),
+    distributedAt: null,
   };
 }
 
@@ -230,8 +229,11 @@ export function distributeSwarmSplit(split: SwarmSplit): {
     chainId: split.chainId,
     amount: participant.amount,
     token: split.token,
+    tokenAddress: null,
     recipient: participant.walletAddress,
     validUntil: Date.now() + 3600000,
+    signature: null,
+    publicKey: null,
   }));
 
   return {

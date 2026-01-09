@@ -141,8 +141,11 @@ export function createPaymentHelpers(
       chainId: pricing.chainId,
       amount: bigintToDecimalString(amount),
       token: pricing.token ?? 'ETH',
+      tokenAddress: null,
       recipient: getAddress(wallet),
       validUntil: Date.now() + 3600000,
+      signature: null,
+      publicKey: null,
     }
 
     if (signingKey) {
@@ -173,6 +176,9 @@ export function createPaymentHelpers(
       payer: ctx.message.from,
       jobId: invoice.jobId,
       createdAt: Date.now(),
+      txHash: null,
+      settledAt: null,
+      metadata: null,
     }
     await writePaymentLedgerEntry(ledgerEntry)
 
@@ -256,6 +262,7 @@ export function createPaymentHelpers(
             createdAt: Date.now(),
             settledAt: Date.now(),
             txHash: proof.txHash,
+            metadata: null,
           })
           current.settled = true
           clearPendingPayment(paymentState, current)
@@ -269,23 +276,36 @@ export function createPaymentHelpers(
 
     const timedOut = await getTimedOutPayment(proof.invoiceId)
     if (timedOut && timedOut.status === 'pending') {
+      const timedOutInvoice: Invoice = {
+        id: timedOut.invoiceId,
+        jobId: timedOut.jobId,
+        chainId: timedOut.chainId,
+        amount: timedOut.amount,
+        token: timedOut.token,
+        tokenAddress: timedOut.tokenAddress as `0x${string}` | null,
+        recipient: timedOut.recipient,
+        validUntil: timedOut.validUntil,
+        signature: null,
+        publicKey: null,
+      }
       try {
-        const valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
+        const valid = await verifyPaymentOnChain(wallet, proof, timedOutInvoice)
         if (valid) {
           await processPaymentRecovery(proof.txHash, proof.chainId, proof.invoiceId)
           await updatePaymentLedgerEntry({
             id: proof.invoiceId,
             type: 'standard',
             status: 'settled',
-            chainId: proof.chainId,
-            token: timedOut.invoice.token,
-            amount: timedOut.invoice.amount,
-            recipient: timedOut.invoice.recipient,
+            chainId: timedOut.chainId,
+            token: timedOut.token,
+            amount: timedOut.amount,
+            recipient: timedOut.recipient,
             payer: '',
-            jobId: timedOut.invoice.jobId,
+            jobId: timedOut.jobId,
             createdAt: timedOut.timedOutAt,
             settledAt: Date.now(),
             txHash: proof.txHash,
+            metadata: null,
           })
           return true
         }
@@ -343,8 +363,11 @@ export function createPaymentHelpers(
         chainId: updatedAgreement.chainId,
         amount: milestone.amount,
         token: updatedAgreement.token,
+        tokenAddress: null,
         recipient: getAddress(wallet),
         validUntil: Date.now() + 3600000,
+        signature: null,
+        publicKey: null,
       }
       const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
       await ctx.reply(signedInvoice, 'invoice')
@@ -372,8 +395,11 @@ export function createPaymentHelpers(
       chainId: agreement.chainId,
       amount: bigintToDecimalString(totalAmount),
       token: agreement.token,
+      tokenAddress: null,
       recipient: getAddress(wallet),
       validUntil: Date.now() + 3600000,
+      signature: null,
+      publicKey: null,
     }
     const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
     await ctx.reply(signedInvoice, 'invoice')
@@ -412,6 +438,7 @@ export function createPaymentHelpers(
           lastTick: Date.now(),
           status: 'active',
           createdAt: Date.now(),
+          closedAt: null,
         }
         await writeStreamingChannel(agreement)
         paymentState.streamingAgreements.set(channelId, agreement)
@@ -430,8 +457,11 @@ export function createPaymentHelpers(
           chainId: updatedAgreement.chainId,
           amount: amountOwed,
           token: updatedAgreement.token,
+          tokenAddress: null,
           recipient: updatedAgreement.recipient,
           validUntil: Date.now() + 3600000,
+          signature: null,
+          publicKey: null,
         }
         const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
         await ctx.reply(signedInvoice, 'invoice')
@@ -476,8 +506,11 @@ export function createPaymentHelpers(
       chainId: agreement.chainId,
       amount,
       token: agreement.token,
+      tokenAddress: null,
       recipient: agreement.recipient,
       validUntil: Date.now() + 3600000,
+      signature: null,
+      publicKey: null,
     }
     const signedInvoice = signingKey ? await signInvoice(signingKey, invoice) : invoice
     await ctx.reply({ invoice: signedInvoice }, 'invoice')
@@ -496,6 +529,7 @@ export function createPaymentHelpers(
       const closedAgreement: StreamingAgreement = {
         ...agreement,
         status: 'closed',
+        closedAt: Date.now(),
       }
 
       await updateStreamingChannel(closedAgreement)
@@ -512,6 +546,8 @@ export function createPaymentHelpers(
         jobId: agreement.jobId,
         createdAt: agreement.createdAt,
         settledAt: Date.now(),
+        txHash: null,
+        metadata: null,
       })
 
       paymentState.streamingAgreements.delete(channelId)
@@ -551,6 +587,8 @@ export function createPaymentHelpers(
         payer: agentId,
         jobId,
         createdAt: Date.now(),
+        txHash: null,
+        settledAt: null,
         metadata: { swarmSplitId: swarmSplit.id },
       }
       await writePaymentLedgerEntry(ledgerEntry)
@@ -721,9 +759,21 @@ export async function handlePaymentProof(
 
   const timedOut = await getTimedOutPayment(proof.invoiceId)
   if (timedOut && timedOut.status === 'pending') {
+    const timedOutInvoice: Invoice = {
+      id: timedOut.invoiceId,
+      jobId: timedOut.jobId,
+      chainId: timedOut.chainId,
+      amount: timedOut.amount,
+      token: timedOut.token,
+      tokenAddress: timedOut.tokenAddress as `0x${string}` | null,
+      recipient: timedOut.recipient,
+      validUntil: timedOut.validUntil,
+      signature: null,
+      publicKey: null,
+    }
     let valid = false
     try {
-      valid = await verifyPaymentOnChain(wallet, proof, timedOut.invoice)
+      valid = await verifyPaymentOnChain(wallet, proof, timedOutInvoice)
     } catch {
       return false
     }
@@ -766,6 +816,8 @@ export async function setupEscrowAgreement(
       id: m.id,
       amount: bigintToDecimalString(toWei(m.amount)),
       released: false,
+      status: 'pending' as const,
+      releasedAt: null,
     })),
     status: 'locked',
     createdAt: Date.now(),
@@ -791,6 +843,9 @@ export async function setupEscrowAgreement(
     payer: agreement.payer,
     jobId: agreement.jobId,
     createdAt: agreement.createdAt,
+    txHash: null,
+    settledAt: null,
+    metadata: null,
   }
   try {
     await writePaymentLedgerEntry(ledgerEntry)
@@ -823,6 +878,7 @@ export async function setupStreamingAgreement(
     lastTick: Date.now(),
     status: 'active',
     createdAt: Date.now(),
+    closedAt: null,
   }
 
   try {
@@ -843,6 +899,9 @@ export async function setupStreamingAgreement(
     payer: agreement.payer,
     jobId: agreement.jobId,
     createdAt: agreement.createdAt,
+    txHash: null,
+    settledAt: null,
+    metadata: null,
   }
   try {
     await writePaymentLedgerEntry(ledgerEntry)

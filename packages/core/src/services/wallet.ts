@@ -414,8 +414,11 @@ export async function batchSettle(
         chainId: group.chainId,
         amount: group.totalAmount,
         token: group.token,
+        tokenAddress: null,
         recipient: group.recipient,
         validUntil: Date.now() + 3600000,
+        signature: null,
+        publicKey: null,
       };
 
       const proof = await pay(state, invoice);

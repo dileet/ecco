@@ -1,3 +1,17 @@
+export {
+  type EscrowMilestone,
+  type EscrowAgreement,
+  type PaymentLedgerEntry,
+  type StreamingAgreement,
+  type StakePosition,
+  type SwarmParticipant,
+  type SwarmSplit,
+  type SettlementIntent,
+  type StoredInvoice,
+  type TimedOutPayment,
+  type ExpectedInvoice,
+} from './storage/schema';
+
 export type DiscoveryMethod =
   | 'mdns'
   | 'dht'
@@ -190,11 +204,11 @@ export interface Invoice {
   chainId: number;
   amount: string;
   token: string;
-  tokenAddress?: `0x${string}`;
+  tokenAddress: `0x${string}` | null;
   recipient: string;
   validUntil: number;
-  signature?: string;
-  publicKey?: string;
+  signature: string | null;
+  publicKey: string | null;
 }
 
 export interface SignedInvoice extends Invoice {
@@ -214,63 +228,6 @@ export interface QuoteRequest {
   preferredChains?: number[];
 }
 
-export type PaymentLedgerStatus = 'pending' | 'streaming' | 'settled' | 'slashed' | 'cancelled';
-
-export interface PaymentLedgerEntry {
-  id: string;
-  type: 'streaming' | 'escrow' | 'stake' | 'swarm' | 'standard';
-  status: PaymentLedgerStatus;
-  chainId: number;
-  token: string;
-  amount: string;
-  recipient: string;
-  payer: string;
-  jobId?: string;
-  createdAt: number;
-  settledAt?: number;
-  txHash?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface StreamingAgreement {
-  id: string;
-  jobId: string;
-  payer: string;
-  recipient: string;
-  chainId: number;
-  token: string;
-  ratePerToken: string;
-  accumulatedAmount: string;
-  lastTick: number;
-  status: 'active' | 'closed';
-  createdAt: number;
-  closedAt?: number;
-}
-
-export interface EscrowMilestone {
-  id: string;
-  amount: string;
-  released: boolean;
-  status?: 'pending' | 'approved' | 'released' | 'cancelled';
-  releasedAt?: number;
-  txHash?: string;
-}
-
-export interface EscrowAgreement {
-  id: string;
-  jobId: string;
-  payer: string;
-  recipient: string;
-  chainId: number;
-  token: string;
-  totalAmount: string;
-  milestones: EscrowMilestone[];
-  status: 'pending' | 'locked' | 'partially-released' | 'fully-released' | 'cancelled';
-  createdAt: number;
-  requiresApproval: boolean;
-  approver?: string;
-}
-
 export interface StakeRequirement {
   id: string;
   jobId: string;
@@ -279,54 +236,6 @@ export interface StakeRequirement {
   amount: string;
   slashingCondition: string;
   verifier?: string;
-}
-
-export interface StakePosition {
-  id: string;
-  stakeRequirementId: string;
-  jobId: string;
-  staker: string;
-  chainId: number;
-  token: string;
-  amount: string;
-  status: 'locked' | 'released' | 'slashed';
-  lockedAt: number;
-  releasedAt?: number;
-  slashedAt?: number;
-  txHash?: string;
-  releaseTxHash?: string;
-  slashTxHash?: string;
-}
-
-export interface SwarmParticipant {
-  peerId: string;
-  walletAddress: string;
-  contribution: number;
-  amount: string;
-}
-
-export interface SwarmSplit {
-  id: string;
-  jobId: string;
-  payer: string;
-  totalAmount: string;
-  chainId: number;
-  token: string;
-  participants: SwarmParticipant[];
-  status: 'pending' | 'distributed' | 'failed';
-  createdAt: number;
-  distributedAt?: number;
-}
-
-export interface SettlementIntent {
-  id: string;
-  type: 'streaming' | 'escrow' | 'stake-release' | 'stake-slash' | 'swarm' | 'standard';
-  ledgerEntryId: string;
-  invoice?: Invoice;
-  priority: number;
-  createdAt: number;
-  retryCount: number;
-  maxRetries: number;
 }
 
 export interface ProtocolVersion {

@@ -96,10 +96,11 @@ const InvoiceSchema = z.object({
   chainId: z.number(),
   amount: z.string(),
   token: z.string(),
+  tokenAddress: z.string().nullable().transform((v) => v as `0x${string}` | null),
   recipient: z.string(),
   validUntil: z.number(),
-  signature: z.string().optional(),
-  publicKey: z.string().optional(),
+  signature: z.string().nullable(),
+  publicKey: z.string().nullable(),
 })
 
 const StreamingTickSchema = z.object({

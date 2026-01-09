@@ -1,5 +1,5 @@
 import type { StateRef, NodeState } from './types';
-import type { SettlementIntent, PaymentLedgerEntry } from '../types';
+import type { SettlementIntent, PaymentLedgerEntry, Invoice } from '../types';
 import { getState, dequeueSettlement, updateSettlement, removeSettlement } from './state';
 import { pay } from '../services/wallet';
 import { updatePaymentLedgerEntry } from '../storage';
@@ -40,16 +40,22 @@ const processSettlement = async (
     return false;
   }
 
-  if (!settlement.invoice) {
+  const storedInvoice = settlement.invoice;
+  if (!storedInvoice) {
     await removeSettlement(stateRef, settlement.id);
     return true;
   }
+
+  const invoice: Invoice = {
+    ...storedInvoice,
+    tokenAddress: storedInvoice.tokenAddress as `0x${string}` | null,
+  };
 
   const maxRetries = settlement.maxRetries || DEFAULT_MAX_RETRIES;
 
   try {
     const proof = await retryWithBackoff(
-      () => pay(wallet, settlement.invoice!),
+      () => pay(wallet, invoice),
       {
         maxAttempts: maxRetries - settlement.retryCount,
         initialDelay: 1000,
@@ -67,15 +73,16 @@ const processSettlement = async (
       id: settlement.ledgerEntryId,
       type: getLedgerEntryType(settlement.type),
       status: 'settled',
-      chainId: settlement.invoice.chainId,
-      token: settlement.invoice.token,
-      amount: settlement.invoice.amount,
-      recipient: settlement.invoice.recipient,
+      chainId: invoice.chainId,
+      token: invoice.token,
+      amount: invoice.amount,
+      recipient: invoice.recipient,
       payer: '',
-      jobId: settlement.invoice.jobId,
+      jobId: invoice.jobId,
       createdAt: settlement.createdAt,
       settledAt: Date.now(),
       txHash: proof.txHash,
+      metadata: null,
     });
 
     await removeSettlement(stateRef, settlement.id);
@@ -85,13 +92,15 @@ const processSettlement = async (
       id: settlement.ledgerEntryId,
       type: getLedgerEntryType(settlement.type),
       status: 'cancelled',
-      chainId: settlement.invoice.chainId,
-      token: settlement.invoice.token,
-      amount: settlement.invoice.amount,
-      recipient: settlement.invoice.recipient,
+      chainId: invoice.chainId,
+      token: invoice.token,
+      amount: invoice.amount,
+      recipient: invoice.recipient,
       payer: '',
-      jobId: settlement.invoice.jobId,
+      jobId: invoice.jobId,
       createdAt: settlement.createdAt,
+      txHash: null,
+      settledAt: null,
       metadata: { error: error instanceof Error ? error.message : String(error) },
     });
 

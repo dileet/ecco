@@ -183,7 +183,6 @@ export type {
   Invoice,
   PaymentProof,
   QuoteRequest,
-  PaymentLedgerStatus,
   PaymentLedgerEntry,
   StreamingAgreement,
   EscrowAgreement,
