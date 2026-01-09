@@ -22,6 +22,54 @@ const MAX_QUEUED_MESSAGES_PER_PEER = 100;
 const QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE = 0.01;
 const MAX_MESSAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
+function dispatchToHandlers(
+  state: MessageBridgeState,
+  message: Message,
+  peerId: string,
+  includeTopic?: string
+): void {
+  const peerHandlers = state.directHandlers.get(peerId);
+  if (peerHandlers) {
+    for (const handler of peerHandlers) handler(message);
+  }
+
+  const globalHandlers = state.directHandlers.get('*');
+  if (globalHandlers) {
+    for (const handler of globalHandlers) handler(message);
+  }
+
+  if (includeTopic) {
+    const topicHandlers = state.topicHandlers.get(includeTopic);
+    if (topicHandlers) {
+      for (const handler of topicHandlers) handler(message);
+    }
+  }
+}
+
+async function verifyAuthIfEnabled(
+  state: MessageBridgeState,
+  message: Message
+): Promise<{ valid: boolean; authState?: AuthState }> {
+  if (!state.config.authEnabled || !state.authState) {
+    return { valid: true };
+  }
+  if (!message.signature) {
+    return { valid: false };
+  }
+  const { valid, state: newAuthState } = await verifyMessage(state.authState, message as SignedMessage);
+  return { valid, authState: newAuthState };
+}
+
+async function signIfEnabled(
+  state: MessageBridgeState,
+  message: Message
+): Promise<Message | SignedMessage> {
+  if (state.config.authEnabled && state.authState) {
+    return signMessage(state.authState, message);
+  }
+  return message;
+}
+
 const MessageSchema = z.object({
   id: z.string(),
   from: z.string(),
@@ -139,22 +187,9 @@ export async function serializeMessage(
   state: MessageBridgeState,
   message: Message
 ): Promise<TransportMessage> {
-  let messageToSerialize: Message | SignedMessage = message;
-
-  if (state.config.authEnabled && state.authState) {
-    messageToSerialize = await signMessage(state.authState, message);
-  }
-
-  const json = JSON.stringify(messageToSerialize);
-  const data = new TextEncoder().encode(json);
-
-  return {
-    id: message.id,
-    from: message.from,
-    to: message.to,
-    data,
-    timestamp: message.timestamp,
-  };
+  const signed = await signIfEnabled(state, message);
+  const data = new TextEncoder().encode(JSON.stringify(signed));
+  return { id: message.id, from: message.from, to: message.to, data, timestamp: message.timestamp };
 }
 
 export async function deserializeMessage(
@@ -163,7 +198,6 @@ export async function deserializeMessage(
 ): Promise<{ message: Message | null; valid: boolean; updatedState: MessageBridgeState }> {
   try {
     if (transportMessage.data.byteLength > MAX_MESSAGE_SIZE_BYTES) {
-      debug('deserializeMessage', `Message too large: ${transportMessage.data.byteLength} bytes exceeds ${MAX_MESSAGE_SIZE_BYTES}`);
       return { message: null, valid: false, updatedState: state };
     }
 
@@ -171,41 +205,22 @@ export async function deserializeMessage(
     const result = MessageSchema.safeParse(JSON.parse(json));
 
     if (!result.success) {
-      debug('deserializeMessage', `Schema validation failed: ${result.error.message}`);
       return { message: null, valid: false, updatedState: state };
     }
 
-    const parsed = result.data;
+    const parsed = result.data as Message;
+    const { valid, authState } = await verifyAuthIfEnabled(state, parsed);
 
-    if (state.config.authEnabled && state.authState) {
-      if (!parsed.signature) {
-        debug('deserializeMessage', 'Auth enabled but message has no signature, rejecting');
-        return { message: null, valid: false, updatedState: state };
-      }
-
-      const { valid, state: newAuthState } = await verifyMessage(
-        state.authState,
-        parsed as SignedMessage
-      );
-
-      if (!valid) {
-        return { message: null, valid: false, updatedState: state };
-      }
-
-      return {
-        message: parsed as Message,
-        valid: true,
-        updatedState: { ...state, authState: newAuthState },
-      };
+    if (!valid) {
+      return { message: null, valid: false, updatedState: state };
     }
 
     return {
-      message: parsed as Message,
+      message: parsed,
       valid: true,
-      updatedState: state,
+      updatedState: authState ? { ...state, authState } : state,
     };
-  } catch (error) {
-    debug('deserializeMessage', `Deserialization error: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
     return { message: null, valid: false, updatedState: state };
   }
 }
@@ -287,48 +302,19 @@ export async function handleIncomingTransportMessage(
   peerId: string,
   transportMessage: TransportMessage
 ): Promise<MessageBridgeState> {
-  debug('handleIncomingTransportMessage', `Received from ${peerId}`);
   const { message, valid, updatedState } = await deserializeMessage(state, transportMessage);
 
   if (!valid || !message) {
-    debug('handleIncomingTransportMessage', `Invalid message, valid=${valid}`);
     return updatedState;
   }
 
   if (message.from.toLowerCase() !== peerId.toLowerCase()) {
-    debug('handleIncomingTransportMessage', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
+    debug('handleIncomingTransportMessage', `Message 'from' mismatch: ${message.from} vs ${peerId}`);
     return updatedState;
   }
 
-  debug('handleIncomingTransportMessage', `Message type=${message.type}, from=${message.from}, to=${message.to}`);
-
-  const peerHandlers = updatedState.directHandlers.get(peerId);
-  debug('handleIncomingTransportMessage', `peerHandlers for ${peerId}: ${peerHandlers?.size ?? 0}`);
-  if (peerHandlers && peerHandlers.size > 0) {
-    for (const handler of Array.from(peerHandlers)) {
-      handler(message);
-    }
-  }
-
-  const globalHandlers = updatedState.directHandlers.get('*');
-  debug('handleIncomingTransportMessage', `globalHandlers (*): ${globalHandlers?.size ?? 0}`);
-  if (globalHandlers && globalHandlers.size > 0) {
-    for (const handler of Array.from(globalHandlers)) {
-      handler(message);
-    }
-  }
-
-  if (message.to && message.type === 'agent-response') {
-    const topic = `peer:${message.to}`;
-    const topicHandlers = updatedState.topicHandlers.get(topic);
-    debug('handleIncomingTransportMessage', `topicHandlers for ${topic}: ${topicHandlers?.size ?? 0}`);
-    debug('handleIncomingTransportMessage', `All topics: ${Array.from(updatedState.topicHandlers.keys()).join(', ')}`);
-    if (topicHandlers && topicHandlers.size > 0) {
-      for (const handler of Array.from(topicHandlers)) {
-        handler(message);
-      }
-    }
-  }
+  const topic = message.to && message.type === 'agent-response' ? `peer:${message.to}` : undefined;
+  dispatchToHandlers(updatedState, message, peerId, topic);
 
   return updatedState;
 }
@@ -343,27 +329,9 @@ export async function serializeTopicMessage(
   topic: string,
   message: Message
 ): Promise<TransportMessage> {
-  let messageToSerialize: Message | SignedMessage = message;
-
-  if (state.config.authEnabled && state.authState) {
-    messageToSerialize = await signMessage(state.authState, message);
-  }
-
-  const topicMessage: TopicMessage = {
-    topic,
-    message: messageToSerialize,
-  };
-
-  const json = JSON.stringify(topicMessage);
-  const data = new TextEncoder().encode(json);
-
-  return {
-    id: message.id,
-    from: message.from,
-    to: 'broadcast',
-    data,
-    timestamp: message.timestamp,
-  };
+  const signed = await signIfEnabled(state, message);
+  const data = new TextEncoder().encode(JSON.stringify({ topic, message: signed }));
+  return { id: message.id, from: message.from, to: 'broadcast', data, timestamp: message.timestamp };
 }
 
 export async function handleIncomingBroadcast(
@@ -371,58 +339,34 @@ export async function handleIncomingBroadcast(
   peerId: string,
   transportMessage: TransportMessage
 ): Promise<MessageBridgeState> {
-  debug('handleIncomingBroadcast', `Received from ${peerId}`);
   try {
     const json = new TextDecoder().decode(transportMessage.data);
     const result = TopicMessageSchema.safeParse(JSON.parse(json));
 
-    if (result.success) {
-      const topicMessage = result.data;
-      const message = topicMessage.message;
-      debug('handleIncomingBroadcast', `Parsed as topic message, topic=${topicMessage.topic}`);
-
-      if (message.from.toLowerCase() !== peerId.toLowerCase()) {
-        debug('handleIncomingBroadcast', `Message 'from' field (${message.from}) does not match transport peerId (${peerId}), discarding`);
-        return state;
-      }
-
-      let currentState = state;
-
-      if (state.config.authEnabled && state.authState) {
-        if (!message.signature) {
-          debug('handleIncomingBroadcast', `Auth enabled but broadcast from ${peerId} has no signature, discarding`);
-          return state;
-        }
-
-        const { valid, state: newAuthState } = await verifyMessage(
-          state.authState,
-          message as SignedMessage
-        );
-
-        if (!valid) {
-          console.warn(`Invalid broadcast signature from ${peerId}, discarding`);
-          return state;
-        }
-
-        currentState = { ...currentState, authState: newAuthState };
-      }
-
-      const handlers = currentState.topicHandlers.get(topicMessage.topic);
-      debug('handleIncomingBroadcast', `Found ${handlers?.size ?? 0} handlers for topic ${topicMessage.topic}`);
-      if (handlers && handlers.size > 0) {
-        for (const handler of Array.from(handlers)) {
-          handler(message as Message);
-        }
-      }
-
-      return currentState;
+    if (!result.success) {
+      return handleIncomingTransportMessage(state, peerId, transportMessage);
     }
 
-    debug('handleIncomingBroadcast', 'Not a topic message, falling back to handleIncomingTransportMessage');
-    return await handleIncomingTransportMessage(state, peerId, transportMessage);
+    const { topic, message } = result.data;
+
+    if (message.from.toLowerCase() !== peerId.toLowerCase()) {
+      debug('handleIncomingBroadcast', `Message 'from' mismatch: ${message.from} vs ${peerId}`);
+      return state;
+    }
+
+    const { valid, authState } = await verifyAuthIfEnabled(state, message as Message);
+    if (!valid) {
+      return state;
+    }
+
+    const handlers = state.topicHandlers.get(topic);
+    if (handlers) {
+      for (const handler of handlers) handler(message as Message);
+    }
+
+    return authState ? { ...state, authState } : state;
   } catch {
-    debug('handleIncomingBroadcast', 'Parse error, falling back to handleIncomingTransportMessage');
-    return await handleIncomingTransportMessage(state, peerId, transportMessage);
+    return handleIncomingTransportMessage(state, peerId, transportMessage);
   }
 }
 
@@ -632,7 +576,6 @@ export async function handleVersionHandshakeResponse(
 ): Promise<MessageBridgeState> {
   const pending = state.pendingHandshakes.get(peerId);
   if (!pending) {
-    debug('handshake', `Received unexpected handshake response from ${peerId}`);
     return state;
   }
 
@@ -643,21 +586,14 @@ export async function handleVersionHandshakeResponse(
 
   const response = parseHandshakeResponse(message.payload);
   if (!response) {
-    debug('handshake', `Invalid handshake response from ${peerId}`);
     return { ...state, pendingHandshakes };
   }
-
-  debug('handshake', `Handshake response from ${peerId}: accepted=${response.accepted}`);
 
   if (!response.accepted) {
     if (response.constitutionMismatch) {
       state.onPeerRejected?.(peerId, response.reason ?? 'Constitution mismatch');
     } else {
-      state.onUpgradeRequired?.(
-        peerId,
-        formatVersion(response.minProtocolVersion),
-        response.upgradeUrl
-      );
+      state.onUpgradeRequired?.(peerId, formatVersion(response.minProtocolVersion), response.upgradeUrl);
       state.onPeerRejected?.(peerId, response.reason ?? 'Version incompatible');
     }
     return { ...state, pendingHandshakes };
@@ -676,37 +612,11 @@ export async function handleVersionHandshakeResponse(
   let currentAuthState = state.authState;
 
   for (const queuedMessage of queued) {
-    if (state.config.authEnabled && currentAuthState) {
-      if (!queuedMessage.signature) {
-        debug('handleVersionHandshakeResponse', `Queued message ${queuedMessage.id} has no signature, discarding`);
-        continue;
-      }
-
-      const { valid, state: newAuthState } = await verifyMessage(
-        currentAuthState,
-        queuedMessage as SignedMessage
-      );
-
-      if (!valid) {
-        debug('handleVersionHandshakeResponse', `Queued message ${queuedMessage.id} failed re-verification, discarding`);
-        continue;
-      }
-
-      currentAuthState = newAuthState;
-    }
-
-    const peerHandlers = state.directHandlers.get(peerId);
-    if (peerHandlers) {
-      for (const handler of Array.from(peerHandlers)) {
-        handler(queuedMessage);
-      }
-    }
-    const globalHandlers = state.directHandlers.get('*');
-    if (globalHandlers) {
-      for (const handler of Array.from(globalHandlers)) {
-        handler(queuedMessage);
-      }
-    }
+    const tempState = { ...state, authState: currentAuthState };
+    const { valid, authState: newAuthState } = await verifyAuthIfEnabled(tempState, queuedMessage);
+    if (!valid) continue;
+    if (newAuthState) currentAuthState = newAuthState;
+    dispatchToHandlers(state, queuedMessage, peerId);
   }
 
   return {
