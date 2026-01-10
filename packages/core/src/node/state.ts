@@ -19,20 +19,9 @@ import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
 import { createMessageDeduplicator, createRateLimiter } from '../utils/bloom-filter';
 import { spinBackoff } from '../utils/timing';
 import { SDK_PROTOCOL_VERSION } from '../networks';
+import { STATE } from './constants';
 
 export type { StateRef } from './types';
-
-const MAX_CAS_RETRIES = 100;
-const CAS_BACKOFF_STEP_MS = 1;
-const MAX_CAS_BACKOFF_MS = 10;
-const MAX_SAFE_VERSION = Number.MAX_SAFE_INTEGER - 1;
-const DEFAULT_MAX_PEERS = 10000;
-const DEFAULT_STALE_PEER_TIMEOUT_MS = 30 * 60 * 1000;
-const DEFAULT_DEDUP_MAX_MESSAGES = 10000;
-const DEFAULT_DEDUP_FALSE_POSITIVE_RATE = 0.01;
-const DEFAULT_RATE_LIMIT_MAX_TOKENS = 100;
-const DEFAULT_RATE_LIMIT_REFILL_RATE = 10;
-const DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS = 1000;
 
 const settlementQueues = new WeakMap<StateRef<NodeState>, Promise<void>>();
 
@@ -52,11 +41,11 @@ export const createStateRef = <T>(initial: T): StateRef<T> => ({
 });
 
 export const createFloodProtection = (config: EccoConfig): MessageFloodProtection => {
-  const dedupMaxMessages = config.floodProtection?.dedupMaxMessages ?? DEFAULT_DEDUP_MAX_MESSAGES;
-  const dedupFalsePositiveRate = config.floodProtection?.dedupFalsePositiveRate ?? DEFAULT_DEDUP_FALSE_POSITIVE_RATE;
-  const rateLimitMaxTokens = config.floodProtection?.rateLimitMaxTokens ?? DEFAULT_RATE_LIMIT_MAX_TOKENS;
-  const rateLimitRefillRate = config.floodProtection?.rateLimitRefillRate ?? DEFAULT_RATE_LIMIT_REFILL_RATE;
-  const rateLimitRefillIntervalMs = config.floodProtection?.rateLimitRefillIntervalMs ?? DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS;
+  const dedupMaxMessages = config.floodProtection?.dedupMaxMessages ?? STATE.DEFAULT_DEDUP_MAX_MESSAGES;
+  const dedupFalsePositiveRate = config.floodProtection?.dedupFalsePositiveRate ?? STATE.DEFAULT_DEDUP_FALSE_POSITIVE_RATE;
+  const rateLimitMaxTokens = config.floodProtection?.rateLimitMaxTokens ?? STATE.DEFAULT_RATE_LIMIT_MAX_TOKENS;
+  const rateLimitRefillRate = config.floodProtection?.rateLimitRefillRate ?? STATE.DEFAULT_RATE_LIMIT_REFILL_RATE;
+  const rateLimitRefillIntervalMs = config.floodProtection?.rateLimitRefillIntervalMs ?? STATE.DEFAULT_RATE_LIMIT_REFILL_INTERVAL_MS;
 
   return {
     deduplicator: createMessageDeduplicator(dedupMaxMessages, dedupFalsePositiveRate),
@@ -67,7 +56,7 @@ export const createFloodProtection = (config: EccoConfig): MessageFloodProtectio
 
 export const createInitialState = (config: EccoConfig): NodeState => {
   const fullConfig = mergeConfig(configDefaults, config);
-  const maxPeers = fullConfig.memoryLimits?.maxPeers ?? DEFAULT_MAX_PEERS;
+  const maxPeers = fullConfig.memoryLimits?.maxPeers ?? STATE.DEFAULT_MAX_PEERS;
 
   return {
     id: fullConfig.nodeId || crypto.randomUUID(),
@@ -98,7 +87,7 @@ export const createInitialState = (config: EccoConfig): NodeState => {
 };
 
 export const getStalePeerTimeoutMs = (config: EccoConfig): number =>
-  config.memoryLimits?.stalePeerTimeoutMs ?? DEFAULT_STALE_PEER_TIMEOUT_MS;
+  config.memoryLimits?.stalePeerTimeoutMs ?? STATE.DEFAULT_STALE_PEER_TIMEOUT_MS;
 
 export const getState = <T>(ref: StateRef<T>): T => ref.current;
 
@@ -106,17 +95,17 @@ export const getVersion = <T>(ref: StateRef<T>): number => ref.version;
 
 export const setState = <T>(ref: StateRef<T>, value: T): void => {
   ref.current = value;
-  ref.version = ref.version >= MAX_SAFE_VERSION ? 0 : ref.version + 1;
+  ref.version = ref.version >= STATE.MAX_SAFE_VERSION ? 0 : ref.version + 1;
 };
 
 export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
-  for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
-    spinBackoff(attempt, CAS_BACKOFF_STEP_MS, MAX_CAS_BACKOFF_MS);
+  for (let attempt = 0; attempt < STATE.MAX_CAS_RETRIES; attempt++) {
+    spinBackoff(attempt, STATE.CAS_BACKOFF_STEP_MS, STATE.MAX_CAS_BACKOFF_MS);
     const versionBefore = ref.version;
     const newState = fn(ref.current);
     if (ref.version === versionBefore) {
       ref.current = newState;
-      ref.version = versionBefore >= MAX_SAFE_VERSION ? 0 : versionBefore + 1;
+      ref.version = versionBefore >= STATE.MAX_SAFE_VERSION ? 0 : versionBefore + 1;
       return;
     }
   }
@@ -124,13 +113,13 @@ export const updateState = <T>(ref: StateRef<T>, fn: (state: T) => T): void => {
 };
 
 export const modifyState = <T, A>(ref: StateRef<T>, fn: (state: T) => readonly [A, T]): A => {
-  for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
-    spinBackoff(attempt, CAS_BACKOFF_STEP_MS, MAX_CAS_BACKOFF_MS);
+  for (let attempt = 0; attempt < STATE.MAX_CAS_RETRIES; attempt++) {
+    spinBackoff(attempt, STATE.CAS_BACKOFF_STEP_MS, STATE.MAX_CAS_BACKOFF_MS);
     const versionBefore = ref.version;
     const [result, newState] = fn(ref.current);
     if (ref.version === versionBefore) {
       ref.current = newState;
-      ref.version = versionBefore >= MAX_SAFE_VERSION ? 0 : versionBefore + 1;
+      ref.version = versionBefore >= STATE.MAX_SAFE_VERSION ? 0 : versionBefore + 1;
       return result;
     }
   }

@@ -15,6 +15,7 @@ import {
 } from '../transport/message-bridge';
 import { isHandshakeMessage } from '../protocol/handshake';
 import { debug } from '../utils';
+import { MESSAGING } from './constants';
 
 const pubsubAbortControllers = new Map<string, AbortController>();
 
@@ -38,13 +39,10 @@ const PubSubEventDetailSchema = z.object({
   from: PeerIdSchema.optional(),
 });
 
-const MAX_TIMESTAMP_DRIFT_MS = 5 * 60 * 1000;
-const MAX_MESSAGE_AGE_MS = 60 * 60 * 1000;
-
 const TimestampSchema = z.number().finite().nonnegative().refine(
   (ts) => {
     const now = Date.now();
-    return ts <= now + MAX_TIMESTAMP_DRIFT_MS && ts >= now - MAX_MESSAGE_AGE_MS;
+    return ts <= now + MESSAGING.MAX_TIMESTAMP_DRIFT_MS && ts >= now - MESSAGING.MAX_MESSAGE_AGE_MS;
   },
   { message: 'Timestamp outside valid range' }
 );

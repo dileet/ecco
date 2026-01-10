@@ -15,6 +15,7 @@ import { getLocalReputation, getEffectiveScore, createReputationScorer } from '.
 import { getPeerZone, getZoneWeight, type LatencyZone } from './latency-zones';
 import { initiateHandshake, isHandshakeRequired, removePeerValidation } from '../transport/message-bridge';
 import { removeAllTopicSubscriptionsForPeer } from './messaging';
+import { DISCOVERY } from './constants';
 
 
 function extractPeerIdFromAddr(addr: string): string | null {
@@ -33,24 +34,17 @@ function getBootstrapPeerIds(config: NodeState['config']): Set<string> {
   return peerIds;
 }
 
-const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
-const MAX_DISCOVERED_PEERS = 1000;
-const DIAL_QUEUE_TICK_MS = 200;
-const DIAL_MAX_CONCURRENT = 4;
-const DIAL_BACKOFF_BASE_MS = 250;
-const DIAL_BACKOFF_MAX_MS = 5000;
-
 function cleanupStaleEntries(discoveredPeers: Map<string, number>): void {
   const now = Date.now();
   for (const [peerId, timestamp] of discoveredPeers) {
-    if (now - timestamp > DISCOVERY_CACHE_TTL_MS) {
+    if (now - timestamp > DISCOVERY.CACHE_TTL_MS) {
       discoveredPeers.delete(peerId);
     }
   }
-  if (discoveredPeers.size > MAX_DISCOVERED_PEERS) {
+  if (discoveredPeers.size > DISCOVERY.MAX_DISCOVERED_PEERS) {
     const entries = Array.from(discoveredPeers.entries())
       .sort((a, b) => a[1] - b[1]);
-    const toRemove = entries.slice(0, discoveredPeers.size - MAX_DISCOVERED_PEERS);
+    const toRemove = entries.slice(0, discoveredPeers.size - DISCOVERY.MAX_DISCOVERED_PEERS);
     for (const [peerId] of toRemove) {
       discoveredPeers.delete(peerId);
     }
@@ -76,7 +70,7 @@ export function setupEventListeners(
     node.getConnections().map((conn) => conn.remotePeer.toString().toLowerCase())
   );
   let nextDialAllowedAt = 0;
-  let dialBackoffMs = DIAL_BACKOFF_BASE_MS;
+  let dialBackoffMs: number = DISCOVERY.DIAL_BACKOFF_BASE_MS;
 
   const removeQueuedPeer = (peerIdLower: string): void => {
     if (dialQueue.length === 0) {
@@ -103,7 +97,7 @@ export function setupEventListeners(
   };
 
   const dialTimer = setInterval(() => {
-    if (dialQueue.length === 0 || inFlightDials.size >= DIAL_MAX_CONCURRENT) {
+    if (dialQueue.length === 0 || inFlightDials.size >= DISCOVERY.DIAL_MAX_CONCURRENT) {
       return;
     }
     const now = Date.now();
@@ -111,7 +105,7 @@ export function setupEventListeners(
       return;
     }
 
-    while (inFlightDials.size < DIAL_MAX_CONCURRENT && dialQueue.length > 0) {
+    while (inFlightDials.size < DISCOVERY.DIAL_MAX_CONCURRENT && dialQueue.length > 0) {
       const candidate = dialQueue.shift();
       if (!candidate) {
         return;
@@ -140,7 +134,7 @@ export function setupEventListeners(
 
       node.dial(candidate.peerId)
         .then(() => {
-          dialBackoffMs = DIAL_BACKOFF_BASE_MS;
+          dialBackoffMs = DISCOVERY.DIAL_BACKOFF_BASE_MS;
           connectedPeers.add(candidate.peerIdStr.toLowerCase());
         })
         .catch((error) => {
@@ -148,7 +142,7 @@ export function setupEventListeners(
           if (!errorMessage.includes('ECONNREFUSED') && !errorMessage.includes('timeout')) {
             console.warn(`[${state.id}] Failed to dial peer: ${candidate.peerIdStr}`, errorMessage);
           }
-          dialBackoffMs = Math.min(DIAL_BACKOFF_MAX_MS, dialBackoffMs * 2);
+          dialBackoffMs = Math.min(DISCOVERY.DIAL_BACKOFF_MAX_MS, dialBackoffMs * 2);
           const nextAllowed = Date.now() + dialBackoffMs;
           if (nextAllowed > nextDialAllowedAt) {
             nextDialAllowedAt = nextAllowed;
@@ -158,7 +152,7 @@ export function setupEventListeners(
           inFlightDials.delete(candidate.peerIdStr);
         });
     }
-  }, DIAL_QUEUE_TICK_MS);
+  }, DISCOVERY.DIAL_QUEUE_TICK_MS);
 
   node.addEventListener('peer:discovery', (evt: CustomEvent<{ id: PeerId; multiaddrs: unknown[] }>) => {
     const { id: peerId } = evt.detail;

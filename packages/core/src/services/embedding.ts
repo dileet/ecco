@@ -6,6 +6,7 @@ import type { CapabilityQuery, PeerInfo } from '../types';
 import { MessageEventSchema, type MessageEvent, type EccoEvent } from '../events';
 import { withTimeout } from '../utils';
 import type { EmbedFn } from '../agent/types';
+import { EMBEDDING } from './constants';
 
 export const EmbeddingRequestSchema = z.object({
   type: z.literal('embedding-request'),
@@ -319,10 +320,6 @@ export interface EmbeddingProviderConfig {
   libp2pPeerId?: string
 }
 
-// Chunk size: 32 floats = ~350 bytes JSON (safe for Bun's ChaCha20)
-const CHUNK_SIZE = 32
-
-// Split embedding into chunks to avoid Bun ChaCha20 cipher size limits
 const chunkArray = <T>(array: T[], size: number): T[][] => {
   const chunks: T[][] = []
   for (let i = 0; i < array.length; i += size) {
@@ -375,7 +372,7 @@ const processEmbeddingProviderRequest = async (
 
   for (let i = 0; i < embeddings.length; i++) {
     const embedding = embeddings[i]!
-    const chunks = chunkArray(embedding, CHUNK_SIZE)
+    const chunks = chunkArray(embedding, EMBEDDING.CHUNK_SIZE)
 
     const responseEvent = createBatchedResponseEvent(
       nodeRef,

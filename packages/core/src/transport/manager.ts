@@ -8,6 +8,7 @@ import type {
   TransportConnectionEvent,
   ProximityInfo,
 } from './types';
+import { MANAGER } from './constants';
 
 export interface TransportManagerState {
   config: TransportManagerConfig;
@@ -138,11 +139,8 @@ function handleConnectionEvent(
   return { ...state, connectedPeers };
 }
 
-const MIN_RSSI = -100;
-const MAX_RSSI = 0;
-
 function rssiToDistance(rssi: number): ProximityInfo['distance'] {
-  if (!Number.isFinite(rssi) || rssi < MIN_RSSI || rssi > MAX_RSSI) {
+  if (!Number.isFinite(rssi) || rssi < MANAGER.MIN_RSSI || rssi > MANAGER.MAX_RSSI) {
     return 'unknown';
   }
   if (rssi >= -50) return 'immediate';

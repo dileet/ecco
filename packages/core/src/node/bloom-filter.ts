@@ -7,6 +7,7 @@ import { getState, setState } from './state';
 import { publish, subscribeWithRef } from './messaging';
 import { getEffectiveScore, type ReputationState } from './reputation';
 import { canonicalJsonStringify } from '../utils/canonical-json';
+import { BLOOM_FILTER } from './constants';
 
 export type FilterTier = 'elite' | 'good' | 'acceptable';
 
@@ -45,13 +46,7 @@ const TIER_THRESHOLDS: Record<FilterTier, number> = {
 
 const TIERS: FilterTier[] = ['elite', 'good', 'acceptable'];
 
-const DEFAULT_FILTER_SIZE = 1024;
-const DEFAULT_HASH_COUNT = 7;
-const DEFAULT_GOSSIP_INTERVAL_MS = 300000;
-const MAX_FILTER_SIZE = 8192;
 const ED25519_SIGNATURE_LENGTH = 64;
-
-const REPUTATION_FILTERS_TOPIC = 'ecco:reputation-filters';
 
 function createFilterSignaturePayload(filter: ReputationBloomFilter): Uint8Array {
   const payload = canonicalJsonStringify({
@@ -115,7 +110,7 @@ export function validateFilterParams(
     return false;
   }
 
-  if (filter.filter.length > MAX_FILTER_SIZE) {
+  if (filter.filter.length > BLOOM_FILTER.MAX_SIZE) {
     return false;
   }
 
@@ -147,9 +142,9 @@ export function createBloomFilterState(config?: BloomFilterConfig): BloomFilterS
   return {
     filters: new Map(),
     localFilters: new Map(),
-    filterSize: config?.filterSize ?? DEFAULT_FILTER_SIZE,
-    hashCount: config?.hashCount ?? DEFAULT_HASH_COUNT,
-    gossipIntervalMs: config?.gossipIntervalMs ?? DEFAULT_GOSSIP_INTERVAL_MS,
+    filterSize: config?.filterSize ?? BLOOM_FILTER.DEFAULT_SIZE,
+    hashCount: config?.hashCount ?? BLOOM_FILTER.DEFAULT_HASH_COUNT,
+    gossipIntervalMs: config?.gossipIntervalMs ?? BLOOM_FILTER.DEFAULT_GOSSIP_INTERVAL_MS,
     lastGossipAt: 0,
   };
 }
@@ -413,7 +408,7 @@ export async function gossipFilters(
       timestamp: Date.now(),
     };
 
-    await publish(state, REPUTATION_FILTERS_TOPIC, event);
+    await publish(state, BLOOM_FILTER.REPUTATION_FILTERS_TOPIC, event);
     count++;
   }
 
@@ -468,7 +463,7 @@ export function subscribeToFilters(ref: StateRef<NodeState>): () => void {
     handleFilterEvent(ref, event);
   };
 
-  return subscribeWithRef(ref, REPUTATION_FILTERS_TOPIC, handler);
+  return subscribeWithRef(ref, BLOOM_FILTER.REPUTATION_FILTERS_TOPIC, handler);
 }
 
 export function shouldGossip(bloomState: BloomFilterState): boolean {

@@ -7,10 +7,7 @@ import type {
   SwarmSplit,
   SwarmParticipant,
 } from '../types';
-
-const PRECISION_DECIMALS = 18;
-const MAX_SAFE_CONTRIBUTION = Number.MAX_SAFE_INTEGER / 1e9;
-const INVOICE_EXPIRATION_GRACE_MS = 60000;
+import { PAYMENT } from './constants';
 
 const DecimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Invalid decimal format');
 
@@ -32,8 +29,8 @@ function parseDecimalToBigInt(value: string): bigint {
     throw new Error(`Decimal value too large: ${value}`);
   }
   const paddedFractional = fractionalPart
-    .slice(0, PRECISION_DECIMALS)
-    .padEnd(PRECISION_DECIMALS, '0');
+    .slice(0, PAYMENT.PRECISION_DECIMALS)
+    .padEnd(PAYMENT.PRECISION_DECIMALS, '0');
   const combined = integerPart + paddedFractional;
   return BigInt(combined);
 }
@@ -51,14 +48,14 @@ function validateStatusTransition(
 function bigIntToDecimalString(value: bigint): string {
   const isNegative = value < 0n;
   const absoluteValue = isNegative ? -value : value;
-  const str = absoluteValue.toString().padStart(PRECISION_DECIMALS + 1, '0');
-  const integerPart = str.slice(0, -PRECISION_DECIMALS) || '0';
-  const fractionalPart = str.slice(-PRECISION_DECIMALS).replace(/0+$/, '');
+  const str = absoluteValue.toString().padStart(PAYMENT.PRECISION_DECIMALS + 1, '0');
+  const integerPart = str.slice(0, -PAYMENT.PRECISION_DECIMALS) || '0';
+  const fractionalPart = str.slice(-PAYMENT.PRECISION_DECIMALS).replace(/0+$/, '');
   const result = fractionalPart ? `${integerPart}.${fractionalPart}` : integerPart;
   return isNegative ? `-${result}` : result;
 }
 
-export function validateInvoice(invoice: Invoice, clockTolerance = INVOICE_EXPIRATION_GRACE_MS): boolean {
+export function validateInvoice(invoice: Invoice, clockTolerance = PAYMENT.INVOICE_EXPIRATION_GRACE_MS): boolean {
   const now = Date.now();
   const expirationWithGrace = invoice.validUntil + clockTolerance;
   if (now > expirationWithGrace) {
@@ -157,8 +154,8 @@ function safeContributionToBigInt(contribution: number): bigint {
   if (contribution < 0) {
     throw new Error('Contribution cannot be negative');
   }
-  if (contribution > MAX_SAFE_CONTRIBUTION) {
-    throw new Error(`Contribution ${contribution} exceeds maximum safe value ${MAX_SAFE_CONTRIBUTION}`);
+  if (contribution > PAYMENT.MAX_SAFE_CONTRIBUTION) {
+    throw new Error(`Contribution ${contribution} exceeds maximum safe value ${PAYMENT.MAX_SAFE_CONTRIBUTION}`);
   }
   if (!Number.isFinite(contribution)) {
     throw new Error('Contribution must be a finite number');

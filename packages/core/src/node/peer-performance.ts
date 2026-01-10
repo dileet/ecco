@@ -1,4 +1,5 @@
 import type { NodeState } from './types';
+import { PEER_PERFORMANCE } from './constants';
 
 export type PeerMetrics = {
   peerId: string;
@@ -189,25 +190,19 @@ export const calculateRecentErrorRate = (metrics: PeerMetrics): number => {
   return metrics.recentErrors.length / recentTotal;
 };
 
-const PERFORMANCE_WEIGHTS = {
-  success: 50,
-  error: 30,
-  latency: 20,
-} as const;
-const WEIGHT_TOTAL = PERFORMANCE_WEIGHTS.success + PERFORMANCE_WEIGHTS.error + PERFORMANCE_WEIGHTS.latency;
-const MAX_LATENCY_MS = 10000;
+const WEIGHT_TOTAL = PEER_PERFORMANCE.WEIGHTS.SUCCESS + PEER_PERFORMANCE.WEIGHTS.ERROR + PEER_PERFORMANCE.WEIGHTS.LATENCY;
 
 export const calculatePerformanceScore = (metrics: PeerMetrics): number => {
   const successRate = calculateSuccessRate(metrics);
   const recentErrorRate = calculateRecentErrorRate(metrics);
   const avgLatency = calculateRecentAverageLatency(metrics);
 
-  const latencyScore = avgLatency === Infinity ? 0 : Math.max(0, 1 - avgLatency / MAX_LATENCY_MS);
+  const latencyScore = avgLatency === Infinity ? 0 : Math.max(0, 1 - avgLatency / PEER_PERFORMANCE.MAX_LATENCY_MS);
 
   const rawScore =
-    PERFORMANCE_WEIGHTS.success * successRate +
-    PERFORMANCE_WEIGHTS.error * (1 - recentErrorRate) +
-    PERFORMANCE_WEIGHTS.latency * latencyScore;
+    PEER_PERFORMANCE.WEIGHTS.SUCCESS * successRate +
+    PEER_PERFORMANCE.WEIGHTS.ERROR * (1 - recentErrorRate) +
+    PEER_PERFORMANCE.WEIGHTS.LATENCY * latencyScore;
 
   return rawScore / WEIGHT_TOTAL;
 };

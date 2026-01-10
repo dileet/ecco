@@ -17,10 +17,7 @@ import {
 } from '../protocol/handshake';
 import { formatVersion } from '../protocol/version';
 import { createConstitutionMismatchNotice, computeConstitutionHash } from '../protocol/constitution';
-
-const MAX_QUEUED_MESSAGES_PER_PEER = 100;
-const QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE = 0.01;
-const MAX_MESSAGE_SIZE_BYTES = 10 * 1024 * 1024;
+import { MESSAGE_BRIDGE } from './constants';
 
 function dispatchToHandlers(
   state: MessageBridgeState,
@@ -197,7 +194,7 @@ export async function deserializeMessage(
   transportMessage: TransportMessage
 ): Promise<{ message: Message | null; valid: boolean; updatedState: MessageBridgeState }> {
   try {
-    if (transportMessage.data.byteLength > MAX_MESSAGE_SIZE_BYTES) {
+    if (transportMessage.data.byteLength > MESSAGE_BRIDGE.MAX_MESSAGE_SIZE_BYTES) {
       return { message: null, valid: false, updatedState: state };
     }
 
@@ -673,13 +670,13 @@ export function queueMessageForPeer(
   const deduplicator =
     queuedMessageDeduplicators.get(peerId) ??
     createMessageDeduplicator(
-      MAX_QUEUED_MESSAGES_PER_PEER,
-      QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE
+      MESSAGE_BRIDGE.MAX_QUEUED_MESSAGES_PER_PEER,
+      MESSAGE_BRIDGE.QUEUED_MESSAGE_DEDUP_FALSE_POSITIVE_RATE
     );
   if (deduplicator.isDuplicate(message.id)) {
     return state;
   }
-  if (queued.length >= MAX_QUEUED_MESSAGES_PER_PEER) {
+  if (queued.length >= MESSAGE_BRIDGE.MAX_QUEUED_MESSAGES_PER_PEER) {
     debug('queueMessageForPeer', `Queue limit reached for peer ${peerId}, dropping message`);
     return state;
   }

@@ -6,6 +6,7 @@ import type { Invoice, PaymentProof } from '../types';
 import { aggregateInvoices, type AggregatedInvoice } from './payment';
 import { isValidUrl } from '../utils';
 import { createAsyncMutex, type AsyncMutex } from '../utils/concurrency';
+import { WALLET } from './constants';
 
 const ChainIdSchema = z.number().int().positive();
 const EthAddressSchema = z.string().refine(isAddress, { message: 'Invalid Ethereum address' });
@@ -33,8 +34,6 @@ function validateRpcUrl(url: string | undefined, chainId: number): void {
   }
 }
 
-const MAX_ETH_AMOUNT = 1e15;
-
 function validateAmount(amount: string, context: string): void {
   const trimmed = amount.trim();
   if (!trimmed || isNaN(Number(trimmed))) {
@@ -44,8 +43,8 @@ function validateAmount(amount: string, context: string): void {
   if (numericAmount < 0) {
     throw new Error(`Amount cannot be negative in ${context}: ${amount}`);
   }
-  if (numericAmount > MAX_ETH_AMOUNT) {
-    throw new Error(`Amount exceeds maximum allowed (${MAX_ETH_AMOUNT} ETH) in ${context}: ${amount}`);
+  if (numericAmount > WALLET.MAX_ETH_AMOUNT) {
+    throw new Error(`Amount exceeds maximum allowed (${WALLET.MAX_ETH_AMOUNT} ETH) in ${context}: ${amount}`);
   }
 }
 

@@ -4,10 +4,7 @@ import { getState, dequeueSettlement, updateSettlement, removeSettlement } from 
 import { pay } from '../services/wallet';
 import { updatePaymentLedgerEntry } from '../storage';
 import { delay, retryWithBackoff } from '../utils/timing';
-
-const WORKER_INTERVAL_MS = 5000;
-const SETTLEMENT_TIMEOUT_MS = 30000;
-const DEFAULT_MAX_RETRIES = 3;
+import { SETTLEMENT } from './constants';
 
 interface WorkerState {
   running: boolean;
@@ -51,7 +48,7 @@ const processSettlement = async (
     tokenAddress: storedInvoice.tokenAddress as `0x${string}` | null,
   };
 
-  const maxRetries = settlement.maxRetries || DEFAULT_MAX_RETRIES;
+  const maxRetries = settlement.maxRetries || SETTLEMENT.DEFAULT_MAX_RETRIES;
 
   try {
     const proof = await retryWithBackoff(
@@ -157,7 +154,7 @@ export const startSettlementWorker = async (stateRef: StateRef<NodeState>): Prom
 
   const workerState: WorkerState = {
     running: true,
-    intervalId: setInterval(() => void runWorker(stateRef), WORKER_INTERVAL_MS),
+    intervalId: setInterval(() => void runWorker(stateRef), SETTLEMENT.WORKER_INTERVAL_MS),
   };
 
   workerStates.set(stateRef, workerState);

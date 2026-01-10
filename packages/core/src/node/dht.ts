@@ -5,10 +5,7 @@ import { sha256 } from 'multiformats/hashes/sha2';
 import type { EccoLibp2p } from './types';
 import type { Capability, PeerInfo, CapabilityQuery } from '../types';
 import { SDK_PROTOCOL_VERSION, formatProtocolVersion } from '../networks';
-
-const MAX_PROVIDERS_DEFAULT = 100;
-const MAX_PROVIDERS_WITH_SCORER = 500;
-const MAX_CAPABILITIES_PER_PEER = 50;
+import { DHT } from './constants';
 
 export type ReputationScorer = (peerId: string) => number;
 
@@ -103,7 +100,7 @@ const queryProviders = async (
       const hasCapability = existing.capabilities.some(
         (c) => c.type === capabilityEntry.type && c.name === capabilityEntry.name
       );
-      if (!hasCapability && existing.capabilities.length < MAX_CAPABILITIES_PER_PEER) {
+      if (!hasCapability && existing.capabilities.length < DHT.MAX_CAPABILITIES_PER_PEER) {
         const updatedPeerInfo: PeerInfo = {
           ...existing,
           capabilities: [...existing.capabilities, capabilityEntry],
@@ -127,7 +124,7 @@ export const queryCapabilities = async (
   getReputationScore?: ReputationScorer
 ): Promise<PeerInfo[]> => {
   const discoveredPeers = new Map<string, PeerInfo>();
-  const limit = getReputationScore ? MAX_PROVIDERS_WITH_SCORER : MAX_PROVIDERS_DEFAULT;
+  const limit = getReputationScore ? DHT.MAX_PROVIDERS_WITH_SCORER : DHT.MAX_PROVIDERS_DEFAULT;
 
   const queries = query.requiredCapabilities.map(async (requiredCap) => {
     const cid = await keyToCID(generateCapabilityKey(requiredCap));

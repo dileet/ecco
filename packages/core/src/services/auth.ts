@@ -6,6 +6,7 @@ import { canonicalJsonStringify } from '../utils/canonical-json';
 import { decodeBase64 } from '../utils/crypto';
 import type { LRUCache } from '../utils/lru-cache';
 import { createLRUCache, cloneLRUCache } from '../utils/lru-cache';
+import { AUTH } from './constants';
 
 export interface AuthConfig {
   enabled: boolean;
@@ -23,10 +24,9 @@ export interface AuthState {
 }
 
 const ED25519_SIGNATURE_LENGTH = 64;
-const MAX_PUBLIC_KEY_CACHE_SIZE = 1000;
 
 export function createPublicKeyCache(): LRUCache<string, PublicKey> {
-  return createLRUCache<string, PublicKey>(MAX_PUBLIC_KEY_CACHE_SIZE);
+  return createLRUCache<string, PublicKey>(AUTH.MAX_PUBLIC_KEY_CACHE_SIZE);
 }
 
 function createSignaturePayload(message: Message | SignedMessage): Uint8Array {

@@ -13,6 +13,7 @@ import type {
 import type { ProtocolVersion } from '../../types';
 import type { NetworkConfig } from '../../networks';
 import { SDK_PROTOCOL_VERSION } from '../../networks';
+import { LIBP2P } from '../constants';
 import { normalizeMultiaddrs } from '../../utils';
 const { multiaddr } = await import('@multiformats/multiaddr');
 
@@ -43,16 +44,13 @@ export interface Libp2pAdapterState {
   cleanups: Array<() => void>;
 }
 
-const ECCO_TRANSPORT_TOPIC = 'ecco/transport/v1';
-const MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
-
 export function createLibp2pAdapter(
   config: Libp2pAdapterConfig
 ): Libp2pAdapterState {
   return {
     config: {
       ...config,
-      topic: config.topic ?? ECCO_TRANSPORT_TOPIC,
+      topic: config.topic ?? LIBP2P.TRANSPORT_TOPIC,
     },
     state: 'disconnected',
     discoveredPeers: new Map(),
@@ -258,7 +256,7 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
       for await (const chunk of stream) {
         const data = chunk instanceof Uint8Array ? chunk : chunk.subarray();
         totalLength += data.length;
-        if (totalLength > MAX_MESSAGE_SIZE) {
+        if (totalLength > LIBP2P.MAX_MESSAGE_SIZE) {
           stream.abort(new Error('Message size exceeds maximum allowed'));
           return;
         }

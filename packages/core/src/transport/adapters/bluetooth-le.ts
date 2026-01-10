@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import type { NetworkConfig } from '../../networks';
 import { z } from 'zod';
+import { BLUETOOTH_LE } from '../constants';
 
 const LocalContextSchema = z.object({
   locationId: z.string().optional(),
@@ -77,16 +78,13 @@ export interface BLEAdvertisingConfig {
   manufacturerData?: Uint8Array;
 }
 
-const ECCO_SERVICE_UUID = '155b45d0-db4d-4587-9237-06089f2bf639';
-const ECCO_CHAR_UUID = '2f436cd1-a421-48a7-bc84-43949ed40fa5';
-
 export function createBLEAdapter(
   config: Partial<BLEAdapterConfig> = {}
 ): BLEAdapterState {
   return {
     config: {
-      serviceUUID: config.serviceUUID ?? ECCO_SERVICE_UUID,
-      characteristicUUID: config.characteristicUUID ?? ECCO_CHAR_UUID,
+      serviceUUID: config.serviceUUID ?? BLUETOOTH_LE.SERVICE_UUID,
+      characteristicUUID: config.characteristicUUID ?? BLUETOOTH_LE.CHAR_UUID,
       beacon: config.beacon,
       advertise: config.advertise ?? true,
       scan: config.scan ?? true,

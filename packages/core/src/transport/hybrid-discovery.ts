@@ -6,10 +6,9 @@ import type {
   TransportDiscoveryEvent,
   TransportConnectionEvent,
 } from './types';
+import { HYBRID_DISCOVERY } from './constants';
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-const MAX_DISCOVERED_PEERS = 1000;
 
 export type DiscoveryPhase = 'proximity' | 'local' | 'internet' | 'fallback';
 
@@ -272,7 +271,7 @@ function handleAdapterDiscovery(
   if (event.type === 'discovered' || event.type === 'updated') {
     const isUpdate = state.discoveredPeers.has(event.peer.id);
 
-    if (!isUpdate && state.discoveredPeers.size >= MAX_DISCOVERED_PEERS) {
+    if (!isUpdate && state.discoveredPeers.size >= HYBRID_DISCOVERY.MAX_DISCOVERED_PEERS) {
       evictOldestPeer(state.discoveredPeers);
     }
 

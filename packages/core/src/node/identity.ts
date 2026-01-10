@@ -8,19 +8,10 @@ import { peerIdFromPrivateKey } from '@libp2p/peer-id';
 import type { PrivateKey } from '@libp2p/interface';
 import type { EccoConfig } from '../types';
 import { z } from 'zod';
-
-const SCRYPT_N = 16384;
-const SCRYPT_R = 8;
-const SCRYPT_P = 1;
-const KEY_LENGTH = 32;
-const SALT_LENGTH = 32;
-const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
-const ENTROPY_TEST_SIZE = 32;
-const MIN_UNIQUE_BYTES_RATIO = 0.25;
+import { IDENTITY } from './constants';
 
 function validateCSPRNG(): void {
-  const testBytes = crypto.randomBytes(ENTROPY_TEST_SIZE);
+  const testBytes = crypto.randomBytes(IDENTITY.ENTROPY_TEST_SIZE);
 
   const allZero = testBytes.every((b) => b === 0);
   if (allZero) {
@@ -33,8 +24,8 @@ function validateCSPRNG(): void {
   }
 
   const uniqueBytes = new Set(testBytes);
-  const uniqueRatio = uniqueBytes.size / ENTROPY_TEST_SIZE;
-  if (uniqueRatio < MIN_UNIQUE_BYTES_RATIO) {
+  const uniqueRatio = uniqueBytes.size / IDENTITY.ENTROPY_TEST_SIZE;
+  if (uniqueRatio < IDENTITY.MIN_UNIQUE_BYTES_RATIO) {
     throw new Error(`CSPRNG validation failed: insufficient entropy (${Math.round(uniqueRatio * 100)}% unique bytes)`);
   }
 }
@@ -65,18 +56,18 @@ const EncryptedKeyFileSchema = z.object({
 type EncryptedKeyFile = z.infer<typeof EncryptedKeyFileSchema>;
 
 function deriveKey(password: string, salt: Buffer): Buffer {
-  return crypto.scryptSync(password, salt, KEY_LENGTH, {
-    N: SCRYPT_N,
-    r: SCRYPT_R,
-    p: SCRYPT_P,
+  return crypto.scryptSync(password, salt, IDENTITY.KEY_LENGTH, {
+    N: IDENTITY.SCRYPT_N,
+    r: IDENTITY.SCRYPT_R,
+    p: IDENTITY.SCRYPT_P,
   });
 }
 
 function encryptData(plaintext: string, password: string): EncryptedKeyFile {
   ensureCSPRNGValidated();
 
-  const salt = crypto.randomBytes(SALT_LENGTH);
-  const iv = crypto.randomBytes(IV_LENGTH);
+  const salt = crypto.randomBytes(IDENTITY.SALT_LENGTH);
+  const iv = crypto.randomBytes(IDENTITY.IV_LENGTH);
   const key = deriveKey(password, salt);
 
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -101,13 +92,13 @@ function decryptData(encryptedFile: EncryptedKeyFile, password: string): string 
   const authTag = Buffer.from(encryptedFile.authTag, 'base64');
   const encrypted = Buffer.from(encryptedFile.data, 'base64');
 
-  if (salt.length !== SALT_LENGTH) {
+  if (salt.length !== IDENTITY.SALT_LENGTH) {
     throw new Error('Invalid salt length');
   }
-  if (iv.length !== IV_LENGTH) {
+  if (iv.length !== IDENTITY.IV_LENGTH) {
     throw new Error('Invalid IV length');
   }
-  if (authTag.length !== AUTH_TAG_LENGTH) {
+  if (authTag.length !== IDENTITY.AUTH_TAG_LENGTH) {
     throw new Error('Invalid auth tag length');
   }
 

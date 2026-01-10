@@ -7,6 +7,7 @@ import {
   generatePaymentId,
 } from '../services/reputation-contract';
 import { getWalletForPeerId, computePeerIdHash } from '../services/peer-binding';
+import { REPUTATION } from './constants';
 
 export interface LocalPeerReputation {
   peerId: string;
@@ -51,23 +52,16 @@ export interface ReputationConfig {
   syncIntervalMs?: number;
 }
 
-const DEFAULT_COMMIT_THRESHOLD = 10;
-const DEFAULT_COMMIT_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-const MAX_PENDING_RATINGS = 1000;
-const MIN_LOCAL_SCORE = -1000;
-const MAX_LOCAL_SCORE = 1000;
-
 export function createReputationState(config: ReputationConfig): ReputationState {
   return {
     peers: new Map(),
     peerIdToWallet: new Map(),
     pendingCommits: [],
-    commitThreshold: config.commitThreshold ?? DEFAULT_COMMIT_THRESHOLD,
-    commitIntervalMs: config.commitIntervalMs ?? DEFAULT_COMMIT_INTERVAL_MS,
+    commitThreshold: config.commitThreshold ?? REPUTATION.DEFAULT_COMMIT_THRESHOLD,
+    commitIntervalMs: config.commitIntervalMs ?? REPUTATION.DEFAULT_COMMIT_INTERVAL_MS,
     lastCommitAt: Date.now(),
     chainId: config.chainId,
-    syncIntervalMs: config.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS,
+    syncIntervalMs: config.syncIntervalMs ?? REPUTATION.DEFAULT_SYNC_INTERVAL_MS,
   };
 }
 
@@ -80,7 +74,7 @@ export function updateLocalScore(state: ReputationState, peerId: string, delta: 
   if (!peer) return;
 
   const newScore = peer.localScore + delta;
-  const clampedScore = Math.max(MIN_LOCAL_SCORE, Math.min(MAX_LOCAL_SCORE, newScore));
+  const clampedScore = Math.max(REPUTATION.MIN_LOCAL_SCORE, Math.min(REPUTATION.MAX_LOCAL_SCORE, newScore));
   if (clampedScore !== newScore) {
     console.warn(`[reputation] Score for peer ${peerId} clamped: ${newScore} -> ${clampedScore}`);
   }
@@ -118,7 +112,7 @@ export function recordLocalSuccess(state: ReputationState, peerId: string, walle
 
   const updatedPeer: LocalPeerReputation = {
     ...basePeer,
-    localScore: Math.min(MAX_LOCAL_SCORE, basePeer.localScore + 1),
+    localScore: Math.min(REPUTATION.MAX_LOCAL_SCORE, basePeer.localScore + 1),
     successfulJobs: basePeer.successfulJobs + 1,
     totalJobs: basePeer.totalJobs + 1,
     lastInteractionAt: now,
@@ -149,7 +143,7 @@ export function recordLocalFailure(state: ReputationState, peerId: string, walle
 
   const updatedPeer: LocalPeerReputation = {
     ...basePeer,
-    localScore: Math.max(MIN_LOCAL_SCORE, basePeer.localScore - 1),
+    localScore: Math.max(REPUTATION.MIN_LOCAL_SCORE, basePeer.localScore - 1),
     failedJobs: basePeer.failedJobs + 1,
     totalJobs: basePeer.totalJobs + 1,
     lastInteractionAt: now,
@@ -168,7 +162,7 @@ export async function queueRating(
   amount: bigint,
   delta: number
 ): Promise<void> {
-  if (state.pendingCommits.length >= MAX_PENDING_RATINGS) {
+  if (state.pendingCommits.length >= REPUTATION.MAX_PENDING_RATINGS) {
     return;
   }
 
@@ -187,7 +181,7 @@ export async function queueRating(
   const peer = state.peers.get(peerId);
   if (peer) {
     const trimmedRatings =
-      peer.pendingRatings.length >= MAX_PENDING_RATINGS
+      peer.pendingRatings.length >= REPUTATION.MAX_PENDING_RATINGS
         ? peer.pendingRatings.slice(1)
         : peer.pendingRatings;
 
