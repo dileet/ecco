@@ -103,6 +103,8 @@ export interface MessageContext {
   streamResponse: (generator: AsyncGenerator<StreamChunk> | (() => AsyncGenerator<StreamChunk>)) => Promise<void>
 }
 
+export type MessageHandler = (msg: Message, ctx: MessageContext) => Promise<void>
+
 export interface BatchSettlementResult {
   aggregatedInvoice: {
     recipient: string

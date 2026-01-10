@@ -32,7 +32,7 @@ import { createInvoice, createSignedInvoice } from './invoice-factory'
 
 const MAX_INVOICE_QUEUE = 1000
 
-interface PaymentState {
+export interface PaymentState {
   escrowAgreements: Map<string, EscrowAgreement>
   streamingAgreements: Map<string, StreamingAgreement>
   pendingPayments: Map<string, PendingPayment>

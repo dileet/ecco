@@ -1,61 +1,45 @@
-import type { Message, MessageType, CapabilityQuery, CapabilityMatch, EmbeddingCapability, ModelCapability } from '../types'
+import type { Message, CapabilityQuery, CapabilityMatch, EmbeddingCapability, ModelCapability } from '../types'
 import {
   createAgent as createBaseAgent,
   stop as stopNode,
   broadcastCapabilities,
   findPeers as findPeersBase,
   findPeersWithPriority,
-  sendMessage,
   getLibp2pPeerId,
-  subscribeToTopic,
   loadOrCreateNodeIdentity,
-  createReputationState,
   resolveWalletForPeer as resolveWalletForPeerImpl,
 } from '../node'
 import type { StateRef } from '../node/types'
-import { createWalletState, getAddress, type WalletState } from '../services/wallet'
-import {
-  ECCO_TESTNET,
-  ECCO_MAINNET,
-  formatProtocolVersion,
-  type NetworkConfig,
-  type NetworkName,
-  getDefaultChainId,
-  DEFAULT_RPC_URLS,
-} from '../networks'
-import {
-  stake as stakeContract,
-  requestUnstake as requestUnstakeContract,
-  getStakeInfo as getStakeInfoContract,
-} from '../services/reputation-contract'
+import { getAddress, type WalletState } from '../services/wallet'
+import { formatProtocolVersion } from '../networks'
+import { getStakeInfo as getStakeInfoContract } from '../services/reputation-contract'
 import {
   executeOrchestration,
   initialOrchestratorState,
   type OrchestratorState,
 } from '../orchestrator'
 import type { MultiAgentConfig, AgentResponse } from '../orchestrator/types'
-import { delay, debug } from '../utils'
-import { isSignedInvoice, verifyInvoice } from '../utils/invoice-signing'
+import { delay } from '../utils'
 import type {
   AgentConfig,
   Agent,
-  MessageContext,
   ConsensusRequestOptions,
   ConsensusResult,
-  StreamChunk,
   QueryConfig,
   DiscoveryOptions,
   DiscoveryPriority,
   FindPeersOptions,
 } from './types'
 import { createLLMHandler } from './handlers'
-import { createPaymentHelpers, createPaymentState, handlePaymentProof, setupEscrowAgreement, createFeeHelpers } from './payments'
-import { writeExpectedInvoice, getExpectedInvoice, deleteExpectedInvoice } from '../storage'
 import { setupEmbeddingProvider } from '../services/embedding'
 import { setupGenerationProvider } from '../services/generation'
-import { createLocalModel, createLocalGenerateFn, createLocalStreamGenerateFn, createLocalEmbedFn, unloadModel, isLocalModelState, type LocalModelState } from '../services/llm'
-import type { EccoEvent } from '../events'
-import { z } from 'zod'
+import { createLocalEmbedFn, unloadModel } from '../services/llm'
+import { resolveNetworkConfig, resolveBootstrapAddrs, resolveChainId, mergeRpcUrls } from './network'
+import { setupWallet } from './wallet'
+import { setupModels, createEmbedFunction } from './models'
+import { createMessageDispatcher } from './dispatch'
+import { createRequestMethod, createSendMethod } from './requests'
+import { createStakingMethods } from './staking'
 
 type StopFn = () => Promise<void>
 const activeAgents = new Map<string, StopFn>()
@@ -84,93 +68,10 @@ function registerProcessCleanup(): void {
   })
 }
 
-const PaymentProofSchema = z.object({
-  invoiceId: z.string(),
-  txHash: z.string(),
-  chainId: z.number(),
-})
-
-const InvoiceSchema = z.object({
-  id: z.string(),
-  jobId: z.string(),
-  chainId: z.number(),
-  amount: z.string(),
-  token: z.string(),
-  tokenAddress: z.string().nullable().transform((v) => v as `0x${string}` | null),
-  recipient: z.string(),
-  validUntil: z.number(),
-  signature: z.string().nullable(),
-  publicKey: z.string().nullable(),
-})
-
-const StreamingTickSchema = z.object({
-  channelId: z.string().optional(),
-  tokensGenerated: z.number().int().nonnegative(),
-})
-
-const EscrowApprovalSchema = z.object({
-  jobId: z.string(),
-  milestoneId: z.string(),
-})
-
-function getExplicitTokens(payload: unknown): number | null {
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>
-    if (typeof obj.tokens === 'number') {
-      return obj.tokens
-    }
-  }
-  return null
-}
-
-function resolveNetworkConfig(network: AgentConfig['network']): NetworkConfig {
-  if (network === 'testnet') return ECCO_TESTNET
-  return ECCO_MAINNET
-}
-
-function resolveBootstrapAddrs(network: AgentConfig['network'], bootstrap?: string[]): string[] {
-  if (bootstrap && bootstrap.length > 0) return bootstrap
-  if (network === 'testnet') return ECCO_TESTNET.bootstrap.peers
-  if (network === 'mainnet') return ECCO_MAINNET.bootstrap.peers
-  return ECCO_MAINNET.bootstrap.peers
-}
-
-function resolveNetworkName(network: AgentConfig['network']): NetworkName {
-  if (network === 'testnet') return 'testnet'
-  return 'mainnet'
-}
-
-function resolveChainId(network: AgentConfig['network'], reputationConfig?: { chainId?: number }): number {
-  if (reputationConfig?.chainId) return reputationConfig.chainId
-  const networkName = resolveNetworkName(network)
-  return getDefaultChainId(networkName)
-}
-
-const RpcUrlSchema = z.string().url()
-
-function validateRpcUrls(urls: Record<number, string>): void {
-  for (const [chainId, url] of Object.entries(urls)) {
-    const result = RpcUrlSchema.safeParse(url)
-    if (!result.success) {
-      throw new Error(`Invalid RPC URL for chain ${chainId}: ${url}`)
-    }
-  }
-}
-
-function mergeRpcUrls(userRpcUrls: Record<number, string> | undefined): Record<number, string> {
-  const defaultUrls = { ...DEFAULT_RPC_URLS }
-  if (userRpcUrls) {
-    validateRpcUrls(userRpcUrls)
-    return { ...defaultUrls, ...userRpcUrls }
-  }
-  return defaultUrls
-}
-
 export async function createAgent(config: AgentConfig): Promise<Agent> {
   const networkConfig = resolveNetworkConfig(config.network)
   const bootstrapAddrs = resolveBootstrapAddrs(config.network, config.bootstrap)
   const hasBootstrap = bootstrapAddrs.length > 0
-
   const chainId = resolveChainId(config.network, config.reputation)
   const rpcUrls = mergeRpcUrls(config.wallet?.rpcUrls)
 
@@ -184,55 +85,32 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     ? (config.wallet.privateKey as `0x${string}`)
     : identity.ethereumPrivateKey
 
-  let walletState: WalletState | null = null
-  if (ethereumPrivateKey) {
-    walletState = createWalletState({
-      privateKey: ethereumPrivateKey,
-      rpcUrls,
-    })
-  }
+  const { walletState, reputationState, paymentState, payments, fees } = setupWallet({
+    ethereumPrivateKey,
+    rpcUrls,
+    chainId,
+    libp2pPrivateKey: identity.libp2pPrivateKey,
+    reputation: config.reputation,
+  })
 
-  const reputationState = walletState
-    ? createReputationState({
-        chainId,
-        commitThreshold: config.reputation?.commitThreshold,
-        syncIntervalMs: config.reputation?.syncIntervalMs,
-      })
-    : null
-
-  const paymentState = createPaymentState()
-  const payments = createPaymentHelpers(walletState, paymentState, identity.libp2pPrivateKey)
-  const fees = createFeeHelpers(walletState)
-
-  let modelState: LocalModelState | null = isLocalModelState(config.model) ? config.model : null
-  let embeddingModelState: LocalModelState | null = isLocalModelState(config.embedding) ? config.embedding : null
-  let effectiveGenerateFn = config.generateFn
-  let effectiveStreamGenerateFn = config.streamGenerateFn
-  let effectiveModel = config.model
-  let effectiveEmbedFn = embeddingModelState
-    ? createLocalEmbedFn(embeddingModelState)
-    : (!isLocalModelState(config.embedding) ? config.embedding?.embedFn : undefined)
-
-  if (config.localModel) {
-    modelState = await createLocalModel({
-      modelPath: config.localModel.modelPath,
-      contextSize: config.localModel.contextSize,
-      gpuLayers: config.localModel.gpuLayers,
-      threads: config.localModel.threads,
-      embedding: config.localModel.supportsEmbedding,
-    })
-    effectiveGenerateFn = createLocalGenerateFn(modelState)
-    effectiveStreamGenerateFn = createLocalStreamGenerateFn(modelState)
-    effectiveModel = config.localModel.modelName ?? config.localModel.modelPath
-  }
+  const {
+    modelState,
+    embeddingModelState,
+    effectiveGenerateFn,
+    effectiveStreamGenerateFn,
+    effectiveEmbedFn,
+    effectiveModel,
+    embeddingModelId,
+  } = await setupModels({
+    model: config.model,
+    localModel: config.localModel,
+    embedding: config.embedding,
+    generateFn: config.generateFn,
+    streamGenerateFn: config.streamGenerateFn,
+  })
 
   const hasEmbeddingConfig = config.embedding !== undefined
   const hasLocalModel = config.localModel !== undefined
-
-  const embeddingModelId = embeddingModelState
-    ? embeddingModelState.config.modelPath
-    : isLocalModelState(config.embedding) ? undefined : config.embedding?.modelId
-
   const versionString = formatProtocolVersion(networkConfig.protocol.currentVersion)
 
   const embeddingCapability: EmbeddingCapability | null = hasEmbeddingConfig && embeddingModelId
@@ -257,14 +135,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     : null
 
   let allCapabilities = [...config.capabilities]
-  if (embeddingCapability) {
-    allCapabilities.push(embeddingCapability)
-  }
-  if (modelCapability) {
-    allCapabilities.push(modelCapability)
-  }
+  if (embeddingCapability) allCapabilities.push(embeddingCapability)
+  if (modelCapability) allCapabilities.push(modelCapability)
 
   let agentInstance: Agent | null = null
+  const getAgent = () => agentInstance
 
   const bluetoothConfig = config.transports?.bluetooth
   const hasBluetoothEnabled = bluetoothConfig?.enabled === true
@@ -315,172 +190,16 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         })
       : undefined)
 
-  const baseAgent = await createBaseAgent(
-    baseConfig,
-    {
-      onMessage: async (msg: Message, baseCtx) => {
-        if (msg.type === 'submit-payment-proof') {
-          const proofResult = PaymentProofSchema.safeParse(msg.payload)
-          if (proofResult.success) {
-            await handlePaymentProof(paymentState, proofResult.data, walletState)
-          }
-          return
-        }
+  const onMessage = createMessageDispatcher({
+    getAgent,
+    paymentState,
+    walletState,
+    pricing: config.pricing,
+    payments,
+    messageHandler,
+  })
 
-        if (msg.type === 'invoice') {
-          const payload = msg.payload as { invoice?: unknown; response?: { invoice?: unknown } | unknown }
-          const invoiceData = payload?.invoice ?? (payload?.response as { invoice?: unknown })?.invoice ?? payload?.response ?? msg.payload
-          const invoiceResult = InvoiceSchema.safeParse(invoiceData)
-          if (invoiceResult.success) {
-            const invoice = invoiceResult.data
-            if (isSignedInvoice(invoice)) {
-              const { valid } = await verifyInvoice(invoice)
-              if (!valid) {
-                debug('invoice', `Rejected invoice ${invoice.id}: invalid signature`)
-                return
-              }
-            }
-            const expectedInvoice = await getExpectedInvoice(invoice.jobId)
-            if (!expectedInvoice) {
-              debug('invoice', `Rejected invoice ${invoice.id}: no expected invoice for job ${invoice.jobId}`)
-              return
-            }
-            if (msg.from !== expectedInvoice.expectedRecipient) {
-              debug('invoice', `Rejected invoice ${invoice.id}: sender ${msg.from} does not match expected recipient ${expectedInvoice.expectedRecipient}`)
-              return
-            }
-            await deleteExpectedInvoice(invoice.jobId)
-            payments.queueInvoice(invoice)
-          }
-        }
-
-        if (msg.type === 'streaming-tick' && config.pricing?.type === 'streaming') {
-          const tickResult = StreamingTickSchema.safeParse(msg.payload)
-          if (tickResult.success) {
-            const ctx: MessageContext = {
-              agent: agentInstance!,
-              message: msg,
-              reply: baseCtx.reply,
-              streamResponse: async () => {},
-            }
-            await payments.recordTokens(ctx, tickResult.data.tokensGenerated, {
-              channelId: tickResult.data.channelId,
-              pricing: config.pricing,
-              autoInvoice: true,
-            })
-          }
-        }
-
-        if (msg.type === 'agent-request' && config.pricing?.type === 'escrow' && walletState) {
-          await setupEscrowAgreement(
-            paymentState,
-            msg.id,
-            msg.from,
-            getAddress(walletState),
-            config.pricing
-          )
-        }
-
-        if (msg.type === 'escrow-approval') {
-          const approvalResult = EscrowApprovalSchema.safeParse(msg.payload)
-          if (approvalResult.success) {
-            const { jobId, milestoneId } = approvalResult.data
-            const agreement = paymentState.escrowAgreements.get(jobId)
-            if (agreement) {
-              const approvalCtx: MessageContext = {
-                agent: agentInstance!,
-                message: msg,
-                reply: baseCtx.reply,
-                streamResponse: async () => {},
-              }
-              await payments.releaseMilestone(approvalCtx, milestoneId)
-            }
-          }
-          return
-        }
-
-        if (messageHandler && msg.type === 'agent-request') {
-          const channelId = msg.id
-
-          const wrappedReply = async (payload: unknown, type?: MessageType) => {
-            if (config.pricing?.type === 'streaming' && type !== 'invoice') {
-              const tokens = getExplicitTokens(payload)
-              if (tokens !== null && tokens > 0) {
-                const tempCtx: MessageContext = {
-                  agent: agentInstance!,
-                  message: msg,
-                  reply: baseCtx.reply,
-                  streamResponse: async () => {},
-                }
-                await payments.recordTokens(tempCtx, tokens, {
-                  channelId,
-                  pricing: config.pricing,
-                  autoInvoice: true,
-                })
-              }
-            }
-            await baseCtx.reply({ requestId: msg.id, response: payload }, type ?? 'agent-response')
-          }
-
-          const streamResponse = async (
-            generator: AsyncGenerator<StreamChunk> | (() => AsyncGenerator<StreamChunk>)
-          ) => {
-            const gen = typeof generator === 'function' ? generator() : generator
-            let fullResponse = ''
-            let totalTokens = 0
-
-            try {
-              for await (const chunk of gen) {
-                fullResponse += chunk.text
-
-                if (config.pricing?.type === 'streaming' && chunk.tokens && chunk.tokens > 0) {
-                  totalTokens += chunk.tokens
-                  const tempCtx: MessageContext = {
-                    agent: agentInstance!,
-                    message: msg,
-                    reply: baseCtx.reply,
-                    streamResponse: async () => {},
-                  }
-                  await payments.recordTokens(tempCtx, chunk.tokens, {
-                    channelId,
-                    pricing: config.pricing,
-                    autoInvoice: false,
-                  })
-                }
-
-                await baseCtx.reply({ requestId: msg.id, chunk: chunk.text, partial: true }, 'stream-chunk')
-              }
-
-              if (config.pricing?.type === 'streaming' && totalTokens > 0) {
-                const tempCtx: MessageContext = {
-                  agent: agentInstance!,
-                  message: msg,
-                  reply: baseCtx.reply,
-                  streamResponse: async () => {},
-                }
-                await payments.sendStreamingInvoice(tempCtx, channelId)
-              }
-
-              await baseCtx.reply({ requestId: msg.id, text: fullResponse, complete: true }, 'stream-complete')
-              await baseCtx.reply({ requestId: msg.id, response: { text: fullResponse, finishReason: 'stop' } }, 'agent-response')
-            } finally {
-              if (gen.return) {
-                await gen.return(undefined)
-              }
-            }
-          }
-
-          const ctx: MessageContext = {
-            agent: agentInstance!,
-            message: msg,
-            reply: wrappedReply,
-            streamResponse,
-          }
-          await messageHandler(msg, ctx)
-        }
-      },
-    }
-  )
+  const baseAgent = await createBaseAgent(baseConfig, { onMessage })
 
   await delay(1000)
   await broadcastCapabilities(baseAgent.ref)
@@ -515,42 +234,27 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     }
   }
 
-  const embed = effectiveEmbedFn
-    ? async (texts: string[]): Promise<number[][]> => effectiveEmbedFn(texts)
-    : (hasLocalModel && config.localModel?.supportsEmbedding && modelState
-      ? async (texts: string[]): Promise<number[][]> => createLocalEmbedFn(modelState!)(texts)
-      : null)
+  const embed = createEmbedFunction(effectiveEmbedFn, hasLocalModel, config.localModel, modelState)
 
   const findPeers = async (query?: FindPeersOptions): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
     const peers = await findPeersBase(baseAgent.ref, effectiveQuery)
 
-    if (!query?.requireStake && !query?.minStake) {
-      return peers
-    }
-
-    if (!walletState || !reputationState) {
-      return peers
-    }
+    if (!query?.requireStake && !query?.minStake) return peers
+    if (!walletState || !reputationState) return peers
 
     const filteredPeers: CapabilityMatch[] = []
     for (const match of peers) {
       const peerWallet = await resolveWalletForPeerImpl(reputationState, walletState, match.peer.id)
       if (!peerWallet) {
-        if (!query.requireStake) {
-          filteredPeers.push(match)
-        }
+        if (!query.requireStake) filteredPeers.push(match)
         continue
       }
 
       try {
         const stakeInfo = await getStakeInfoContract(walletState, chainId, peerWallet)
-        if (query.requireStake && !stakeInfo.canWork) {
-          continue
-        }
-        if (query.minStake && stakeInfo.stake < query.minStake) {
-          continue
-        }
+        if (query.requireStake && !stakeInfo.canWork) continue
+        if (query.minStake && stakeInfo.stake < query.minStake) continue
         filteredPeers.push({
           ...match,
           peer: {
@@ -564,108 +268,15 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           },
         })
       } catch {
-        if (!query.requireStake) {
-          filteredPeers.push(match)
-        }
+        if (!query.requireStake) filteredPeers.push(match)
       }
     }
 
     return filteredPeers
   }
 
-  const request = async (
-    peerId: string,
-    prompt: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<AgentResponse> => {
-    if (!peerId || typeof peerId !== 'string' || peerId.trim() === '') {
-      throw new Error('Invalid peerId: must be a non-empty string')
-    }
-
-    const requestMessage: Message = {
-      id: crypto.randomUUID(),
-      from: baseAgent.id,
-      to: peerId,
-      type: 'agent-request',
-      payload: { prompt },
-      timestamp: Date.now(),
-    }
-
-    const invoiceExpiresAt = Date.now() + 300000
-    await writeExpectedInvoice(requestMessage.id, peerId, invoiceExpiresAt)
-
-    debug('request', `Sending request ${requestMessage.id} from ${baseAgent.id} to ${peerId}`)
-
-    return new Promise((resolve, reject) => {
-      let unsubscribe: (() => void) | undefined
-      let aborted = false
-
-      const cleanup = () => {
-        if (unsubscribe) {
-          unsubscribe()
-        }
-      }
-
-      const onAbort = () => {
-        if (aborted) return
-        aborted = true
-        debug('request', `ABORTED waiting for response to ${requestMessage.id}`)
-        cleanup()
-        reject(new Error('Request aborted'))
-      }
-
-      if (options?.signal?.aborted) {
-        onAbort()
-        return
-      }
-
-      options?.signal?.addEventListener('abort', onAbort, { once: true })
-
-      const libp2pPeerId = getLibp2pPeerId(baseAgent.ref)
-      debug('request', `Subscribing to topic peer:${libp2pPeerId}`)
-
-      const handleResponse = (event: EccoEvent) => {
-        if (aborted) return
-        debug('request', `Received event type=${event.type}`)
-        if (event.type !== 'message') return
-        const response = event.payload as Message
-        debug('request', `Message type=${response.type}, from=${response.from}`)
-        if (response.type !== 'agent-response') return
-
-        const responsePayload = response.payload as { requestId?: string; response?: unknown }
-        debug('request', `Response requestId=${responsePayload?.requestId}, expected=${requestMessage.id}`)
-        if (responsePayload?.requestId !== requestMessage.id) return
-
-        debug('request', 'MATCHED! Resolving response')
-        aborted = true
-        cleanup()
-        resolve({
-          peer: {
-            id: peerId,
-            addresses: [],
-            capabilities: [],
-            lastSeen: Date.now(),
-          },
-          matchScore: 1,
-          response: responsePayload?.response || response.payload,
-          timestamp: Date.now(),
-          latency: Date.now() - requestMessage.timestamp,
-          success: true,
-        })
-      }
-
-      if (libp2pPeerId) {
-        unsubscribe = subscribeToTopic(baseAgent.ref, `peer:${libp2pPeerId}`, handleResponse)
-      }
-
-      sendMessage(baseAgent.ref, peerId, requestMessage).catch((error) => {
-        if (aborted) return
-        aborted = true
-        cleanup()
-        reject(error)
-      })
-    })
-  }
+  const request = createRequestMethod({ ref: baseAgent.ref, agentId: baseAgent.id })
+  const send = createSendMethod({ ref: baseAgent.ref, agentId: baseAgent.id })
 
   const requestConsensus = async (options: ConsensusRequestOptions): Promise<ConsensusResult> => {
     const defaultConfig: MultiAgentConfig = {
@@ -676,10 +287,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       allowPartialResults: true,
     }
 
-    const mergedConfig: MultiAgentConfig = {
-      ...defaultConfig,
-      ...options.config,
-    }
+    const mergedConfig: MultiAgentConfig = { ...defaultConfig, ...options.config }
 
     if (effectiveEmbedFn && mergedConfig.semanticSimilarity?.enabled) {
       mergedConfig.semanticSimilarity = {
@@ -688,17 +296,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
     }
 
-    const capabilityQuery: CapabilityQuery = options.capabilityQuery ?? {
-      requiredCapabilities: [],
-    }
-
+    const capabilityQuery: CapabilityQuery = options.capabilityQuery ?? { requiredCapabilities: [] }
     const payload = { prompt: options.query }
 
     const orchestratorStateRef: StateRef<OrchestratorState> = {
-      current: {
-        ...initialOrchestratorState,
-        loadStates: { ...initialOrchestratorState.loadStates },
-      },
+      current: { ...initialOrchestratorState, loadStates: { ...initialOrchestratorState.loadStates } },
       version: 0,
     }
 
@@ -715,10 +317,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     return {
       text: textResponse,
-      consensus: {
-        achieved: result.consensus.achieved,
-        confidence: result.consensus.confidence,
-      },
+      consensus: { achieved: result.consensus.achieved, confidence: result.consensus.confidence },
       metrics: {
         totalAgents: result.metrics.totalAgents,
         successfulAgents: result.metrics.successfulAgents,
@@ -737,14 +336,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       minPeers: 1,
     }
 
-    const discoveryConfig = {
-      ...defaultDiscovery,
-      ...queryConfig?.discovery,
-    }
-
-    const capabilityQuery: CapabilityQuery = queryConfig?.discovery?.capabilityQuery ?? {
-      requiredCapabilities: [],
-    }
+    const discoveryConfig = { ...defaultDiscovery, ...queryConfig?.discovery }
+    const capabilityQuery: CapabilityQuery = queryConfig?.discovery?.capabilityQuery ?? { requiredCapabilities: [] }
 
     const peers = await findPeersWithPriority(baseAgent.ref, capabilityQuery, {
       phases: discoveryConfig.phases as DiscoveryPriority[],
@@ -761,41 +354,24 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
     if (queryConfig?.includeSelf && effectiveModel && (effectiveGenerateFn || effectiveStreamGenerateFn)) {
       const startTime = Date.now()
-      const systemPrompt = queryConfig.systemPrompt
-        ?? config.systemPrompt
-        ?? defaultSystemPrompt
+      const systemPrompt = queryConfig.systemPrompt ?? config.systemPrompt ?? defaultSystemPrompt
 
       try {
         let responseText = ''
 
         if (effectiveStreamGenerateFn) {
-          const generator = effectiveStreamGenerateFn({
-            model: effectiveModel,
-            system: systemPrompt,
-            prompt,
-          })
+          const generator = effectiveStreamGenerateFn({ model: effectiveModel, system: systemPrompt, prompt })
           for await (const chunk of generator) {
             responseText += chunk.text
-            if (queryConfig?.onStream) {
-              queryConfig.onStream({ ...chunk, peerId: baseAgent.id })
-            }
+            if (queryConfig?.onStream) queryConfig.onStream({ ...chunk, peerId: baseAgent.id })
           }
         } else if (effectiveGenerateFn) {
-          const result = await effectiveGenerateFn({
-            model: effectiveModel,
-            system: systemPrompt,
-            prompt,
-          })
+          const result = await effectiveGenerateFn({ model: effectiveModel, system: systemPrompt, prompt })
           responseText = result.text
         }
 
         additionalResponses.push({
-          peer: {
-            id: baseAgent.id,
-            addresses: baseAgent.addrs,
-            capabilities: allCapabilities,
-            lastSeen: Date.now(),
-          },
+          peer: { id: baseAgent.id, addresses: baseAgent.addrs, capabilities: allCapabilities, lastSeen: Date.now() },
           matchScore: 1,
           response: { text: responseText },
           timestamp: Date.now(),
@@ -804,12 +380,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         })
       } catch (error) {
         additionalResponses.push({
-          peer: {
-            id: baseAgent.id,
-            addresses: baseAgent.addrs,
-            capabilities: allCapabilities,
-            lastSeen: Date.now(),
-          },
+          peer: { id: baseAgent.id, addresses: baseAgent.addrs, capabilities: allCapabilities, lastSeen: Date.now() },
           matchScore: 1,
           response: null,
           timestamp: Date.now(),
@@ -826,7 +397,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         throw new Error('synthesized-consensus requires a model with generateFn or streamGenerateFn')
       }
 
-      return async (query: string, responses: AgentResponse[]): Promise<string> => {
+      return async (q: string, responses: AgentResponse[]): Promise<string> => {
         const responseTexts = responses.map((r) => {
           const text = typeof r.response === 'object' && r.response !== null && 'text' in r.response
             ? (r.response as { text: string }).text
@@ -834,12 +405,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
           return `[${r.peer.id}]: ${text}`
         }).join('\n\n')
 
-        const synthesisPrompt = `Original question: "${query}"
-
-Agent responses:
-${responseTexts}
-
-Provide a unified consensus answer that incorporates the key insights from all perspectives. Be concise (2-3 sentences).`
+        const synthesisPrompt = `Original question: "${q}"\n\nAgent responses:\n${responseTexts}\n\nProvide a unified consensus answer that incorporates the key insights from all perspectives. Be concise (2-3 sentences).`
 
         if (effectiveGenerateFn) {
           const result = await effectiveGenerateFn({
@@ -858,9 +424,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
         })
         for await (const chunk of gen) {
           responseText += chunk.text
-          if (queryConfig?.onStream) {
-            queryConfig.onStream({ text: chunk.text, tokens: chunk.tokens, peerId: 'synthesis' })
-          }
+          if (queryConfig?.onStream) queryConfig.onStream({ text: chunk.text, tokens: chunk.tokens, peerId: 'synthesis' })
         }
         return responseText
       }
@@ -880,39 +444,17 @@ Provide a unified consensus answer that incorporates the key insights from all p
         minAgents: queryConfig?.minAgents ?? 1,
         semanticSimilarity: queryConfig?.semanticSimilarity,
         loadBalancing: queryConfig?.loadBalancing,
-        onStream: queryConfig?.onStream
-          ? (chunk) => queryConfig.onStream!({ text: chunk.text, peerId: chunk.peerId })
-          : undefined,
+        onStream: queryConfig?.onStream ? (chunk) => queryConfig.onStream!({ text: chunk.text, peerId: chunk.peerId }) : undefined,
         originalQuery: prompt,
         synthesizeFn: createSynthesizeFn(),
       },
     })
   }
 
-  const send = async (peerId: string, type: MessageType, payload: unknown): Promise<void> => {
-    if (!peerId || typeof peerId !== 'string' || peerId.trim() === '') {
-      throw new Error('Invalid peerId: must be a non-empty string')
-    }
-
-    const message: Message = {
-      id: crypto.randomUUID(),
-      from: baseAgent.id,
-      to: peerId,
-      type,
-      payload,
-      timestamp: Date.now(),
-    }
-    await sendMessage(baseAgent.ref, peerId, message)
-  }
-
   const stopInternal = async (): Promise<void> => {
     await stopNode(baseAgent.ref)
-    if (modelState) {
-      await unloadModel(modelState)
-    }
-    if (embeddingModelState) {
-      await unloadModel(embeddingModelState)
-    }
+    if (modelState) await unloadModel(modelState)
+    if (embeddingModelState) await unloadModel(embeddingModelState)
   }
 
   const stop = async (): Promise<void> => {
@@ -921,34 +463,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
   }
 
   const walletAddress = walletState ? getAddress(walletState) : null
-
-  const stake = async (amount: bigint): Promise<string> => {
-    if (!walletState) {
-      throw new Error('Wallet required for staking. Configure wallet in createAgent options.')
-    }
-    return stakeContract(walletState, chainId, amount)
-  }
-
-  const unstake = async (amount: bigint): Promise<string> => {
-    if (!walletState) {
-      throw new Error('Wallet required for unstaking. Configure wallet in createAgent options.')
-    }
-    return requestUnstakeContract(walletState, chainId, amount)
-  }
-
-  const getStakeInfo = async () => {
-    if (!walletState || !walletAddress) {
-      throw new Error('Wallet required to get stake info. Configure wallet in createAgent options.')
-    }
-    return getStakeInfoContract(walletState, chainId, walletAddress)
-  }
-
-  const resolveWalletForPeer = async (peerId: string): Promise<`0x${string}` | null> => {
-    if (!walletState || !reputationState) {
-      throw new Error('Wallet required to resolve peer wallets. Configure wallet in createAgent options.')
-    }
-    return resolveWalletForPeerImpl(reputationState, walletState, peerId)
-  }
+  const stakingMethods = createStakingMethods({ walletState, reputationState, chainId })
 
   agentInstance = {
     id: baseAgent.id,
@@ -969,10 +484,7 @@ Provide a unified consensus answer that incorporates the key insights from all p
     send,
     stop,
     query,
-    stake,
-    unstake,
-    getStakeInfo,
-    resolveWalletForPeer,
+    ...stakingMethods,
   }
 
   registerProcessCleanup()
@@ -987,9 +499,7 @@ function extractTextFromResult(result: unknown): string {
     const obj = result as Record<string, unknown>
     if (typeof obj.text === 'string') return obj.text
     if (typeof obj.content === 'string') return obj.content
-    if (Array.isArray(obj.content) && obj.content[0]?.text) {
-      return String(obj.content[0].text)
-    }
+    if (Array.isArray(obj.content) && obj.content[0]?.text) return String(obj.content[0].text)
     return JSON.stringify(result)
   }
   return String(result)
