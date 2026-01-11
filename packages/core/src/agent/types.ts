@@ -9,10 +9,10 @@ import type {
   PeerInfo,
   ProtocolVersion,
 } from '../types'
-import type { StakeInfo } from '../services/reputation-contract'
-import type { NodeState, StateRef } from '../node/types'
-import type { WalletState } from '../services/wallet'
-import type { LocalModelState } from '../services/llm'
+import type { StakeInfo } from '../reputation/reputation-contract'
+import type { NodeState, StateRef } from '../networking/types'
+import type { WalletState } from '../payments/wallet'
+import type { LocalModelState } from '../llm/local-model'
 import type {
   MultiAgentConfig,
   AgentResponse,

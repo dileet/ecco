@@ -1,11 +1,11 @@
 import type { Message, MessageType } from '../types'
-import type { WalletState } from '../services/wallet'
-import { getAddress } from '../services/wallet'
-import { isSignedInvoice, verifyInvoice } from '../utils/invoice-signing'
+import type { WalletState } from '../payments/wallet'
+import { getAddress } from '../payments/wallet'
+import { isSignedInvoice, verifyInvoice } from '../payments/invoice-signing'
 import { getExpectedInvoice, deleteExpectedInvoice } from '../storage'
 import { debug } from '../utils'
 import type { Agent, MessageContext, MessageHandler, StreamChunk, PricingConfig, PaymentHelpers } from './types'
-import { handlePaymentProof, setupEscrowAgreement, type PaymentState } from './payments'
+import { handlePaymentProof, setupEscrowAgreement, type PaymentState } from '../payments/payment-helpers'
 import {
   PaymentProofSchema,
   InvoiceSchema,

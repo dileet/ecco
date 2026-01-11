@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 
   const analyticalAgent = await createAgent({
     name: 'agent-analytical',
+    network: 'testnet',
     systemPrompt: 'You are an analytical and data-driven assistant, focusing on facts and logic. Keep responses concise (2-3 sentences).',
     capabilities: [{ type: 'agent', name: 'assistant', version: '1.0.0' }],
     model: model1,

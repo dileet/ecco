@@ -1,0 +1,216 @@
+import type { NodeState } from '../networking/types';
+import { PEER_PERFORMANCE } from '../networking/constants';
+
+export type PeerMetrics = {
+  peerId: string;
+  successCount: number;
+  failureCount: number;
+  totalLatency: number;
+  requestCount: number;
+  lastUpdated: number;
+  lastAccessed: number;
+  recentErrors: number[];
+  recentLatencies: number[];
+  recentThroughput: number[];
+};
+
+export type PeerPerformanceState = {
+  metrics: Map<string, PeerMetrics>;
+  maxPeers: number;
+  ttlMs: number;
+  windowSize: number;
+};
+
+export const createPerformanceTracker = (): PeerPerformanceState => ({
+  metrics: new Map(),
+  maxPeers: 50000,
+  ttlMs: 7 * 24 * 60 * 60 * 1000,
+  windowSize: 100,
+});
+
+export const setupPerformanceTracking = (state: NodeState): NodeState => {
+  if (state.performanceTracker) {
+    return state;
+  }
+  return {
+    ...state,
+    performanceTracker: createPerformanceTracker(),
+  };
+};
+
+const evictStaleEntries = (state: PeerPerformanceState): void => {
+  const now = Date.now();
+  const staleThreshold = now - state.ttlMs;
+
+  for (const [peerId, metrics] of state.metrics.entries()) {
+    if (metrics.lastAccessed <= staleThreshold) {
+      state.metrics.delete(peerId);
+    }
+  }
+};
+
+const evictLRU = (state: PeerPerformanceState): void => {
+  if (state.metrics.size <= state.maxPeers) {
+    return;
+  }
+
+  const entries = Array.from(state.metrics.entries());
+  entries.sort((a, b) => b[1].lastAccessed - a[1].lastAccessed);
+
+  const evictCount = state.metrics.size - state.maxPeers;
+  console.warn(`[peer-performance] Evicting ${evictCount} peers (capacity: ${state.maxPeers})`);
+
+  state.metrics.clear();
+  for (const [peerId, metrics] of entries.slice(0, state.maxPeers)) {
+    state.metrics.set(peerId, metrics);
+  }
+};
+
+// Adds a value to the array, dropping the oldest if it exceeds maxSize
+const addToWindow = <T>(window: T[], value: T, maxSize: number): T[] => {
+  const newWindow = [...window, value];
+  if (newWindow.length > maxSize) {
+    return newWindow.slice(-maxSize);
+  }
+  return newWindow;
+};
+
+export const recordSuccess = (
+  state: PeerPerformanceState,
+  peerId: string,
+  latencyMs: number,
+  throughput?: number
+): void => {
+  const now = Date.now();
+  const existing = state.metrics.get(peerId);
+
+  const updated: PeerMetrics = existing
+    ? {
+        ...existing,
+        successCount: existing.successCount + 1,
+        requestCount: existing.requestCount + 1,
+        totalLatency: existing.totalLatency + latencyMs,
+        lastUpdated: now,
+        lastAccessed: now,
+        recentLatencies: addToWindow(existing.recentLatencies, latencyMs, state.windowSize),
+        recentThroughput:
+          throughput !== undefined
+            ? addToWindow(existing.recentThroughput, throughput, state.windowSize)
+            : existing.recentThroughput,
+        recentErrors: existing.recentErrors,
+      }
+    : {
+        peerId,
+        successCount: 1,
+        failureCount: 0,
+        requestCount: 1,
+        totalLatency: latencyMs,
+        lastUpdated: now,
+        lastAccessed: now,
+        recentLatencies: [latencyMs],
+        recentThroughput: throughput !== undefined ? [throughput] : [],
+        recentErrors: [],
+      };
+
+  state.metrics.set(peerId, updated);
+  evictStaleEntries(state);
+  evictLRU(state);
+};
+
+export const recordFailure = (
+  state: PeerPerformanceState,
+  peerId: string,
+  errorCode?: number
+): void => {
+  const now = Date.now();
+  const existing = state.metrics.get(peerId);
+
+  const updated: PeerMetrics = existing
+    ? {
+        ...existing,
+        failureCount: existing.failureCount + 1,
+        requestCount: existing.requestCount + 1,
+        lastUpdated: now,
+        lastAccessed: now,
+        recentErrors:
+          errorCode !== undefined
+            ? addToWindow(existing.recentErrors, errorCode, state.windowSize)
+            : existing.recentErrors,
+      }
+    : {
+        peerId,
+        successCount: 0,
+        failureCount: 1,
+        requestCount: 1,
+        totalLatency: 0,
+        lastUpdated: now,
+        lastAccessed: now,
+        recentLatencies: [],
+        recentThroughput: [],
+        recentErrors: errorCode !== undefined ? [errorCode] : [],
+      };
+
+  state.metrics.set(peerId, updated);
+  evictStaleEntries(state);
+  evictLRU(state);
+};
+
+export const getMetrics = (state: PeerPerformanceState, peerId: string): PeerMetrics | undefined => {
+  const metrics = state.metrics.get(peerId);
+
+  if (metrics) {
+    const now = Date.now();
+    const updatedMetrics = { ...metrics, lastAccessed: now };
+    state.metrics.set(peerId, updatedMetrics);
+    return updatedMetrics;
+  }
+
+  return undefined;
+};
+
+export const calculateSuccessRate = (metrics: PeerMetrics): number => {
+  if (metrics.requestCount === 0) return 0;
+  return metrics.successCount / metrics.requestCount;
+};
+
+export const calculateAverageLatency = (metrics: PeerMetrics): number => {
+  if (metrics.successCount === 0) return Infinity;
+  return metrics.totalLatency / metrics.successCount;
+};
+
+export const calculateRecentAverageLatency = (metrics: PeerMetrics): number => {
+  if (metrics.recentLatencies.length === 0) return Infinity;
+  const sum = metrics.recentLatencies.reduce((acc, val) => acc + val, 0);
+  return sum / metrics.recentLatencies.length;
+};
+
+export const calculateRecentErrorRate = (metrics: PeerMetrics): number => {
+  const recentTotal = metrics.recentLatencies.length + metrics.recentErrors.length;
+  if (recentTotal === 0) return 0;
+  return metrics.recentErrors.length / recentTotal;
+};
+
+const WEIGHT_TOTAL = PEER_PERFORMANCE.WEIGHTS.SUCCESS + PEER_PERFORMANCE.WEIGHTS.ERROR + PEER_PERFORMANCE.WEIGHTS.LATENCY;
+
+export const calculatePerformanceScore = (metrics: PeerMetrics): number => {
+  const successRate = calculateSuccessRate(metrics);
+  const recentErrorRate = calculateRecentErrorRate(metrics);
+  const avgLatency = calculateRecentAverageLatency(metrics);
+
+  const latencyScore = avgLatency === Infinity ? 0 : Math.max(0, 1 - avgLatency / PEER_PERFORMANCE.MAX_LATENCY_MS);
+
+  const rawScore =
+    PEER_PERFORMANCE.WEIGHTS.SUCCESS * successRate +
+    PEER_PERFORMANCE.WEIGHTS.ERROR * (1 - recentErrorRate) +
+    PEER_PERFORMANCE.WEIGHTS.LATENCY * latencyScore;
+
+  return rawScore / WEIGHT_TOTAL;
+};
+
+export const getAllMetrics = (state: PeerPerformanceState): Map<string, PeerMetrics> => {
+  return new Map(state.metrics);
+};
+
+export const clearMetrics = (state: PeerPerformanceState): void => {
+  state.metrics.clear();
+};

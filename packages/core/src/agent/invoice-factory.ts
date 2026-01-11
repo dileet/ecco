@@ -1,6 +1,6 @@
 import type { PrivateKey } from '@libp2p/interface'
 import type { Invoice, SignedInvoice } from '../types'
-import { signInvoice } from '../utils/invoice-signing'
+import { signInvoice } from '../payments/invoice-signing'
 
 export type InvoiceParams = {
   jobId: string

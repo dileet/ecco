@@ -1,6 +1,6 @@
 import type { Message, MessageType } from '../types'
-import type { StateRef, NodeState } from '../node/types'
-import { sendMessage, getLibp2pPeerId, subscribeToTopic } from '../node'
+import type { StateRef, NodeState } from '../networking/types'
+import { sendMessage, getLibp2pPeerId, subscribeToTopic } from '../networking'
 import { writeExpectedInvoice } from '../storage'
 import { debug } from '../utils'
 import type { EccoEvent } from '../events'

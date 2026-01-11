@@ -22,8 +22,8 @@ const CapabilityAnnouncementEventSchema = z.object({
   libp2pPeerId: z.string().optional(),
   capabilities: z.array(CapabilitySchema),
   timestamp: z.number(),
-  signature: z.array(z.number()).optional(),
-  publicKey: z.array(z.number()).optional(),
+  signature: z.string().optional(),
+  publicKey: z.string().optional(),
 });
 
 const CapabilityRequestEventSchema = z.object({
@@ -33,8 +33,8 @@ const CapabilityRequestEventSchema = z.object({
   requiredCapabilities: z.array(CapabilitySchema.partial()),
   preferredPeers: z.array(z.string()).optional(),
   timestamp: z.number(),
-  signature: z.array(z.number()).optional(),
-  publicKey: z.array(z.number()).optional(),
+  signature: z.string().optional(),
+  publicKey: z.string().optional(),
 });
 
 const CapabilityResponseEventSchema = z.object({
@@ -44,8 +44,8 @@ const CapabilityResponseEventSchema = z.object({
   libp2pPeerId: z.string().optional(),
   capabilities: z.array(CapabilitySchema),
   timestamp: z.number(),
-  signature: z.array(z.number()).optional(),
-  publicKey: z.array(z.number()).optional(),
+  signature: z.string().optional(),
+  publicKey: z.string().optional(),
 });
 
 const PeerDiscoveredEventSchema = z.object({

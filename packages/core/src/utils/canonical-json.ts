@@ -3,6 +3,10 @@ export function canonicalJsonStringify(value: unknown): string {
     return 'null';
   }
 
+  if (value === undefined) {
+    return 'null';
+  }
+
   if (typeof value === 'boolean' || typeof value === 'number') {
     return JSON.stringify(value);
   }
@@ -18,10 +22,13 @@ export function canonicalJsonStringify(value: unknown): string {
 
   if (typeof value === 'object') {
     const keys = Object.keys(value).sort();
-    const pairs = keys.map((key) => {
+    const pairs: string[] = [];
+    for (const key of keys) {
       const v = (value as Record<string, unknown>)[key];
-      return JSON.stringify(key) + ':' + canonicalJsonStringify(v);
-    });
+      if (v !== undefined) {
+        pairs.push(JSON.stringify(key) + ':' + canonicalJsonStringify(v));
+      }
+    }
     return '{' + pairs.join(',') + '}';
   }
 

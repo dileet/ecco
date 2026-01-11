@@ -1,8 +1,8 @@
 import type { CapabilityMatch } from '../types';
-import type { NodeState } from '../node/types';
+import type { NodeState } from '../networking/types';
 import type { MultiAgentConfig, AgentLoadState } from './types';
-import type { LatencyZone } from '../node/latency-zones';
-import { selectByZoneWithFallback, sortByZone } from '../node/latency-zones';
+import type { LatencyZone } from '../reputation/latency-zones';
+import { selectByZoneWithFallback, sortByZone } from '../reputation/latency-zones';
 import { secureRandom } from '../utils';
 
 const MAX_FANOUT = 33;

@@ -1,5 +1,5 @@
 import type { CapabilityQuery, Message, CapabilityMatch } from '../types';
-import type { NodeState, StateRef } from '../node/types';
+import type { NodeState, StateRef } from '../networking/types';
 import {
   type MultiAgentConfig,
   type AgentResponse,
@@ -10,9 +10,9 @@ import {
   isOrchestratorStateRef,
 } from './types';
 import { aggregateResponses } from './aggregation';
-import { findPeers, getId, getLibp2pPeerId, sendMessage, getState, updateState } from '../node';
-import { modifyState } from '../node/state';
-import { subscribeToAllDirectMessages, type MessageBridgeState } from '../transport/message-bridge';
+import { findPeers, getId, getLibp2pPeerId, sendMessage, getState, updateState } from '../networking';
+import { modifyState } from '../networking/state';
+import { subscribeToAllDirectMessages, type MessageBridgeState } from '../networking/message-bridge';
 import { writeExpectedInvoice } from '../storage';
 import { selectAgents, defaultLoadState } from './selection';
 import { createResponseHandler, type ResponseHandler } from './response-handler';

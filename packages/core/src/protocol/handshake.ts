@@ -11,7 +11,7 @@ import type {
 } from '../types';
 import type { NetworkConfig } from '../networks';
 import { isCompatible, formatVersion } from './version';
-import { computeConstitutionHash, validateConstitution, parseConstitutionHash } from './constitution';
+import { computeConstitutionHash, validateConstitution } from './constitution';
 import { fetchOnChainConstitution } from './on-chain-constitution';
 
 const ProtocolVersionSchema = z.object({
@@ -20,11 +20,16 @@ const ProtocolVersionSchema = z.object({
   patch: z.number().int().nonnegative(),
 });
 
+const ConstitutionHashSchema = z.object({
+  hash: z.string(),
+  rulesCount: z.number().int().nonnegative(),
+});
+
 const HandshakePayloadSchema = z.object({
   protocolVersion: ProtocolVersionSchema,
   networkId: z.string(),
   timestamp: z.number(),
-  constitutionHash: z.string(),
+  constitutionHash: ConstitutionHashSchema,
 });
 
 const HandshakeResponseSchema = z.object({
@@ -182,16 +187,11 @@ export function parseHandshakePayload(payload: unknown): VersionHandshakePayload
     return null;
   }
 
-  const constitutionHash = parseConstitutionHash(result.data.constitutionHash);
-  if (!constitutionHash) {
-    return null;
-  }
-
   return {
     protocolVersion: result.data.protocolVersion,
     networkId: result.data.networkId,
     timestamp: result.data.timestamp,
-    constitutionHash,
+    constitutionHash: result.data.constitutionHash,
   };
 }
 

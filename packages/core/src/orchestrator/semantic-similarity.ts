@@ -1,6 +1,6 @@
-import type { NodeState, StateRef } from '../node/types';
+import type { NodeState, StateRef } from '../networking/types';
 import type { EmbedFn } from '../agent/types';
-import { requestEmbeddings } from '../services/embedding';
+import { requestEmbeddings } from '../llm/embedding-service';
 import { secureRandom } from '../utils';
 
 export type SimilarityMethod = 'text-overlap' | 'local-embedding' | 'peer-embedding' | 'openai-embedding' | 'custom';

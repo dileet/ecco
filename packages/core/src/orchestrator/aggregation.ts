@@ -1,6 +1,6 @@
 import type { AgentResponse, AggregatedResult, MultiAgentConfig } from './types';
 import { findConsensus } from './semantic-similarity';
-import { getMetrics, calculatePerformanceScore } from '../node/peer-performance';
+import { getMetrics, calculatePerformanceScore } from '../reputation/peer-performance';
 import { safeStringify } from '../utils/validation';
 
 export type AggregationResult = {

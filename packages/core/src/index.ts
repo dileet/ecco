@@ -31,7 +31,7 @@ export {
   type Agent as BaseAgent,
   type AgentCallbacks,
   type MessageContext as BaseMessageContext,
-} from './node';
+} from './networking';
 export {
   initialOrchestratorState,
   executeOrchestration,
@@ -46,7 +46,7 @@ export {
   type AuthConfig,
   type SignedMessage,
   type AuthState,
-} from './services/auth';
+} from './auth/authenticator';
 export { configDefaults, mergeConfig, createConfig } from './config';
 export {
   ECCO_MAINNET,
@@ -70,7 +70,7 @@ export {
   type NetworkName,
 } from './networks';
 export { validateEvent, isValidEvent, MessageEventSchema } from './events';
-export { getVersion, modifyState, registerCleanup } from './node/state';
+export { getVersion, modifyState, registerCleanup } from './networking/state';
 export { aggregateResponses, type AggregationResult } from './orchestrator/aggregation';
 export {
   createWalletState,
@@ -83,7 +83,7 @@ export {
   type WalletConfig,
   type WalletState,
   type BatchSettlementResult,
-} from './services/wallet';
+} from './payments/wallet';
 export {
   validateInvoice,
   recordStreamingTick,
@@ -92,7 +92,7 @@ export {
   distributeSwarmSplit,
   aggregateInvoices,
   type AggregatedInvoice,
-} from './services/payment';
+} from './payments/payment-processor';
 
 export {
   initialize as storageInitialize,
@@ -132,7 +132,7 @@ export {
   type EmbeddingRequest,
   type EmbeddingResponse,
   type EmbeddingProviderConfig,
-} from './services/embedding';
+} from './llm/embedding-service';
 
 export {
   createLocalModel,
@@ -145,7 +145,7 @@ export {
   unloadModel,
   type LocalModelConfig as LlamaModelConfig,
   type LocalModelState,
-} from './services/llm';
+} from './llm/local-model';
 
 export {
   GenerationRequestSchema,
@@ -162,7 +162,7 @@ export {
   type GenerationStreamComplete,
   type GenerationConfig,
   type GenerationProviderConfig,
-} from './services/generation';
+} from './llm/generation-service';
 
 export type {
   EccoConfig,
@@ -207,8 +207,8 @@ export type {
   MessageEvent,
 } from './events';
 
-export type { NodeState } from './node/types';
-export type { PoolState } from './connection';
+export type { NodeState } from './networking/types';
+export type { PoolState } from './networking/connection-types';
 export type { OrchestratorState } from './orchestrator';
 
 export type {
@@ -256,7 +256,7 @@ export {
   type HybridDiscoveryState,
   type DiscoveryPhase,
   type DiscoveryResult,
-} from './transport/hybrid-discovery';
+} from './networking/hybrid-discovery';
 
 export type {
   TransportType,
@@ -270,10 +270,10 @@ export type {
   ProximityInfo,
   LocalContext,
   BeaconConfig,
-} from './transport/types';
+} from './networking/transport-types';
 
-export * as bleAdapter from './transport/adapters/bluetooth-le';
-export * as libp2pTransport from './transport/adapters/libp2p';
+export * as bleAdapter from './networking/bluetooth-le-adapter';
+export * as libp2pTransport from './networking/libp2p-adapter';
 
 export {
   createMessageBridge,
@@ -293,7 +293,7 @@ export {
   type MessageBridgeConfig,
   type MessageBridgeState,
   type TopicMessage,
-} from './transport/message-bridge';
+} from './networking/message-bridge';
 
 export {
   computeConstitutionHash,
@@ -361,7 +361,7 @@ export {
   type ProposalInfo,
   type GovernorSettings,
   type ProposalAction,
-} from './services/governance';
+} from './governance/governor';
 
 export {
   calculateFee,
@@ -372,7 +372,7 @@ export {
   getFeeStats,
   type FeeInfo,
   type FeeStats,
-} from './services/fee-collector';
+} from './payments/fee-collector';
 
 export {
   createReputationState,
@@ -395,7 +395,7 @@ export {
   type ReputationState,
   type ReputationConfig,
   type PendingRating,
-} from './node/reputation';
+} from './reputation/reputation-state';
 
 export {
   createBloomFilterState,
@@ -418,7 +418,7 @@ export {
   type ReputationBloomFilter,
   type BloomFilterState,
   type BloomFilterConfig,
-} from './node/bloom-filter';
+} from './reputation/reputation-filter';
 
 export {
   createLatencyZoneState,
@@ -441,7 +441,7 @@ export {
   type LatencyZoneState,
   type ZoneStat,
   type LatencyZoneConfig,
-} from './node/latency-zones';
+} from './reputation/latency-zones';
 
 export {
   computePeerIdHash,
@@ -451,7 +451,7 @@ export {
   isWalletRegistered,
   getPeerBindingInfo,
   type PeerBindingInfo,
-} from './services/peer-binding';
+} from './reputation/peer-binding';
 
 export {
   stake,
@@ -471,4 +471,4 @@ export {
   getMinStakes,
   type PeerReputation as OnChainPeerReputation,
   type StakeInfo,
-} from './services/reputation-contract';
+} from './reputation/reputation-contract';

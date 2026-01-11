@@ -5,7 +5,7 @@ import {
   createLocalEmbedFn,
   isLocalModelState,
   type LocalModelState,
-} from '../services/llm'
+} from '../llm/local-model'
 import type { AgentConfig, GenerateFn, StreamGenerateFn, EmbedFn } from './types'
 
 export interface ModelSetupConfig {

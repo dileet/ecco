@@ -1,7 +1,7 @@
 import type { PrivateKey } from '@libp2p/interface'
-import { createWalletState, type WalletState } from '../services/wallet'
-import { createReputationState, type ReputationState } from '../node/reputation'
-import { createPaymentHelpers, createPaymentState, createFeeHelpers, type PaymentState } from './payments'
+import { createWalletState, type WalletState } from '../payments/wallet'
+import { createReputationState, type ReputationState } from '../reputation/reputation-state'
+import { createPaymentHelpers, createPaymentState, createFeeHelpers, type PaymentState } from '../payments/payment-helpers'
 import type { PaymentHelpers, FeeHelpers } from './types'
 
 export interface WalletSetupConfig {

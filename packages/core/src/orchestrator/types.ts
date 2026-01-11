@@ -1,5 +1,5 @@
 import type { PeerInfo } from '../types';
-import type { NodeState, StateRef } from '../node/types';
+import type { NodeState, StateRef } from '../networking/types';
 import type { EmbedFn } from '../agent/types';
 
 export type SelectionStrategy = 'all' | 'top-n' | 'round-robin' | 'random' | 'weighted';

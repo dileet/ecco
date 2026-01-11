@@ -8,11 +8,11 @@ import {
   getLibp2pPeerId,
   loadOrCreateNodeIdentity,
   resolveWalletForPeer as resolveWalletForPeerImpl,
-} from '../node'
-import type { StateRef } from '../node/types'
-import { getAddress, type WalletState } from '../services/wallet'
+} from '../networking'
+import type { StateRef } from '../networking/types'
+import { getAddress, type WalletState } from '../payments/wallet'
 import { formatProtocolVersion } from '../networks'
-import { getStakeInfo as getStakeInfoContract } from '../services/reputation-contract'
+import { getStakeInfo as getStakeInfoContract } from '../reputation/reputation-contract'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -31,15 +31,15 @@ import type {
   FindPeersOptions,
 } from './types'
 import { createLLMHandler } from './handlers'
-import { setupEmbeddingProvider } from '../services/embedding'
-import { setupGenerationProvider } from '../services/generation'
-import { createLocalEmbedFn, unloadModel } from '../services/llm'
+import { setupEmbeddingProvider } from '../llm/embedding-service'
+import { setupGenerationProvider } from '../llm/generation-service'
+import { createLocalEmbedFn, unloadModel } from '../llm/local-model'
 import { resolveNetworkConfig, resolveBootstrapAddrs, resolveChainId, mergeRpcUrls } from './network'
 import { setupWallet } from './wallet'
 import { setupModels, createEmbedFunction } from './models'
 import { createMessageDispatcher } from './dispatch'
 import { createRequestMethod, createSendMethod } from './requests'
-import { createStakingMethods } from './staking'
+import { createStakingMethods } from '../reputation/staking'
 
 type StopFn = () => Promise<void>
 const activeAgents = new Map<string, StopFn>()
@@ -147,6 +147,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const baseConfig = {
     discovery: networkConfig.discovery,
     nodeId: config.name,
+    networkId: networkConfig.networkId,
+    protocol: networkConfig.protocol,
+    constitution: networkConfig.constitution,
     capabilities: allCapabilities,
     transport: { websocket: { enabled: true } },
     ...(hasBootstrap && {
@@ -507,4 +510,4 @@ function extractTextFromResult(result: unknown): string {
 
 export * from './types'
 export { extractPromptText, createLLMHandler, isAgentRequest } from './handlers'
-export { createPaymentHelpers, createPaymentState, createFeeHelpers } from './payments'
+export { createPaymentHelpers, createPaymentState, createFeeHelpers } from '../payments/payment-helpers'
