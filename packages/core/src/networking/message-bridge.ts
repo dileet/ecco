@@ -393,6 +393,10 @@ export function isPeerValidated(state: MessageBridgeState, peerId: string): bool
   return state.validatedPeers.has(peerId);
 }
 
+export function isPeerPendingHandshake(state: MessageBridgeState, peerId: string): boolean {
+  return state.pendingHandshakes.has(peerId);
+}
+
 export function isHandshakeRequired(state: MessageBridgeState): boolean {
   return state.config.networkConfig?.protocol.enforcementLevel !== 'none';
 }

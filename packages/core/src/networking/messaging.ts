@@ -10,6 +10,7 @@ import {
   subscribeToTopic as bridgeSubscribeToTopic,
   createMessage,
   isPeerValidated,
+  isPeerPendingHandshake,
   isHandshakeRequired,
   shutdownMessageBridge,
 } from './message-bridge';
@@ -409,7 +410,9 @@ export function subscribeWithRef(
               console.warn(`[${currentState.id}] Pubsub message missing transport peer ID, dropping message`);
               return;
             }
-            if (!isPeerValidated(currentState.messageBridge, transportPeerId)) {
+            const isValidated = isPeerValidated(currentState.messageBridge, transportPeerId);
+            const isPending = isPeerPendingHandshake(currentState.messageBridge, transportPeerId);
+            if (!isValidated && !isPending) {
               console.warn(`[${currentState.id}] Pubsub message from unvalidated peer ${transportPeerId}, dropping message`);
               return;
             }

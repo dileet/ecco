@@ -13,9 +13,32 @@ import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from './hybr
 import { findCandidates, type FilterTier } from '../reputation/reputation-filter';
 import { getLocalReputation, getEffectiveScore, createReputationScorer } from '../reputation/reputation-state';
 import { getPeerZone, getZoneWeight, type LatencyZone } from '../reputation/latency-zones';
-import { initiateHandshake, isHandshakeRequired, removePeerValidation } from './message-bridge';
+import { initiateHandshake, isHandshakeRequired, removePeerValidation, type MessageBridgeState } from './message-bridge';
 import { removeAllTopicSubscriptionsForPeer } from './messaging';
 import { DISCOVERY } from './constants';
+
+async function sendHandshakeMessage(
+  stateRef: StateRef<NodeState>,
+  messageBridge: MessageBridgeState,
+  peerId: string
+): Promise<void> {
+  try {
+    const { message } = await initiateHandshake(messageBridge, peerId);
+    debug('discovery', `initiateHandshake returned: message=${!!message}`);
+    if (message) {
+      const bridge = getState(stateRef).messageBridge;
+      if (bridge?.sendMessage) {
+        debug('discovery', `Sending handshake to ${peerId}`);
+        await bridge.sendMessage(peerId, message);
+        debug('discovery', `Handshake sent to ${peerId}`);
+      } else {
+        debug('discovery', `No sendMessage on bridge`);
+      }
+    }
+  } catch (err) {
+    debug('discovery', `Handshake error: ${err}`);
+  }
+}
 
 
 function extractPeerIdFromAddr(addr: string): string | null {
@@ -193,32 +216,16 @@ export function setupEventListeners(
 
     if (currentState.messageBridge && isHandshakeRequired(currentState.messageBridge)) {
       debug('discovery', `Peer connected: ${peerId}, initiating handshake`);
-      initiateHandshake(currentState.messageBridge, peerId)
-        .then(async ({ message, pendingEntry }) => {
-          debug('discovery', `initiateHandshake returned: message=${!!message}, pendingEntry=${!!pendingEntry}`);
-          if (pendingEntry) {
-            updateState(stateRef, (s) => {
-              if (!s.messageBridge) return s;
-              const pendingHandshakes = new Map(s.messageBridge.pendingHandshakes);
-              pendingHandshakes.set(pendingEntry.peerId, pendingEntry.entry);
-              return setMessageBridge(s, { ...s.messageBridge, pendingHandshakes });
-            });
-            debug('discovery', `Added ${peerId} to pendingHandshakes`);
-          }
-          if (message) {
-            const bridge = getState(stateRef).messageBridge;
-            if (bridge?.sendMessage) {
-              debug('discovery', `Sending handshake to ${peerId}`);
-              await bridge.sendMessage(peerId, message);
-              debug('discovery', `Handshake sent to ${peerId}`);
-            } else {
-              debug('discovery', `No sendMessage on bridge`);
-            }
-          }
-        })
-        .catch((err) => {
-          debug('discovery', `Handshake error: ${err}`);
-        });
+      updateState(stateRef, (s) => {
+        if (!s.messageBridge) return s;
+        if (s.messageBridge.validatedPeers.has(peerId)) return s;
+        if (s.messageBridge.pendingHandshakes.has(peerId)) return s;
+        const pendingHandshakes = new Map(s.messageBridge.pendingHandshakes);
+        pendingHandshakes.set(peerId, { initiated: Date.now() });
+        return setMessageBridge(s, { ...s.messageBridge, pendingHandshakes });
+      });
+      debug('discovery', `Added ${peerId} to pendingHandshakes`);
+      sendHandshakeMessage(stateRef, currentState.messageBridge, peerId);
     } else {
       debug('discovery', `Peer connected: ${peerId}, handshake not required`);
     }
