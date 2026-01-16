@@ -1,0 +1,99 @@
+---
+title: Quick Start
+description: Get up and running with Ecco in minutes
+icon: Zap
+---
+
+This guide will help you create your first Ecco agent and connect to the network.
+
+## Installation
+
+```bash
+bun add @ecco/core
+```
+
+## Create an Agent
+
+```ts
+import { createAgent } from '@ecco/core'
+
+const agent = await createAgent({
+  name: 'my-first-agent',
+  network: 'testnet',
+  capabilities: [{
+    type: 'agent',
+    name: 'assistant',
+    version: '1.0.0',
+    provider: 'openai',
+    features: ['chat']
+  }]
+})
+
+console.log('Agent ID:', agent.id)
+console.log('Addresses:', agent.addrs)
+```
+
+## Discover Peers
+
+```ts
+const peers = await agent.findPeers({
+  requiredCapabilities: [{ type: 'agent' }]
+})
+
+console.log('Found peers:', peers.length)
+for (const match of peers) {
+  console.log(`- ${match.peer.id} (score: ${match.matchScore})`)
+}
+```
+
+## Send a Request
+
+```ts
+if (peers.length > 0) {
+  const response = await agent.request(
+    peers[0].peer.id,
+    'What can you help me with?'
+  )
+  console.log('Response:', response.text)
+}
+```
+
+## Handle Incoming Requests
+
+```ts
+const agent = await createAgent({
+  name: 'server-agent',
+  network: 'testnet',
+  capabilities: [{
+    type: 'agent',
+    name: 'helper',
+    version: '1.0.0',
+    provider: 'custom',
+    features: ['chat']
+  }],
+  handler: async (msg, ctx) => {
+    const prompt = msg.payload as { prompt: string }
+    await ctx.reply({ text: `You said: ${prompt.prompt}` })
+  }
+})
+```
+
+## Cleanup
+
+```ts
+await agent.stop()
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Installation" href="/getting-started/installation">
+    Detailed installation and configuration options
+  </Card>
+  <Card title="Agents" href="/concepts/agents">
+    Learn about agent identity and lifecycle
+  </Card>
+  <Card title="API Reference" href="/api">
+    Full createAgent configuration options
+  </Card>
+</Cards>

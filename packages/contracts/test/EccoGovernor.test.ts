@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import { expect } from "chai";
-import { parseEther, encodeFunctionData, keccak256, toBytes, encodePacked } from "viem";
+import { parseEther, encodeFunctionData, keccak256, toBytes, stringToBytes } from "viem";
 import hre from "hardhat";
 import { deployGovernorFixture, getNetworkHelpers } from "./helpers/fixtures";
 import { mineBlocks } from "./helpers/time";
-import { VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT, TIMELOCK_MIN_DELAY, COMMIT_REVEAL_DELAY } from "./helpers/constants";
+import { VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT, TIMELOCK_MIN_DELAY } from "./helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
   const networkHelpers = await getNetworkHelpers();
@@ -337,12 +337,11 @@ describe("EccoGovernor", () => {
 
   describe("Quorum Excludes Staked Tokens", () => {
     it("should exclude staked tokens from quorum calculation", async () => {
-      const { viem, networkHelpers } = await hre.network.connect();
+      const { viem } = await hre.network.connect();
       const [owner, staker] = await viem.getWalletClients();
-      const publicClient = await viem.getPublicClient();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
         eccoToken.address,
         owner.account.address,
       ]);
@@ -359,52 +358,47 @@ describe("EccoGovernor", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        reputationRegistry.address,
+        identityRegistry.address,
       ]);
 
-      const totalStakedBefore = await reputationRegistry.read.totalStaked();
+      const totalStakedBefore = await identityRegistry.read.totalStaked();
       expect(totalStakedBefore).to.equal(0n);
 
       const stakeAmount = parseEther("300000");
       await eccoToken.write.mint([staker.account.address, stakeAmount]);
 
+      const hash = await identityRegistry.write.register(["ipfs://agent-uri"], { account: staker.account });
+      const events = await identityRegistry.getEvents.Registered();
+      const agentId = events[events.length - 1].args.agentId!;
+
       const peerId = "test-peer-id";
-      const peerIdHash = keccak256(toBytes(peerId));
-      const salt = keccak256(toBytes("test-salt"));
-      const commitHash = keccak256(encodePacked(["bytes32", "bytes32", "address"], [peerIdHash, salt, staker.account.address]));
+      const peerIdHash = keccak256(stringToBytes(peerId));
+      await identityRegistry.write.setMetadata([agentId, "peerIdHash", peerIdHash], { account: staker.account });
 
-      await reputationRegistry.write.commitPeerId([commitHash], { account: staker.account });
+      await eccoToken.write.approve([identityRegistry.address, stakeAmount], { account: staker.account });
+      await identityRegistry.write.stake([agentId, stakeAmount], { account: staker.account });
 
-      const block = await publicClient.getBlock();
-      await networkHelpers.time.setNextBlockTimestamp(block.timestamp + COMMIT_REVEAL_DELAY + 10n);
-      await networkHelpers.mine();
-
-      await reputationRegistry.write.revealPeerId([peerId, salt], { account: staker.account });
-
-      await eccoToken.write.approve([reputationRegistry.address, stakeAmount], { account: staker.account });
-      await reputationRegistry.write.stake([stakeAmount], { account: staker.account });
-
-      const totalStakedAfter = await reputationRegistry.read.totalStaked();
+      const totalStakedAfter = await identityRegistry.read.totalStaked();
       expect(totalStakedAfter).to.equal(stakeAmount);
 
-      const registryAddr = await eccoGovernor.read.reputationRegistry();
-      expect(registryAddr.toLowerCase()).to.equal(reputationRegistry.address.toLowerCase());
+      const registryAddr = await eccoGovernor.read.identityRegistry();
+      expect(registryAddr.toLowerCase()).to.equal(identityRegistry.address.toLowerCase());
     });
 
-    it("should have reputationRegistry reference", async () => {
+    it("should have identityRegistry reference", async () => {
       const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
-      const registryAddress = await eccoGovernor.read.reputationRegistry();
+      const registryAddress = await eccoGovernor.read.identityRegistry();
       expect(registryAddress).to.not.equal("0x0000000000000000000000000000000000000000");
     });
   });
 
   describe("Minimum Voting Delay", () => {
-    it("should reject deployment with votingDelay of 0", async () => {
+    it("should reject deployment with votingDelay below minimum", async () => {
       const { viem } = await hre.network.connect();
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
         eccoToken.address,
         owner.account.address,
       ]);
@@ -419,11 +413,11 @@ describe("EccoGovernor", () => {
         await viem.deployContract("EccoGovernor", [
           eccoToken.address,
           eccoTimelock.address,
-          0,
+          7200,
           VOTING_PERIOD,
           PROPOSAL_THRESHOLD,
           QUORUM_PERCENT,
-          reputationRegistry.address,
+          identityRegistry.address,
         ]);
         expect.fail("Expected deployment to revert");
       } catch (error) {
@@ -434,15 +428,15 @@ describe("EccoGovernor", () => {
     it("should expose MIN_VOTING_DELAY constant", async () => {
       const { eccoGovernor } = await loadFixtureWithHelpers(deployGovernorFixture);
       const minDelay = await eccoGovernor.read.MIN_VOTING_DELAY();
-      expect(Number(minDelay)).to.equal(1);
+      expect(Number(minDelay)).to.equal(86400);
     });
 
-    it("should allow deployment with votingDelay of 1", async () => {
+    it("should allow deployment with votingDelay at minimum", async () => {
       const { viem } = await hre.network.connect();
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
         eccoToken.address,
         owner.account.address,
       ]);
@@ -456,14 +450,14 @@ describe("EccoGovernor", () => {
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
         eccoTimelock.address,
-        1,
+        86400,
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        reputationRegistry.address,
+        identityRegistry.address,
       ]);
 
-      expect(await eccoGovernor.read.votingDelay()).to.equal(1n);
+      expect(await eccoGovernor.read.votingDelay()).to.equal(86400n);
     });
   });
 

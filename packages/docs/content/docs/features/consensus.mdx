@@ -1,0 +1,189 @@
+---
+title: Multi-Agent Consensus
+description: Query multiple agents and aggregate responses
+icon: Users
+---
+
+Ecco enables querying multiple agents and aggregating their responses for improved reliability and accuracy.
+
+## Basic Query
+
+```ts
+const result = await agent.query('What is the capital of France?', {
+  agentCount: 5,
+  aggregationStrategy: 'majority-vote'
+})
+
+console.log(result.text)                    // "Paris"
+console.log(result.consensus.achieved)      // true
+console.log(result.consensus.confidence)    // 0.8
+console.log(result.metrics.successfulAgents) // 4
+```
+
+## Selection Strategies
+
+How agents are selected for queries:
+
+| Strategy | Description |
+|----------|-------------|
+| `all` | Query all matching peers |
+| `top-n` | Select best N peers by score |
+| `round-robin` | Distribute across peers evenly |
+| `random` | Random selection |
+| `weighted` | Reputation-weighted selection |
+
+```ts
+const result = await agent.query('Question', {
+  selectionStrategy: 'top-n',
+  agentCount: 5,
+  minAgents: 3
+})
+```
+
+## Aggregation Strategies
+
+How responses are combined:
+
+| Strategy | Description |
+|----------|-------------|
+| `majority-vote` | Most common response |
+| `weighted-vote` | Reputation-weighted voting |
+| `best-score` | Highest-scoring single response |
+| `ensemble` | Combine all responses |
+| `first-response` | First valid response |
+| `longest` | Longest response |
+| `consensus-threshold` | Require minimum agreement |
+| `synthesized-consensus` | LLM synthesizes responses |
+
+### Majority Vote
+
+```ts
+const result = await agent.query('Question', {
+  aggregationStrategy: 'majority-vote',
+  consensusThreshold: 0.6  // 60% agreement required
+})
+```
+
+### Synthesized Consensus
+
+Uses an LLM to synthesize multiple responses:
+
+```ts
+const result = await agent.query('Analyze this market trend', {
+  aggregationStrategy: 'synthesized-consensus',
+  synthesizeFn: async (query, responses) => {
+    // Custom synthesis logic
+    return synthesizedResponse
+  }
+})
+```
+
+## Semantic Similarity
+
+Enable semantic analysis for better consensus:
+
+```ts
+const result = await agent.query('Question', {
+  aggregationStrategy: 'consensus-threshold',
+  semanticSimilarity: {
+    enabled: true,
+    method: 'peer-embedding',  // Use peer embeddings
+    threshold: 0.75            // Similarity threshold
+  }
+})
+```
+
+Methods:
+- `peer-embedding`: Use embeddings from network peers
+- `api`: Use OpenAI API for embeddings
+- `local`: Use local model embeddings
+
+## Query Configuration
+
+```ts
+interface QueryConfig {
+  selectionStrategy?: SelectionStrategy
+  aggregationStrategy?: AggregationStrategy
+  consensusThreshold?: number
+  timeout?: number
+  allowPartialResults?: boolean
+  agentCount?: number
+  minAgents?: number
+  semanticSimilarity?: SemanticSimilarityConfig
+  loadBalancing?: LoadBalancingConfig
+  discovery?: DiscoveryOptions
+  peerScoring?: PeerScoringConfig
+  includeSelf?: boolean
+  systemPrompt?: string
+  onStream?: (chunk: StreamChunk) => void
+}
+```
+
+## Consensus Result
+
+```ts
+interface ConsensusResult {
+  text: string
+  consensus: {
+    achieved: boolean
+    confidence: number
+  }
+  metrics: {
+    totalAgents: number
+    successfulAgents: number
+    averageLatency: number
+  }
+  agentResponses: AgentResponse[]
+  raw: AggregatedResult
+}
+```
+
+## Advanced: requestConsensus
+
+For more control over consensus:
+
+```ts
+const result = await agent.requestConsensus({
+  query: 'Complex analysis request',
+  config: {
+    selectionStrategy: 'weighted',
+    aggregationStrategy: 'synthesized-consensus',
+    timeout: 30000,
+    allowPartialResults: true
+  },
+  capabilityQuery: {
+    requiredCapabilities: [
+      { type: 'agent', features: ['analysis'] }
+    ]
+  },
+  additionalResponses: [
+    // Include pre-fetched responses
+    { text: 'External input', peerId: 'external' }
+  ]
+})
+```
+
+## Load Balancing
+
+Distribute load across peers:
+
+```ts
+const result = await agent.query('Question', {
+  loadBalancing: {
+    maxConcurrent: 10,
+    cooldownMs: 1000,
+    trackLoad: true
+  }
+})
+```
+
+## Including Self
+
+Include the local agent in consensus:
+
+```ts
+const result = await agent.query('Question', {
+  includeSelf: true,
+  systemPrompt: 'Custom system prompt for self-response'
+})
+```

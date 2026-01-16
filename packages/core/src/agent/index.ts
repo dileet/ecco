@@ -10,9 +10,15 @@ import {
   resolveWalletForPeer as resolveWalletForPeerImpl,
 } from '../networking'
 import type { StateRef } from '../networking/types'
-import { getAddress, type WalletState } from '../payments/wallet'
+import { getAddress, getPublicClient, type WalletState } from '../payments/wallet'
 import { formatProtocolVersion } from '../networks'
-import { getStakeInfo as getStakeInfoContract } from '../reputation/reputation-contract'
+import {
+  createIdentityRegistryState,
+  getAgentByPeerId,
+  getStakeInfo as getStakeInfoIdentity,
+  canWork as canWorkIdentity,
+} from '../identity'
+import type { IdentityRegistryState, StakeInfo } from '../identity'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -239,6 +245,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
   const embed = createEmbedFunction(effectiveEmbedFn, hasLocalModel, config.localModel, modelState)
 
+  const identityRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
+  const identityState = createIdentityRegistryState(chainId, identityRegistryAddress)
+
   const findPeers = async (query?: FindPeersOptions): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
     const peers = await findPeersBase(baseAgent.ref, effectiveQuery)
@@ -246,7 +255,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     if (!query?.requireStake && !query?.minStake) return peers
     if (!walletState || !reputationState) return peers
 
+    const publicClient = getPublicClient(walletState, chainId)
     const filteredPeers: CapabilityMatch[] = []
+
     for (const match of peers) {
       const peerWallet = await resolveWalletForPeerImpl(reputationState, walletState, match.peer.id)
       if (!peerWallet) {
@@ -255,9 +266,19 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       }
 
       try {
-        const stakeInfo = await getStakeInfoContract(walletState, chainId, peerWallet)
+        const agentId = await getAgentByPeerId(publicClient, identityState, match.peer.id)
+        let stakeInfo: StakeInfo
+
+        if (agentId > 0n) {
+          stakeInfo = await getStakeInfoIdentity(publicClient, identityState, agentId)
+        } else {
+          const canWorkResult = await canWorkIdentity(publicClient, identityState, peerWallet)
+          stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
+        }
+
         if (query.requireStake && !stakeInfo.canWork) continue
         if (query.minStake && stakeInfo.stake < query.minStake) continue
+
         filteredPeers.push({
           ...match,
           peer: {

@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-interface IReputationRegistry {
+interface IAgentIdentityRegistry {
     function canWork(address peer) external view returns (bool);
 }
 
@@ -17,7 +17,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
     uint256 public constant MIN_REWARD = 0.001 ether;
 
     IERC20 public immutable eccoToken;
-    IReputationRegistry public immutable reputationRegistry;
+    IAgentIdentityRegistry public immutable identityRegistry;
 
     uint256 public baseRewardPerJob = 1 ether;
     uint256 public consensusBonus = 50;
@@ -67,11 +67,11 @@ contract WorkRewards is Ownable, ReentrancyGuard {
 
     constructor(
         address _eccoToken,
-        address _reputationRegistry,
+        address _identityRegistry,
         address _owner
     ) Ownable(_owner) {
         eccoToken = IERC20(_eccoToken);
-        reputationRegistry = IReputationRegistry(_reputationRegistry);
+        identityRegistry = IAgentIdentityRegistry(_identityRegistry);
     }
 
     function distributeReward(
@@ -82,7 +82,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         bool fastResponse
     ) external onlyAuthorized nonReentrant returns (uint256) {
         require(!rewardedJobs[jobId], "Job already rewarded");
-        require(reputationRegistry.canWork(peer), "Peer cannot work");
+        require(identityRegistry.canWork(peer), "Peer cannot work");
 
         rewardedJobs[jobId] = true;
 
@@ -135,7 +135,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
             BatchRewardInput calldata input = inputs[i];
 
             if (rewardedJobs[input.jobId]) continue;
-            if (!reputationRegistry.canWork(input.peer)) continue;
+            if (!identityRegistry.canWork(input.peer)) continue;
 
             eligible[i] = true;
             rewards[i] = calculateReward(
@@ -340,7 +340,7 @@ contract WorkRewards is Ownable, ReentrancyGuard {
         return (
             peerRewards[peer],
             peerJobCount[peer],
-            reputationRegistry.canWork(peer)
+            identityRegistry.canWork(peer)
         );
     }
 

@@ -46,7 +46,7 @@ export async function deployEccoTokenFixture() {
   return { eccoToken, owner, user1, user2, user3, publicClient };
 }
 
-export async function deployReputationRegistryFixture() {
+export async function deployAgentIdentityRegistryFixture() {
   const viem = await getViem();
   const [owner, user1, user2, user3] = await viem.getWalletClients();
   const publicClient = await viem.getPublicClient();
@@ -55,17 +55,14 @@ export async function deployReputationRegistryFixture() {
     owner.account.address,
   ]);
 
-  const reputationRegistry = await viem.deployContract(
-    "ReputationRegistry",
+  const identityRegistry = await viem.deployContract(
+    "AgentIdentityRegistry",
     [eccoToken.address, owner.account.address]
   );
 
-  await reputationRegistry.write.setTrustedPaymentRecorder([user1.account.address, true], { account: owner.account });
-  await reputationRegistry.write.setTrustedPaymentRecorder([user2.account.address, true], { account: owner.account });
-
   return {
     eccoToken,
-    reputationRegistry,
+    identityRegistry,
     owner,
     user1,
     user2,
@@ -83,20 +80,20 @@ export async function deployWorkRewardsFixture() {
     owner.account.address,
   ]);
 
-  const reputationRegistry = await viem.deployContract(
-    "ReputationRegistry",
+  const identityRegistry = await viem.deployContract(
+    "AgentIdentityRegistry",
     [eccoToken.address, owner.account.address]
   );
 
   const workRewards = await viem.deployContract("WorkRewards", [
     eccoToken.address,
-    reputationRegistry.address,
+    identityRegistry.address,
     owner.account.address,
   ]);
 
   return {
     eccoToken,
-    reputationRegistry,
+    identityRegistry,
     workRewards,
     owner,
     user1,
@@ -115,21 +112,21 @@ export async function deployFeeCollectorFixture() {
     owner.account.address,
   ]);
 
-  const reputationRegistry = await viem.deployContract(
-    "ReputationRegistry",
+  const identityRegistry = await viem.deployContract(
+    "AgentIdentityRegistry",
     [eccoToken.address, owner.account.address]
   );
 
   const feeCollector = await viem.deployContract("FeeCollector", [
     eccoToken.address,
-    reputationRegistry.address,
+    identityRegistry.address,
     treasury.account.address,
     owner.account.address,
   ]);
 
   return {
     eccoToken,
-    reputationRegistry,
+    identityRegistry,
     feeCollector,
     owner,
     treasury,
@@ -169,7 +166,7 @@ export async function deployGovernorFixture() {
     owner.account.address,
   ]);
 
-  const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+  const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
     eccoToken.address,
     owner.account.address,
   ]);
@@ -188,7 +185,7 @@ export async function deployGovernorFixture() {
     VOTING_PERIOD,
     PROPOSAL_THRESHOLD,
     QUORUM_PERCENT,
-    reputationRegistry.address,
+    identityRegistry.address,
   ]);
 
   const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
@@ -245,21 +242,21 @@ export async function deployFullEcosystemFixture() {
     owner.account.address,
   ]);
 
-  const reputationRegistry = await viem.deployContract(
-    "ReputationRegistry",
+  const identityRegistry = await viem.deployContract(
+    "AgentIdentityRegistry",
     [eccoToken.address, owner.account.address]
   );
 
   const feeCollector = await viem.deployContract("FeeCollector", [
     eccoToken.address,
-    reputationRegistry.address,
+    identityRegistry.address,
     treasury.account.address,
     owner.account.address,
   ]);
 
   const workRewards = await viem.deployContract("WorkRewards", [
     eccoToken.address,
-    reputationRegistry.address,
+    identityRegistry.address,
     owner.account.address,
   ]);
 
@@ -277,7 +274,7 @@ export async function deployFullEcosystemFixture() {
     VOTING_PERIOD,
     PROPOSAL_THRESHOLD,
     QUORUM_PERCENT,
-    reputationRegistry.address,
+    identityRegistry.address,
   ]);
 
   const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
@@ -299,12 +296,9 @@ export async function deployFullEcosystemFixture() {
 
   await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
 
-  await reputationRegistry.write.setTrustedPaymentRecorder([user1.account.address, true], { account: owner.account });
-  await reputationRegistry.write.setTrustedPaymentRecorder([user2.account.address, true], { account: owner.account });
-
   return {
     eccoToken,
-    reputationRegistry,
+    identityRegistry,
     feeCollector,
     workRewards,
     eccoTimelock,

@@ -1,0 +1,144 @@
+---
+title: Installation
+description: Install and configure Ecco for your project
+icon: Download
+---
+
+## Prerequisites
+
+- Node.js 22 or higher
+- bun (recommended) or npm
+
+## Install Package
+
+```bash
+bun add @ecco/core
+```
+
+Or with npm:
+
+```bash
+npm install @ecco/core
+```
+
+## Network Configuration
+
+Ecco supports two networks:
+
+| Network | Description |
+|---------|-------------|
+| `testnet` | Development and testing network |
+| `mainnet` | Production network |
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet', // or 'mainnet'
+  capabilities: [...]
+})
+```
+
+## Bootstrap Peers
+
+By default, Ecco connects to bootstrap peers for the selected network. You can specify custom bootstrap peers:
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet',
+  bootstrap: [
+    '/ip4/192.168.1.100/tcp/4001/p2p/QmPeerId...',
+    '/dns4/bootstrap.example.com/tcp/4001/p2p/QmPeerId...'
+  ],
+  capabilities: [...]
+})
+```
+
+## Wallet Configuration
+
+For payment and reputation features, configure a wallet:
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet',
+  capabilities: [...],
+  wallet: {
+    privateKey: process.env.PRIVATE_KEY,
+    rpcUrls: {
+      10143: 'https://testnet-rpc.monad.xyz'
+    }
+  }
+})
+```
+
+<Callout type="warn">
+Never commit private keys to version control. Use environment variables or a secure secrets manager.
+</Callout>
+
+## LLM Integration
+
+To handle agent requests with an LLM:
+
+```ts
+import { generateText } from 'ai'
+import { openai } from '@ai-sdk/openai'
+
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet',
+  capabilities: [...],
+  model: openai('gpt-4'),
+  systemPrompt: 'You are a helpful assistant.',
+  generateFn: async ({ model, system, prompt }) => {
+    const result = await generateText({
+      model,
+      system,
+      prompt
+    })
+    return { text: result.text }
+  }
+})
+```
+
+## Local Model
+
+For on-device inference with a local GGUF model:
+
+```ts
+const agent = await createAgent({
+  name: 'local-agent',
+  network: 'testnet',
+  capabilities: [{
+    type: 'model',
+    name: 'llama',
+    version: '1.0.0',
+    modelType: 'text-generation',
+    modelName: 'llama-3.2'
+  }],
+  localModel: {
+    modelPath: './models/llama-3.2-1b.gguf',
+    contextSize: 4096,
+    gpuLayers: 32
+  }
+})
+```
+
+## Transports
+
+Enable Bluetooth for local peer discovery:
+
+```ts
+const agent = await createAgent({
+  name: 'mobile-agent',
+  network: 'testnet',
+  capabilities: [...],
+  transports: {
+    bluetooth: {
+      enabled: true,
+      role: 'both',
+      localName: 'MyAgent'
+    }
+  }
+})
+```

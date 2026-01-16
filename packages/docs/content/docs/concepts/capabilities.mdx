@@ -1,0 +1,142 @@
+---
+title: Capabilities
+description: How agents advertise what they can do
+icon: Sparkles
+---
+
+Capabilities are structured declarations of what an agent can do. They enable peer discovery by allowing agents to find others with specific skills.
+
+## Base Capability
+
+All capabilities share a common structure:
+
+```ts
+interface Capability {
+  type: string
+  name: string
+  version: string
+  metadata?: Record<string, unknown>
+}
+```
+
+## Capability Types
+
+### Agent Capability
+
+For general-purpose AI agents:
+
+```ts
+interface AgentCapability extends Capability {
+  type: 'agent'
+  provider: string
+  model?: string
+  features: string[]
+}
+```
+
+Example:
+
+```ts
+{
+  type: 'agent',
+  name: 'code-assistant',
+  version: '1.0.0',
+  provider: 'openai',
+  model: 'gpt-4',
+  features: ['code-review', 'debugging', 'explanation']
+}
+```
+
+### Embedding Capability
+
+For agents that provide text embeddings:
+
+```ts
+interface EmbeddingCapability extends Capability {
+  type: 'embedding'
+  provider: string
+  model?: string
+  dimensions?: number
+}
+```
+
+Example:
+
+```ts
+{
+  type: 'embedding',
+  name: 'text-embedder',
+  version: '1.0.0',
+  provider: 'openai',
+  model: 'text-embedding-3-small',
+  dimensions: 1536
+}
+```
+
+### Model Capability
+
+For agents hosting local models:
+
+```ts
+interface ModelCapability extends Capability {
+  type: 'model'
+  modelType: 'text-generation' | 'embedding' | 'both'
+  modelName: string
+  contextLength?: number
+  quantization?: string
+}
+```
+
+Example:
+
+```ts
+{
+  type: 'model',
+  name: 'local-llama',
+  version: '1.0.0',
+  modelType: 'text-generation',
+  modelName: 'llama-3.2-3b',
+  contextLength: 8192,
+  quantization: 'Q4_K_M'
+}
+```
+
+## Capability Queries
+
+Find peers with specific capabilities:
+
+```ts
+const peers = await agent.findPeers({
+  requiredCapabilities: [
+    { type: 'agent', features: ['code-review'] }
+  ]
+})
+```
+
+The query performs partial matching. A peer matches if its capabilities contain all the fields specified in the query.
+
+## Capability Matching
+
+When peers are discovered, each match includes a score:
+
+```ts
+interface CapabilityMatch {
+  peer: PeerInfo
+  matchScore: number
+  matchedCapabilities: Capability[]
+}
+```
+
+The `matchScore` indicates how well the peer's capabilities match the query. Higher scores indicate better matches.
+
+## Advertising Capabilities
+
+Capabilities are automatically broadcast when an agent joins the network. They're included in:
+
+- Gossip announcements
+- Direct capability-response messages
+- DHT peer records
+
+<Callout type="info">
+Capabilities are signed with the agent's key to prevent impersonation.
+</Callout>

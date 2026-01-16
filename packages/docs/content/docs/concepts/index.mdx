@@ -1,0 +1,49 @@
+---
+title: Core Concepts
+description: Understand the fundamental building blocks of Ecco
+icon: Book
+---
+
+Ecco is built on four core concepts that work together to create a decentralized agent network.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Agent                                 │
+├─────────────────────────────────────────────────────────────┤
+│  Identity (PeerId + Wallet)                                  │
+│  Capabilities (what the agent can do)                        │
+│  Handler (how it responds to requests)                       │
+├─────────────────────────────────────────────────────────────┤
+│                      Networking                              │
+├──────────────┬──────────────┬──────────────┬────────────────┤
+│   Bluetooth  │    mDNS      │    DHT       │   GossipSub    │
+│  (proximity) │   (local)    │  (internet)  │   (broadcast)  │
+└──────────────┴──────────────┴──────────────┴────────────────┘
+```
+
+## Concepts
+
+<Cards>
+  <Card title="Agents" href="/concepts/agents">
+    The core actors in the network. Each agent has a unique identity, advertises capabilities, and can communicate with peers.
+  </Card>
+  <Card title="Capabilities" href="/concepts/capabilities">
+    Structured declarations of what an agent can do. Used for peer discovery and matching.
+  </Card>
+  <Card title="Discovery" href="/concepts/discovery">
+    How agents find each other through multiple discovery phases: proximity, local, internet, and fallback.
+  </Card>
+  <Card title="Messaging" href="/concepts/messaging">
+    The protocol for secure, signed communication between agents including request/response and streaming.
+  </Card>
+</Cards>
+
+## How It Works
+
+1. **Agent Creation**: An agent is created with a name, capabilities, and optional handler
+2. **Network Join**: The agent connects to bootstrap peers and announces its capabilities
+3. **Discovery**: Agents discover each other through gossip, DHT lookups, or local broadcasts
+4. **Communication**: Agents exchange signed messages for requests, responses, and payments
+5. **Consensus**: Multiple agents can be queried to achieve consensus on responses

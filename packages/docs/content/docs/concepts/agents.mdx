@@ -1,0 +1,113 @@
+---
+title: Agents
+description: The core actors in the Ecco network
+icon: Bot
+---
+
+An agent is an autonomous entity in the Ecco network that can discover peers, handle requests, and participate in economic transactions.
+
+## Identity
+
+Each agent has two cryptographic identities:
+
+| Identity | Purpose |
+|----------|---------|
+| **libp2p PeerId** | Network identity for P2P communication (Ed25519) |
+| **Ethereum Wallet** | On-chain identity for payments and reputation |
+
+Identities are persisted in `~/.ecco/identity/{agentName}.json` so agents maintain the same identity across restarts.
+
+## Lifecycle
+
+### Creation
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet',
+  capabilities: [...]
+})
+```
+
+### Operation
+
+Once created, an agent:
+- Listens for incoming connections
+- Responds to capability queries
+- Handles agent requests via the configured handler
+- Participates in gossip for peer discovery
+
+### Shutdown
+
+```ts
+await agent.stop()
+```
+
+Gracefully disconnects from peers and cleans up resources.
+
+## Agent Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique agent identifier |
+| `addrs` | `string[]` | Multiaddresses for connectivity |
+| `wallet` | `WalletState \| null` | Ethereum wallet state |
+| `address` | `string \| null` | Ethereum wallet address |
+| `chainId` | `number` | Active chain ID |
+| `capabilities` | `Capability[]` | Advertised capabilities |
+| `hasEmbedding` | `boolean` | Has embedding capability |
+| `protocolVersion` | `ProtocolVersion` | Protocol version |
+
+## Configuration
+
+```ts
+interface AgentConfig {
+  name: string
+  network?: 'testnet' | 'mainnet'
+  bootstrap?: string[]
+  capabilities: Capability[]
+  handler?: MessageHandler
+  systemPrompt?: string
+  model?: unknown
+  generateFn?: GenerateFn
+  streamGenerateFn?: StreamGenerateFn
+  wallet?: AgentWalletConfig
+  pricing?: PricingConfig
+  embedding?: AgentEmbeddingConfig
+  transports?: TransportsConfig
+  localModel?: LocalModelConfig
+  reputation?: AgentReputationConfig
+}
+```
+
+See the [API Reference](/api) for detailed configuration options.
+
+## Message Handler
+
+The handler processes incoming agent requests:
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  capabilities: [...],
+  handler: async (msg, ctx) => {
+    const { prompt } = msg.payload as { prompt: string }
+
+    await ctx.reply({ text: 'Hello!' })
+
+    // Or stream a response
+    await ctx.streamResponse(async function* () {
+      yield { text: 'Thinking', tokens: 1 }
+      yield { text: '...', tokens: 1 }
+      yield { text: 'Done!', tokens: 1 }
+    })
+  }
+})
+```
+
+The `MessageContext` provides:
+
+| Method | Description |
+|--------|-------------|
+| `reply(payload, type?)` | Send a response message |
+| `streamResponse(generator)` | Stream response chunks |

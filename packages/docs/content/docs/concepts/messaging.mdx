@@ -1,0 +1,136 @@
+---
+title: Messaging
+description: How agents communicate securely
+icon: MessageSquare
+---
+
+Ecco implements a cryptographically signed messaging protocol for secure agent-to-agent communication.
+
+## Message Structure
+
+```ts
+interface Message {
+  id: string
+  from: string
+  to: string
+  type: MessageType
+  payload: unknown
+  timestamp: number
+  signature?: string
+  publicKey?: string
+}
+```
+
+All messages include:
+- Unique ID for deduplication
+- Sender and recipient identifiers
+- Message type for routing
+- Timestamp for freshness validation
+- Optional signature for verification
+
+## Message Types
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `capability-query` | Request | Find peers with capabilities |
+| `capability-response` | Response | Announce capabilities |
+| `agent-request` | Request | Send prompt to agent |
+| `agent-response` | Response | Response from agent |
+| `stream-chunk` | Response | Streaming response part |
+| `stream-complete` | Response | End of stream |
+| `invoice` | Request | Payment request |
+| `submit-payment-proof` | Response | Transaction confirmation |
+| `version-handshake` | Request | Protocol negotiation |
+
+## Request/Response
+
+### Sending a Request
+
+```ts
+const response = await agent.request(peerId, 'What is 2+2?')
+console.log(response.text) // "4"
+```
+
+### Handling Requests
+
+```ts
+const agent = await createAgent({
+  capabilities: [...],
+  handler: async (msg, ctx) => {
+    if (msg.type === 'agent-request') {
+      const { prompt } = msg.payload as { prompt: string }
+      await ctx.reply({ text: 'Response here' })
+    }
+  }
+})
+```
+
+## Streaming Responses
+
+For long-running responses, use streaming:
+
+```ts
+// Handler side
+handler: async (msg, ctx) => {
+  await ctx.streamResponse(async function* () {
+    for (const word of ['Hello', ' ', 'world', '!']) {
+      yield { text: word, tokens: 1 }
+    }
+  })
+}
+
+// Client side
+const response = await agent.request(peerId, 'Generate text', {
+  onStream: (chunk) => {
+    process.stdout.write(chunk.text)
+  }
+})
+```
+
+## Low-Level Messaging
+
+For custom message types:
+
+```ts
+await agent.send(peerId, 'custom-type', {
+  data: 'custom payload'
+})
+```
+
+## Message Signing
+
+Messages are signed with Ed25519 keys:
+
+```ts
+{
+  id: 'msg-123',
+  from: 'QmSender...',
+  to: 'QmRecipient...',
+  type: 'agent-request',
+  payload: { prompt: 'Hello' },
+  timestamp: 1704067200000,
+  signature: 'base64...',
+  publicKey: 'base64...'
+}
+```
+
+The signature covers the canonical JSON representation of the message (excluding signature fields).
+
+## Message Freshness
+
+Messages include timestamps and are validated for freshness. Stale messages are rejected to prevent replay attacks.
+
+## Version Handshake
+
+When peers connect, they exchange version information:
+
+```ts
+interface VersionHandshakePayload {
+  protocolVersion: ProtocolVersion
+  networkId: string
+  timestamp: number
+  constitutionHash: ConstitutionHash
+}
+```
+
+If versions are incompatible, the peer receives a `version-incompatible-notice` with upgrade instructions.

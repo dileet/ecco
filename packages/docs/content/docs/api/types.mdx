@@ -1,0 +1,260 @@
+---
+title: Types
+description: Core type definitions
+icon: FileType
+---
+
+This page documents the core types used throughout Ecco.
+
+## Message
+
+The base message structure for all communication.
+
+```ts
+interface Message {
+  id: string
+  from: string
+  to: string
+  type: MessageType
+  payload: unknown
+  timestamp: number
+  signature?: string
+  publicKey?: string
+}
+```
+
+## MessageType
+
+All supported message types.
+
+```ts
+type MessageType =
+  | 'capability-query'
+  | 'capability-response'
+  | 'agent-request'
+  | 'agent-response'
+  | 'embedding-request'
+  | 'embedding-response'
+  | 'generation-request'
+  | 'generation-response'
+  | 'generation-stream-chunk'
+  | 'generation-stream-complete'
+  | 'gossip'
+  | 'ping'
+  | 'pong'
+  | 'request-quote'
+  | 'invoice'
+  | 'submit-payment-proof'
+  | 'payment-verified'
+  | 'payment-failed'
+  | 'streaming-tick'
+  | 'stream-chunk'
+  | 'stream-complete'
+  | 'escrow-approval'
+  | 'stake-confirmation'
+  | 'swarm-distribution'
+  | 'version-handshake'
+  | 'version-handshake-response'
+  | 'version-incompatible-notice'
+  | 'constitution-mismatch-notice'
+```
+
+## Capability
+
+Base capability interface.
+
+```ts
+interface Capability {
+  type: string
+  name: string
+  version: string
+  metadata?: Record<string, unknown>
+}
+```
+
+## AgentCapability
+
+Capability for AI agents.
+
+```ts
+interface AgentCapability extends Capability {
+  type: 'agent'
+  provider: string
+  model?: string
+  features: string[]
+}
+```
+
+## EmbeddingCapability
+
+Capability for embedding services.
+
+```ts
+interface EmbeddingCapability extends Capability {
+  type: 'embedding'
+  provider: string
+  model?: string
+  dimensions?: number
+}
+```
+
+## ModelCapability
+
+Capability for local model hosting.
+
+```ts
+interface ModelCapability extends Capability {
+  type: 'model'
+  modelType: 'text-generation' | 'embedding' | 'both'
+  modelName: string
+  contextLength?: number
+  quantization?: string
+}
+```
+
+## CapabilityQuery
+
+Query for finding peers.
+
+```ts
+interface CapabilityQuery {
+  requiredCapabilities: Partial<Capability>[]
+  preferredPeers?: string[]
+}
+```
+
+## CapabilityMatch
+
+Result from peer discovery.
+
+```ts
+interface CapabilityMatch {
+  peer: PeerInfo
+  matchScore: number
+  matchedCapabilities: Capability[]
+}
+```
+
+## PeerInfo
+
+Information about a discovered peer.
+
+```ts
+interface PeerInfo {
+  id: string
+  addresses: string[]
+  capabilities: Capability[]
+  lastSeen: number
+  servicesProvided?: number
+  servicesConsumed?: number
+  reputation?: number
+  walletAddress?: `0x${string}`
+  onChainReputation?: {
+    score: bigint
+    stake: bigint
+    canWork: boolean
+  }
+}
+```
+
+## Invoice
+
+Payment request structure.
+
+```ts
+interface Invoice {
+  id: string
+  jobId: string
+  chainId: number
+  amount: string
+  token: string
+  tokenAddress: `0x${string}` | null
+  recipient: string
+  validUntil: number
+  signature: string | null
+  publicKey: string | null
+}
+```
+
+## PaymentProof
+
+Proof of payment submission.
+
+```ts
+interface PaymentProof {
+  invoiceId: string
+  txHash: string
+  chainId: number
+}
+```
+
+## ConsensusResult
+
+Result from multi-agent queries.
+
+```ts
+interface ConsensusResult {
+  text: string
+  consensus: {
+    achieved: boolean
+    confidence: number
+  }
+  metrics: {
+    totalAgents: number
+    successfulAgents: number
+    averageLatency: number
+  }
+  agentResponses: AgentResponse[]
+  raw: AggregatedResult
+}
+```
+
+## ProtocolVersion
+
+Version information for protocol compatibility.
+
+```ts
+interface ProtocolVersion {
+  major: number
+  minor: number
+  patch: number
+}
+```
+
+## MessageContext
+
+Context passed to message handlers.
+
+```ts
+interface MessageContext {
+  agent: Agent
+  message: Message
+  reply: (payload: unknown, type?: MessageType) => Promise<void>
+  streamResponse: (
+    generator: AsyncGenerator<StreamChunk> | (() => AsyncGenerator<StreamChunk>)
+  ) => Promise<void>
+}
+```
+
+## StreamChunk
+
+Chunk in a streaming response.
+
+```ts
+interface StreamChunk {
+  text: string
+  tokens?: number
+  peerId?: string
+}
+```
+
+## FindPeersOptions
+
+Options for peer discovery.
+
+```ts
+interface FindPeersOptions extends CapabilityQuery {
+  minStake?: bigint
+  requireStake?: boolean
+}
+```

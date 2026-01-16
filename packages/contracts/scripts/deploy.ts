@@ -26,17 +26,29 @@ async function main() {
   const eccoToken = await viem.deployContract("EccoToken", [deployer.account.address]);
   console.log("EccoToken deployed to:", eccoToken.address);
 
-  console.log("\n--- Deploying ReputationRegistry ---");
-  const reputationRegistry = await viem.deployContract("ReputationRegistry", [
+  console.log("\n--- Deploying AgentIdentityRegistry ---");
+  const agentIdentityRegistry = await viem.deployContract("AgentIdentityRegistry", [
     eccoToken.address,
     deployer.account.address,
   ]);
-  console.log("ReputationRegistry deployed to:", reputationRegistry.address);
+  console.log("AgentIdentityRegistry deployed to:", agentIdentityRegistry.address);
+
+  console.log("\n--- Deploying AgentReputationRegistry ---");
+  const agentReputationRegistry = await viem.deployContract("AgentReputationRegistry", [
+    agentIdentityRegistry.address,
+  ]);
+  console.log("AgentReputationRegistry deployed to:", agentReputationRegistry.address);
+
+  console.log("\n--- Deploying AgentValidationRegistry ---");
+  const agentValidationRegistry = await viem.deployContract("AgentValidationRegistry", [
+    agentIdentityRegistry.address,
+  ]);
+  console.log("AgentValidationRegistry deployed to:", agentValidationRegistry.address);
 
   console.log("\n--- Deploying FeeCollector ---");
   const feeCollector = await viem.deployContract("FeeCollector", [
     eccoToken.address,
-    reputationRegistry.address,
+    agentIdentityRegistry.address,
     deployer.account.address,
     deployer.account.address,
   ]);
@@ -45,7 +57,7 @@ async function main() {
   console.log("\n--- Deploying WorkRewards ---");
   const workRewards = await viem.deployContract("WorkRewards", [
     eccoToken.address,
-    reputationRegistry.address,
+    agentIdentityRegistry.address,
     deployer.account.address,
   ]);
   console.log("WorkRewards deployed to:", workRewards.address);
@@ -72,7 +84,7 @@ async function main() {
     votingPeriod,
     proposalThreshold,
     quorumPercent,
-    reputationRegistry.address,
+    agentIdentityRegistry.address,
   ]);
   console.log("EccoGovernor deployed to:", eccoGovernor.address);
 
@@ -107,8 +119,8 @@ async function main() {
   console.log("\n--- Transferring Contract Ownership to Timelock ---");
   await eccoToken.write.transferOwnership([eccoTimelock.address]);
   console.log("EccoToken ownership transferred to Timelock");
-  await reputationRegistry.write.transferOwnership([eccoTimelock.address]);
-  console.log("ReputationRegistry ownership transferred to Timelock");
+  await agentIdentityRegistry.write.transferOwnership([eccoTimelock.address]);
+  console.log("AgentIdentityRegistry ownership transferred to Timelock");
   await feeCollector.write.transferOwnership([eccoTimelock.address]);
   console.log("FeeCollector ownership transferred to Timelock");
   await workRewards.write.transferOwnership([eccoTimelock.address]);
@@ -123,7 +135,9 @@ async function main() {
   console.log("Chain ID:", chainId);
   console.log("");
   console.log("EccoToken:", eccoToken.address);
-  console.log("ReputationRegistry:", reputationRegistry.address);
+  console.log("AgentIdentityRegistry:", agentIdentityRegistry.address);
+  console.log("AgentReputationRegistry:", agentReputationRegistry.address);
+  console.log("AgentValidationRegistry:", agentValidationRegistry.address);
   console.log("FeeCollector:", feeCollector.address);
   console.log("WorkRewards:", workRewards.address);
   console.log("EccoTimelock:", eccoTimelock.address);
@@ -134,7 +148,9 @@ async function main() {
   console.log(`
   [${chainId}]: {
     eccoToken: '${eccoToken.address}' as const,
-    reputationRegistry: '${reputationRegistry.address}' as const,
+    agentIdentityRegistry: '${agentIdentityRegistry.address}' as const,
+    agentReputationRegistry: '${agentReputationRegistry.address}' as const,
+    agentValidationRegistry: '${agentValidationRegistry.address}' as const,
     feeCollector: '${feeCollector.address}' as const,
     workRewards: '${workRewards.address}' as const,
     eccoGovernor: '${eccoGovernor.address}' as const,

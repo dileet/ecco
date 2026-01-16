@@ -443,32 +443,4 @@ export {
   type LatencyZoneConfig,
 } from './reputation/latency-zones';
 
-export {
-  computePeerIdHash,
-  getWalletForPeerId,
-  getPeerIdForWallet,
-  isPeerIdRegistered,
-  isWalletRegistered,
-  getPeerBindingInfo,
-  type PeerBindingInfo,
-} from './reputation/peer-binding';
-
-export {
-  stake,
-  requestUnstake,
-  completeUnstake,
-  generatePaymentId,
-  recordPayment,
-  rateAfterPayment,
-  batchRate,
-  canWork,
-  canRate,
-  getEffectiveScore as getOnChainEffectiveScore,
-  getStakeInfo,
-  getReputation as getOnChainReputation,
-  getRatingWeight,
-  getTotalStaked,
-  getMinStakes,
-  type PeerReputation as OnChainPeerReputation,
-  type StakeInfo,
-} from './reputation/reputation-contract';
+export * from './identity';

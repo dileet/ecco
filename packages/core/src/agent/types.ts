@@ -9,7 +9,7 @@ import type {
   PeerInfo,
   ProtocolVersion,
 } from '../types'
-import type { StakeInfo } from '../reputation/reputation-contract'
+import type { StakeInfo } from '../identity'
 import type { NodeState, StateRef } from '../networking/types'
 import type { WalletState } from '../payments/wallet'
 import type { LocalModelState } from '../llm/local-model'

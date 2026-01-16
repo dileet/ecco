@@ -18,7 +18,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const reputationRegistry = await viem.deployContract("ReputationRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -27,7 +27,7 @@ describe("Constitution Governance Integration", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        reputationRegistry.address,
+        identityRegistry.address,
       ]);
 
       const eccoConstitution = await viem.deployContract("EccoConstitution", [
@@ -109,7 +109,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const reputationRegistry = await viem.deployContract("ReputationRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -118,7 +118,7 @@ describe("Constitution Governance Integration", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        reputationRegistry.address,
+        identityRegistry.address,
       ]);
 
       const eccoConstitution = await viem.deployContract("EccoConstitution", [

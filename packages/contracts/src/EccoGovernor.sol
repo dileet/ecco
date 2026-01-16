@@ -8,7 +8,10 @@ import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IReputationRegistry.sol";
+
+interface IAgentIdentityRegistry {
+    function totalStaked() external view returns (uint256);
+}
 
 contract EccoGovernor is
     Governor,
@@ -20,7 +23,7 @@ contract EccoGovernor is
 {
     uint48 public constant MIN_VOTING_DELAY = 1 days;
 
-    IReputationRegistry public immutable reputationRegistry;
+    IAgentIdentityRegistry public immutable identityRegistry;
 
     uint256 private _circulatingSupply;
 
@@ -37,7 +40,7 @@ contract EccoGovernor is
         uint32 _votingPeriod,
         uint256 _proposalThreshold,
         uint256 _quorumPercent,
-        IReputationRegistry _reputationRegistry
+        IAgentIdentityRegistry _identityRegistry
     )
         Governor("EccoGovernor")
         GovernorSettings(_votingDelay, _votingPeriod, _proposalThreshold)
@@ -48,7 +51,7 @@ contract EccoGovernor is
         if (_votingDelay < MIN_VOTING_DELAY) {
             revert VotingDelayTooShort(_votingDelay, MIN_VOTING_DELAY);
         }
-        reputationRegistry = _reputationRegistry;
+        identityRegistry = _identityRegistry;
     }
 
     function votingDelay() public view override(Governor, GovernorSettings) returns (uint256) {
@@ -69,8 +72,8 @@ contract EccoGovernor is
         uint256 effectiveSupply = _circulatingSupply > 0 && _circulatingSupply < totalSupply
             ? _circulatingSupply
             : totalSupply;
-        uint256 stakedTokens = address(reputationRegistry) != address(0)
-            ? reputationRegistry.totalStaked()
+        uint256 stakedTokens = address(identityRegistry) != address(0)
+            ? identityRegistry.totalStaked()
             : 0;
         uint256 votableSupply = effectiveSupply > stakedTokens ? effectiveSupply - stakedTokens : 0;
         return (votableSupply * quorumNumerator(blockNumber)) / quorumDenominator();

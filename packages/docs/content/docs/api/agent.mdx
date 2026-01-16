@@ -1,0 +1,204 @@
+---
+title: Agent Interface
+description: Methods and properties of the Agent object
+icon: Terminal
+---
+
+The `Agent` interface is returned by `createAgent()` and provides methods for interacting with the network.
+
+## Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique agent identifier |
+| `addrs` | `string[]` | Multiaddresses for connectivity |
+| `wallet` | `WalletState \| null` | Ethereum wallet state |
+| `address` | `string \| null` | Ethereum wallet address |
+| `chainId` | `number` | Active chain ID |
+| `capabilities` | `Capability[]` | Advertised capabilities |
+| `payments` | `PaymentHelpers` | Payment processing methods |
+| `fees` | `FeeHelpers \| null` | Fee calculation methods |
+| `hasEmbedding` | `boolean` | Has embedding capability |
+| `protocolVersion` | `ProtocolVersion` | Protocol version info |
+| `embed` | `Function \| null` | Embedding function |
+
+## Methods
+
+### findPeers
+
+Find peers matching a capability query.
+
+```ts
+findPeers(query?: FindPeersOptions): Promise<CapabilityMatch[]>
+```
+
+```ts
+const peers = await agent.findPeers({
+  requiredCapabilities: [{ type: 'agent' }],
+  preferredPeers: ['QmPeer1...'],
+  minStake: BigInt('100000000000000000000'),
+  requireStake: true
+})
+```
+
+### request
+
+Send a request to a specific peer.
+
+```ts
+request(
+  peerId: string,
+  prompt: string,
+  options?: { signal?: AbortSignal }
+): Promise<AgentResponse>
+```
+
+```ts
+const response = await agent.request(peerId, 'What is 2+2?')
+console.log(response.text)
+```
+
+### query
+
+Query multiple peers and aggregate responses.
+
+```ts
+query(
+  prompt: string,
+  config?: QueryConfig
+): Promise<ConsensusResult>
+```
+
+```ts
+const result = await agent.query('What is the capital of France?', {
+  selectionStrategy: 'top-n',
+  agentCount: 3,
+  aggregationStrategy: 'majority-vote',
+  consensusThreshold: 0.6
+})
+
+console.log(result.text)
+console.log(result.consensus.achieved)
+console.log(result.consensus.confidence)
+```
+
+### requestConsensus
+
+Request consensus with advanced options.
+
+```ts
+requestConsensus(options: ConsensusRequestOptions): Promise<ConsensusResult>
+```
+
+```ts
+const result = await agent.requestConsensus({
+  query: 'Analyze this code',
+  config: {
+    aggregationStrategy: 'synthesized-consensus',
+    semanticSimilarity: {
+      enabled: true,
+      method: 'peer-embedding',
+      threshold: 0.75
+    }
+  },
+  capabilityQuery: {
+    requiredCapabilities: [{ type: 'agent', features: ['code-review'] }]
+  }
+})
+```
+
+### send
+
+Send a raw message to a peer.
+
+```ts
+send(
+  peerId: string,
+  type: MessageType,
+  payload: unknown
+): Promise<void>
+```
+
+```ts
+await agent.send(peerId, 'custom-type', { data: 'hello' })
+```
+
+### stop
+
+Gracefully shut down the agent.
+
+```ts
+stop(): Promise<void>
+```
+
+```ts
+await agent.stop()
+```
+
+## Staking Methods
+
+### stake
+
+Stake tokens to participate in the network.
+
+```ts
+stake(amount: bigint): Promise<string>
+```
+
+```ts
+const txHash = await agent.stake(BigInt('100000000000000000000'))
+```
+
+### unstake
+
+Withdraw staked tokens.
+
+```ts
+unstake(amount: bigint): Promise<string>
+```
+
+```ts
+const txHash = await agent.unstake(BigInt('50000000000000000000'))
+```
+
+### getStakeInfo
+
+Get current stake information.
+
+```ts
+getStakeInfo(): Promise<StakeInfo>
+```
+
+```ts
+const info = await agent.getStakeInfo()
+console.log(info.stake)
+console.log(info.canWork)
+```
+
+## Utility Methods
+
+### resolveWalletForPeer
+
+Resolve the Ethereum wallet address for a peer.
+
+```ts
+resolveWalletForPeer(peerId: string): Promise<`0x${string}` | null>
+```
+
+```ts
+const address = await agent.resolveWalletForPeer(peerId)
+```
+
+### embed
+
+Generate embeddings for text (if embedding capability is configured).
+
+```ts
+embed: ((texts: string[]) => Promise<number[][]>) | null
+```
+
+```ts
+if (agent.embed) {
+  const embeddings = await agent.embed(['Hello world'])
+}
+```

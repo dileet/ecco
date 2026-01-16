@@ -1,0 +1,194 @@
+---
+title: Payments
+description: Economic primitives for agent transactions
+icon: Wallet
+---
+
+Ecco provides flexible payment primitives for agent-to-agent transactions.
+
+## Payment Types
+
+| Type | Use Case |
+|------|----------|
+| **Standard** | One-time invoices with expiration |
+| **Streaming** | Pay-per-token micropayments |
+| **Escrow** | Milestone-based with approval workflow |
+| **Swarm** | Distribute payments to multiple agents |
+
+## Wallet Configuration
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  capabilities: [...],
+  wallet: {
+    privateKey: process.env.PRIVATE_KEY,
+    rpcUrls: {
+      10143: 'https://testnet-rpc.monad.xyz',
+      1: 'https://eth-mainnet.g.alchemy.com/v2/...'
+    }
+  }
+})
+```
+
+<Callout type="warn">
+Store private keys securely. Never commit them to version control.
+</Callout>
+
+## Standard Payments
+
+Simple invoice-based payments:
+
+```ts
+const agent = await createAgent({
+  name: 'service-agent',
+  capabilities: [...],
+  pricing: {
+    type: 'streaming',
+    chainId: 10143,
+    amount: '1000000000000000000' // 1 token
+  },
+  handler: async (msg, ctx) => {
+    const invoice = await ctx.agent.payments.createInvoice(ctx, {
+      type: 'streaming',
+      chainId: 10143,
+      amount: '1000000000000000000'
+    })
+    // Invoice is sent automatically
+    await ctx.reply({ text: 'Response' })
+  }
+})
+```
+
+## Streaming Payments
+
+Pay per token for LLM inference:
+
+```ts
+const agent = await createAgent({
+  name: 'llm-agent',
+  capabilities: [...],
+  pricing: {
+    type: 'streaming',
+    chainId: 10143,
+    ratePerToken: '1000000000000000' // 0.001 tokens per output token
+  },
+  handler: async (msg, ctx) => {
+    await ctx.streamResponse(async function* () {
+      yield { text: 'Hello', tokens: 1 }
+      yield { text: ' world', tokens: 1 }
+    })
+  }
+})
+```
+
+### Recording Tokens
+
+```ts
+handler: async (msg, ctx) => {
+  for await (const chunk of generateText(prompt)) {
+    const result = await ctx.agent.payments.recordTokens(ctx, chunk.tokens, {
+      autoInvoice: true
+    })
+    yield { text: chunk.text, tokens: chunk.tokens }
+  }
+}
+```
+
+## Escrow Payments
+
+For milestone-based work with approval:
+
+```ts
+const agent = await createAgent({
+  name: 'contractor-agent',
+  capabilities: [...],
+  pricing: {
+    type: 'escrow',
+    chainId: 10143,
+    milestones: [
+      { id: 'design', description: 'Design phase', amount: '500000000000000000' },
+      { id: 'implement', description: 'Implementation', amount: '1500000000000000000' }
+    ],
+    requiresApproval: true
+  },
+  handler: async (msg, ctx) => {
+    // Complete work...
+    await ctx.agent.payments.releaseMilestone(ctx, 'design', {
+      sendInvoice: true
+    })
+  }
+})
+```
+
+## Swarm Payments
+
+Distribute payments among multiple agents:
+
+```ts
+const result = await agent.payments.distributeToSwarm('job-123', {
+  totalAmount: '10000000000000000000',
+  chainId: 10143,
+  participants: [
+    { peerId: 'QmAgent1', walletAddress: '0x...', contribution: 50 },
+    { peerId: 'QmAgent2', walletAddress: '0x...', contribution: 30 },
+    { peerId: 'QmAgent3', walletAddress: '0x...', contribution: 20 }
+  ]
+})
+```
+
+## Invoice Structure
+
+```ts
+interface Invoice {
+  id: string
+  jobId: string
+  chainId: number
+  amount: string
+  token: string
+  tokenAddress: `0x${string}` | null
+  recipient: string
+  validUntil: number
+  signature: string | null
+  publicKey: string | null
+}
+```
+
+## Batch Settlement
+
+Settle multiple invoices in one transaction:
+
+```ts
+const invoices = agent.payments.getPendingInvoices()
+const results = await agent.payments.settleAll()
+
+for (const result of results) {
+  if (result.success) {
+    console.log('Settled:', result.txHash)
+  }
+}
+```
+
+## Payment Verification
+
+Verify a payment proof:
+
+```ts
+const isValid = await agent.payments.verifyPayment({
+  invoiceId: 'inv-123',
+  txHash: '0x...',
+  chainId: 10143
+})
+```
+
+## Fee Calculation
+
+Calculate network fees:
+
+```ts
+if (agent.fees) {
+  const fee = await agent.fees.calculateFee(10143, BigInt('1000000000000000000'))
+  console.log('Fee:', fee.feePercent, '%')
+  console.log('Net amount:', fee.netAmount)
+}
+```

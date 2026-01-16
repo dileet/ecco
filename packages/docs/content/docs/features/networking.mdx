@@ -1,0 +1,153 @@
+---
+title: P2P Networking
+description: Decentralized networking with libp2p
+icon: Network
+---
+
+Ecco's networking layer is built on libp2p, providing robust peer-to-peer communication across multiple transports.
+
+## libp2p Foundation
+
+Ecco uses the following libp2p components:
+
+| Component | Purpose |
+|-----------|---------|
+| **GossipSub** | Pub/sub messaging for capability announcements |
+| **Kademlia DHT** | Distributed peer discovery |
+| **Noise Protocol** | Encrypted connections |
+| **Yamux** | Stream multiplexing |
+| **TCP/WebSocket** | Network transports |
+
+## Transports
+
+### TCP
+
+Default transport for peer-to-peer connections:
+
+```
+/ip4/192.168.1.100/tcp/4001/p2p/QmPeerId...
+```
+
+### WebSocket
+
+For browser and proxied connections:
+
+```
+/dns4/example.com/tcp/443/wss/p2p/QmPeerId...
+```
+
+### Bluetooth LE
+
+For proximity-based discovery on mobile devices:
+
+```ts
+const agent = await createAgent({
+  name: 'mobile-agent',
+  capabilities: [...],
+  transports: {
+    bluetooth: {
+      enabled: true,
+      role: 'both',
+      localName: 'MyAgent'
+    }
+  }
+})
+```
+
+## GossipSub Topics
+
+Agents communicate via topic-based pub/sub:
+
+| Topic | Purpose |
+|-------|---------|
+| `ecco:capabilities` | Capability announcements |
+| `ecco:gossip` | General network gossip |
+| `peer:{id}` | Direct messages to a peer |
+
+## Version Handshake
+
+When peers connect, they exchange version information:
+
+```ts
+interface VersionHandshakePayload {
+  protocolVersion: ProtocolVersion
+  networkId: string
+  timestamp: number
+  constitutionHash: ConstitutionHash
+}
+```
+
+### Compatibility
+
+- **Major version** differences: Connection rejected
+- **Minor version** differences: Warning, connection allowed
+- **Patch version** differences: Ignored
+
+If versions are incompatible:
+
+```ts
+interface VersionIncompatibleNotice {
+  requiredMinVersion: ProtocolVersion
+  yourVersion: ProtocolVersion
+  upgradeUrl?: string
+  message: string
+}
+```
+
+## Constitution
+
+Networks can operate under a shared constitution defining rules all agents follow:
+
+```ts
+interface Constitution {
+  rules: string[]
+}
+```
+
+The constitution hash is verified during handshake. Mismatches trigger a `constitution-mismatch-notice`.
+
+## Connection Management
+
+### Peer Caching
+
+Peers are cached in an LRU cache for efficient lookups:
+
+```ts
+interface MemoryLimitsConfig {
+  maxPeers?: number
+  maxSubscriptionsPerTopic?: number
+  peerEvictionPolicy?: 'lru' | 'oldest' | 'lowest-reputation'
+  stalePeerTimeoutMs?: number
+}
+```
+
+### Flood Protection
+
+Built-in protection against message flooding:
+
+```ts
+interface FloodProtectionConfig {
+  dedupMaxMessages?: number
+  dedupFalsePositiveRate?: number
+  rateLimitMaxTokens?: number
+  rateLimitRefillRate?: number
+  rateLimitRefillIntervalMs?: number
+}
+```
+
+## Bootstrap Peers
+
+Agents connect to bootstrap peers for network entry:
+
+```ts
+const agent = await createAgent({
+  name: 'my-agent',
+  network: 'testnet',
+  bootstrap: [
+    '/ip4/34.123.45.67/tcp/4001/p2p/QmBootstrap...'
+  ],
+  capabilities: [...]
+})
+```
+
+Default bootstrap peers are provided for each network.

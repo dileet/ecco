@@ -1,0 +1,106 @@
+---
+title: API Reference
+description: Complete API documentation for Ecco
+icon: Code
+---
+
+This section documents the core Ecco API.
+
+## createAgent
+
+The main entry point for creating an Ecco agent.
+
+```ts
+import { createAgent } from '@ecco/core'
+
+const agent = await createAgent(config: AgentConfig): Promise<Agent>
+```
+
+### AgentConfig
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | `string` | Yes | Unique agent name |
+| `network` | `'testnet' \| 'mainnet'` | No | Network to connect to |
+| `bootstrap` | `string[]` | No | Custom bootstrap peer addresses |
+| `capabilities` | `Capability[]` | Yes | Capabilities to advertise |
+| `handler` | `MessageHandler` | No | Handler for incoming requests |
+| `systemPrompt` | `string` | No | System prompt for LLM |
+| `model` | `unknown` | No | AI SDK model instance |
+| `generateFn` | `GenerateFn` | No | Text generation function |
+| `streamGenerateFn` | `StreamGenerateFn` | No | Streaming generation function |
+| `wallet` | `AgentWalletConfig` | No | Wallet configuration |
+| `pricing` | `PricingConfig` | No | Payment model configuration |
+| `embedding` | `AgentEmbeddingConfig` | No | Embedding service config |
+| `transports` | `TransportsConfig` | No | Transport layer config |
+| `localModel` | `LocalModelConfig` | No | Local model configuration |
+| `reputation` | `AgentReputationConfig` | No | Reputation tracking config |
+
+### AgentWalletConfig
+
+```ts
+interface AgentWalletConfig {
+  privateKey?: string
+  rpcUrls?: Record<number, string>
+}
+```
+
+### PricingConfig
+
+```ts
+interface PricingConfig {
+  type: 'streaming' | 'escrow' | 'swarm'
+  chainId: number
+  token?: string
+  amount?: string | bigint
+  ratePerToken?: string | bigint
+  milestones?: Array<{
+    id: string
+    description: string
+    amount: string | bigint
+  }>
+  participants?: Array<{
+    agentId: string
+    share: number
+  }>
+  requiresApproval?: boolean
+  approver?: string
+}
+```
+
+### LocalModelConfig
+
+```ts
+interface LocalModelConfig {
+  modelPath: string
+  contextSize?: number
+  gpuLayers?: number
+  threads?: number
+  supportsEmbedding?: boolean
+  modelName?: string
+}
+```
+
+### TransportsConfig
+
+```ts
+interface TransportsConfig {
+  bluetooth?: {
+    enabled: boolean
+    role?: 'central' | 'peripheral' | 'both'
+    serviceUUID?: string
+    localName?: string
+  }
+}
+```
+
+## API Sections
+
+<Cards>
+  <Card title="Agent Interface" href="/api/agent">
+    Methods and properties available on the Agent object
+  </Card>
+  <Card title="Types" href="/api/types">
+    Core type definitions for Messages, Capabilities, and more
+  </Card>
+</Cards>

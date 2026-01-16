@@ -1,0 +1,9 @@
+{
+  "title": "Core Concepts",
+  "pages": [
+    "agents",
+    "capabilities",
+    "discovery",
+    "messaging"
+  ]
+}
