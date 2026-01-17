@@ -1,5 +1,4 @@
 import type { PublicClient, WalletClient } from 'viem';
-import { keccak256, toBytes, stringToBytes } from 'viem';
 import type { ValidationRegistryState, ValidationRequest, ValidationResponse, ValidationSummary } from './types';
 
 const AGENT_VALIDATION_REGISTRY_ABI = [
@@ -13,18 +12,18 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
       { name: 'requestURI', type: 'string' },
       { name: 'requestHash', type: 'bytes32' },
     ],
-    outputs: [{ name: 'requestId', type: 'bytes32' }],
+    outputs: [],
   },
   {
     name: 'validationResponse',
     type: 'function',
     stateMutability: 'nonpayable',
     inputs: [
-      { name: 'requestId', type: 'bytes32' },
+      { name: 'requestHash', type: 'bytes32' },
       { name: 'response', type: 'uint8' },
       { name: 'responseURI', type: 'string' },
       { name: 'responseHash', type: 'bytes32' },
-      { name: 'tag', type: 'bytes32' },
+      { name: 'tag', type: 'string' },
     ],
     outputs: [],
   },
@@ -32,12 +31,12 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
     name: 'getValidationStatus',
     type: 'function',
     stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
+    inputs: [{ name: 'requestHash', type: 'bytes32' }],
     outputs: [
       { name: 'validatorAddress', type: 'address' },
       { name: 'agentId', type: 'uint256' },
       { name: 'response', type: 'uint8' },
-      { name: 'tag', type: 'bytes32' },
+      { name: 'tag', type: 'string' },
       { name: 'lastUpdate', type: 'uint256' },
     ],
   },
@@ -45,7 +44,7 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
     name: 'getValidationRequest',
     type: 'function',
     stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
+    inputs: [{ name: 'requestHash', type: 'bytes32' }],
     outputs: [
       {
         name: '',
@@ -66,7 +65,7 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
     name: 'getValidationResponse',
     type: 'function',
     stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
+    inputs: [{ name: 'requestHash', type: 'bytes32' }],
     outputs: [
       {
         name: '',
@@ -75,7 +74,7 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
           { name: 'response', type: 'uint8' },
           { name: 'responseURI', type: 'string' },
           { name: 'responseHash', type: 'bytes32' },
-          { name: 'tag', type: 'bytes32' },
+          { name: 'tag', type: 'string' },
           { name: 'timestamp', type: 'uint256' },
         ],
       },
@@ -88,7 +87,7 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
     inputs: [
       { name: 'agentId', type: 'uint256' },
       { name: 'validatorAddresses', type: 'address[]' },
-      { name: 'tag', type: 'bytes32' },
+      { name: 'tag', type: 'string' },
     ],
     outputs: [
       { name: 'count', type: 'uint64' },
@@ -108,26 +107,6 @@ const AGENT_VALIDATION_REGISTRY_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'validatorAddress', type: 'address' }],
     outputs: [{ name: '', type: 'bytes32[]' }],
-  },
-  {
-    name: 'getPendingRequests',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'validatorAddress', type: 'address' }],
-    outputs: [{ name: '', type: 'bytes32[]' }],
-  },
-  {
-    name: 'getValidatorStats',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'agentId', type: 'uint256' },
-      { name: 'validatorAddress', type: 'address' },
-    ],
-    outputs: [
-      { name: 'responseCount', type: 'uint256' },
-      { name: 'averageResponse', type: 'uint8' },
-    ],
   },
   {
     name: 'getIdentityRegistry',
@@ -150,14 +129,6 @@ export function createValidationRegistryState(
   };
 }
 
-function stringToBytes32(str: string): `0x${string}` {
-  if (!str) return '0x0000000000000000000000000000000000000000000000000000000000000000';
-  const bytes = stringToBytes(str.slice(0, 32));
-  const padded = new Uint8Array(32);
-  padded.set(bytes);
-  return `0x${Buffer.from(padded).toString('hex')}` as `0x${string}`;
-}
-
 export async function requestValidation(
   publicClient: PublicClient,
   walletClient: WalletClient,
@@ -166,11 +137,11 @@ export async function requestValidation(
   agentId: bigint,
   requestURI: string,
   requestHash: `0x${string}`
-): Promise<{ requestId: `0x${string}`; txHash: `0x${string}` }> {
+): Promise<`0x${string}`> {
   const account = walletClient.account;
   if (!account) throw new Error('Wallet client has no account');
 
-  const { request, result } = await publicClient.simulateContract({
+  const { request } = await publicClient.simulateContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'validationRequest',
@@ -178,16 +149,14 @@ export async function requestValidation(
     account,
   });
 
-  const txHash = await walletClient.writeContract(request);
-
-  return { requestId: result, txHash };
+  return walletClient.writeContract(request);
 }
 
 export async function respondToValidation(
   publicClient: PublicClient,
   walletClient: WalletClient,
   state: ValidationRegistryState,
-  requestId: `0x${string}`,
+  requestHash: `0x${string}`,
   response: number,
   responseURI: string,
   responseHash: `0x${string}`,
@@ -196,15 +165,15 @@ export async function respondToValidation(
   const account = walletClient.account;
   if (!account) throw new Error('Wallet client has no account');
 
-  if (response < 0 || response > 255) {
-    throw new Error('Response must be between 0 and 255');
+  if (response < 0 || response > 100) {
+    throw new Error('Response must be between 0 and 100');
   }
 
   const { request } = await publicClient.simulateContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'validationResponse',
-    args: [requestId, response, responseURI, responseHash, stringToBytes32(tag)],
+    args: [requestHash, response, responseURI, responseHash, tag],
     account,
   });
 
@@ -214,19 +183,19 @@ export async function respondToValidation(
 export async function getValidationStatus(
   publicClient: PublicClient,
   state: ValidationRegistryState,
-  requestId: `0x${string}`
+  requestHash: `0x${string}`
 ): Promise<{
   validatorAddress: `0x${string}`;
   agentId: bigint;
   response: number;
-  tag: `0x${string}`;
+  tag: string;
   lastUpdate: bigint;
 }> {
   const [validatorAddress, agentId, response, tag, lastUpdate] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'getValidationStatus',
-    args: [requestId],
+    args: [requestHash],
   });
 
   return { validatorAddress, agentId, response, tag, lastUpdate };
@@ -235,13 +204,13 @@ export async function getValidationStatus(
 export async function getValidationRequest(
   publicClient: PublicClient,
   state: ValidationRegistryState,
-  requestId: `0x${string}`
+  requestHash: `0x${string}`
 ): Promise<ValidationRequest> {
   const result = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'getValidationRequest',
-    args: [requestId],
+    args: [requestHash],
   });
 
   return {
@@ -258,13 +227,13 @@ export async function getValidationRequest(
 export async function getValidationResponse(
   publicClient: PublicClient,
   state: ValidationRegistryState,
-  requestId: `0x${string}`
+  requestHash: `0x${string}`
 ): Promise<ValidationResponse> {
   const result = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'getValidationResponse',
-    args: [requestId],
+    args: [requestHash],
   });
 
   return {
@@ -287,7 +256,7 @@ export async function getValidationSummary(
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
     functionName: 'getSummary',
-    args: [agentId, validatorAddresses, stringToBytes32(tag)],
+    args: [agentId, validatorAddresses, tag],
   });
 
   return {
@@ -324,32 +293,13 @@ export async function getValidatorRequests(
   return [...result];
 }
 
-export async function getPendingRequests(
+export async function getValidationIdentityRegistry(
   publicClient: PublicClient,
-  state: ValidationRegistryState,
-  validatorAddress: `0x${string}`
-): Promise<`0x${string}`[]> {
-  const result = await publicClient.readContract({
+  state: ValidationRegistryState
+): Promise<`0x${string}`> {
+  return publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_VALIDATION_REGISTRY_ABI,
-    functionName: 'getPendingRequests',
-    args: [validatorAddress],
+    functionName: 'getIdentityRegistry',
   });
-  return [...result];
-}
-
-export async function getValidatorStats(
-  publicClient: PublicClient,
-  state: ValidationRegistryState,
-  agentId: bigint,
-  validatorAddress: `0x${string}`
-): Promise<{ responseCount: bigint; averageResponse: number }> {
-  const [responseCount, averageResponse] = await publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_VALIDATION_REGISTRY_ABI,
-    functionName: 'getValidatorStats',
-    args: [agentId, validatorAddress],
-  });
-
-  return { responseCount, averageResponse };
 }

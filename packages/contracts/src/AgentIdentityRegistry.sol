@@ -1,135 +1,83 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
-interface IFeeCollector {
-    function updateRewardDebt(address staker) external;
-}
-
-contract AgentIdentityRegistry is ERC721, EIP712, ReentrancyGuard, Ownable {
-    using SafeERC20 for IERC20;
-
-    struct AgentStake {
-        uint256 stake;
-        uint256 lastActive;
-        uint256 unstakeRequestTime;
-        uint256 unstakeAmount;
+contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ownable {
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (string memory)
+    {
+        return ERC721URIStorage.tokenURI(tokenId);
     }
-
     struct MetadataEntry {
-        string key;
-        bytes value;
+        string metadataKey;
+        bytes metadataValue;
     }
-
-    IERC20 public immutable eccoToken;
 
     uint256 private _nextAgentId = 1;
-
-    mapping(uint256 => string) private _agentURIs;
     mapping(uint256 => mapping(string => bytes)) private _metadata;
-    mapping(uint256 => AgentStake) public agentStakes;
     mapping(bytes32 => uint256) public peerIdHashToAgentId;
 
-    uint256 public totalStaked;
-    uint256 public minStakeToWork = 100 * 10 ** 18;
-    uint256 public unstakeCooldown = 7 days;
-    uint256 public activityCooldown = 1 days;
+    string private constant AGENT_WALLET_KEY = "agentWallet";
+    string private constant PEER_ID_HASH_KEY = "peerIdHash";
+    bytes32 private constant AGENT_WALLET_KEY_HASH = keccak256(bytes(AGENT_WALLET_KEY));
+    bytes32 private constant PEER_ID_HASH_KEY_HASH = keccak256(bytes(PEER_ID_HASH_KEY));
+    bytes32 private constant AGENT_WALLET_TYPEHASH = keccak256("AgentWallet(uint256 agentId,address newWallet,uint256 deadline)");
 
-    address public treasury;
-    IFeeCollector public feeCollector;
-
-    uint256 public constant MAX_SLASH_PERCENT = 30;
-    uint256 public constant MIN_UNSTAKE_COOLDOWN = 1 days;
-
-    bytes32 private constant WALLET_TRANSFER_TYPEHASH =
-        keccak256("WalletTransfer(uint256 agentId,address newWallet,uint256 deadline)");
-
-    event Registered(uint256 indexed agentId, address indexed owner, string agentURI);
-    event URIUpdated(uint256 indexed agentId, string newURI);
-    event MetadataSet(uint256 indexed agentId, string key);
-    event WalletTransferred(uint256 indexed agentId, address indexed oldWallet, address indexed newWallet);
-    event Staked(uint256 indexed agentId, address indexed staker, uint256 amount);
-    event UnstakeRequested(uint256 indexed agentId, uint256 amount);
-    event Unstaked(uint256 indexed agentId, uint256 amount);
-    event Slashed(uint256 indexed agentId, uint256 amount, string reason);
+    event Registered(uint256 indexed agentId, string agentURI, address indexed owner);
+    event URIUpdated(uint256 indexed agentId, string newURI, address indexed updatedBy);
+    event MetadataSet(uint256 indexed agentId, string indexed indexedMetadataKey, string metadataKey, bytes metadataValue);
     event PeerIdBound(uint256 indexed agentId, bytes32 indexed peerIdHash);
-    event FeeCollectorSet(address indexed feeCollector);
 
-    constructor(
-        address _eccoToken,
-        address _owner
-    ) ERC721("Ecco Agent", "AGENT") EIP712("AgentIdentityRegistry", "1") Ownable(_owner) {
-        eccoToken = IERC20(_eccoToken);
+    constructor(address token, address owner) ERC721("Ecco Agent", "AGENT") EIP712("AgentIdentityRegistry", "1") Ownable(owner) {
+        token;
     }
 
-    function register(string calldata uri) external returns (uint256 agentId) {
-        agentId = _nextAgentId++;
-        _mint(msg.sender, agentId);
-        _agentURIs[agentId] = uri;
-        emit Registered(agentId, msg.sender, uri);
+    function register(string calldata agentURI, MetadataEntry[] calldata metadata) external returns (uint256 agentId) {
+        agentId = _mintAgent(msg.sender, agentURI);
+        _applyMetadata(agentId, metadata);
+        emit Registered(agentId, agentURI, msg.sender);
     }
 
-    function registerWithMetadata(
-        string calldata uri,
-        MetadataEntry[] calldata metadata
-    ) external returns (uint256 agentId) {
-        agentId = _nextAgentId++;
-        _mint(msg.sender, agentId);
-        _agentURIs[agentId] = uri;
+    function register(string calldata agentURI) external returns (uint256 agentId) {
+        agentId = _mintAgent(msg.sender, agentURI);
+        emit Registered(agentId, agentURI, msg.sender);
+    }
 
-        for (uint256 i = 0; i < metadata.length; i++) {
-            _metadata[agentId][metadata[i].key] = metadata[i].value;
-            emit MetadataSet(agentId, metadata[i].key);
-        }
-
-        emit Registered(agentId, msg.sender, uri);
+    function register() external returns (uint256 agentId) {
+        agentId = _mintAgent(msg.sender, "");
+        emit Registered(agentId, "", msg.sender);
     }
 
     function setAgentURI(uint256 agentId, string calldata newURI) external {
-        require(ownerOf(agentId) == msg.sender, "Not agent owner");
-        _agentURIs[agentId] = newURI;
-        emit URIUpdated(agentId, newURI);
+        address owner = ownerOf(agentId);
+        require(_isAuthorized(owner, msg.sender, agentId), "Not authorized");
+        _setTokenURI(agentId, newURI);
+        emit URIUpdated(agentId, newURI, msg.sender);
     }
 
     function agentURI(uint256 agentId) external view returns (string memory) {
-        require(_ownerOf(agentId) != address(0), "Agent does not exist");
-        return _agentURIs[agentId];
+        return tokenURI(agentId);
     }
 
-    function tokenURI(uint256 agentId) public view override returns (string memory) {
-        require(_ownerOf(agentId) != address(0), "Agent does not exist");
-        return _agentURIs[agentId];
+    function getMetadata(uint256 agentId, string calldata metadataKey) external view returns (bytes memory) {
+        _requireOwned(agentId);
+        return _metadata[agentId][metadataKey];
     }
 
-    function getMetadata(uint256 agentId, string calldata key) external view returns (bytes memory) {
-        require(_ownerOf(agentId) != address(0), "Agent does not exist");
-        return _metadata[agentId][key];
-    }
-
-    function setMetadata(uint256 agentId, string calldata key, bytes calldata value) external {
-        require(ownerOf(agentId) == msg.sender, "Not agent owner");
-
-        if (keccak256(bytes(key)) == keccak256(bytes("peerIdHash"))) {
-            bytes32 oldHash = bytes32(_metadata[agentId][key]);
-            if (oldHash != bytes32(0)) {
-                delete peerIdHashToAgentId[oldHash];
-            }
-
-            bytes32 newHash = bytes32(value);
-            require(peerIdHashToAgentId[newHash] == 0 || peerIdHashToAgentId[newHash] == agentId, "PeerId already bound");
-            peerIdHashToAgentId[newHash] = agentId;
-            emit PeerIdBound(agentId, newHash);
-        }
-
-        _metadata[agentId][key] = value;
-        emit MetadataSet(agentId, key);
+    function setMetadata(uint256 agentId, string calldata metadataKey, bytes calldata metadataValue) external {
+        address owner = ownerOf(agentId);
+        require(_isAuthorized(owner, msg.sender, agentId), "Not authorized");
+        _setMetadataInternal(agentId, metadataKey, metadataValue);
     }
 
     function setAgentWallet(
@@ -141,32 +89,33 @@ contract AgentIdentityRegistry is ERC721, EIP712, ReentrancyGuard, Ownable {
         require(block.timestamp <= deadline, "Signature expired");
         require(newWallet != address(0), "Invalid new wallet");
 
-        address currentOwner = ownerOf(agentId);
-
+        address owner = ownerOf(agentId);
         bytes32 structHash = keccak256(abi.encode(
-            WALLET_TRANSFER_TYPEHASH,
+            AGENT_WALLET_TYPEHASH,
             agentId,
             newWallet,
             deadline
         ));
-        bytes32 hash = _hashTypedDataV4(structHash);
-        address signer = ECDSA.recover(hash, signature);
+        bytes32 digest = _hashTypedDataV4(structHash);
 
-        require(signer == currentOwner, "Invalid signature");
+        if (owner.code.length > 0) {
+            bytes4 result = IERC1271(owner).isValidSignature(digest, signature);
+            require(result == IERC1271.isValidSignature.selector, "Invalid signature");
+        } else {
+            address signer = ECDSA.recover(digest, signature);
+            require(signer == owner, "Invalid signature");
+        }
 
-        _transfer(currentOwner, newWallet, agentId);
-        emit WalletTransferred(agentId, currentOwner, newWallet);
+        _setAgentWalletMetadata(agentId, newWallet);
     }
 
     function getGlobalId(uint256 agentId) external view returns (string memory) {
-        require(_ownerOf(agentId) != address(0), "Agent does not exist");
+        _requireOwned(agentId);
         return string(abi.encodePacked(
             "eip155:",
-            _toString(block.chainid),
+            Strings.toString(block.chainid),
             ":",
-            _toHexString(address(this)),
-            ":",
-            _toString(agentId)
+            Strings.toHexString(address(this))
         ));
     }
 
@@ -174,210 +123,72 @@ contract AgentIdentityRegistry is ERC721, EIP712, ReentrancyGuard, Ownable {
         return peerIdHashToAgentId[peerIdHash];
     }
 
-    function stake(uint256 agentId, uint256 amount) external nonReentrant {
-        require(ownerOf(agentId) == msg.sender, "Not agent owner");
-        require(amount > 0, "Must stake positive amount");
-
-        AgentStake storage agentStake = agentStakes[agentId];
-
-        if (agentStake.unstakeRequestTime > 0) {
-            agentStake.unstakeRequestTime = 0;
-            agentStake.unstakeAmount = 0;
-        }
-
-        eccoToken.safeTransferFrom(msg.sender, address(this), amount);
-        agentStake.stake += amount;
-
-        if (block.timestamp >= agentStake.lastActive + activityCooldown) {
-            agentStake.lastActive = block.timestamp;
-        }
-
-        totalStaked += amount;
-
-        if (address(feeCollector) != address(0)) {
-            feeCollector.updateRewardDebt(msg.sender);
-        }
-
-        emit Staked(agentId, msg.sender, amount);
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721URIStorage, ERC721Enumerable)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 
-    function requestUnstake(uint256 agentId, uint256 amount) external nonReentrant {
-        require(ownerOf(agentId) == msg.sender, "Not agent owner");
-
-        AgentStake storage agentStake = agentStakes[agentId];
-        require(amount <= agentStake.stake, "Insufficient stake");
-
-        agentStake.unstakeRequestTime = block.timestamp;
-        agentStake.unstakeAmount = amount;
-
-        emit UnstakeRequested(agentId, amount);
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override(ERC721Enumerable, ERC721)
+        returns (address)
+    {
+        address previousOwner = super._update(to, tokenId, auth);
+        if (previousOwner != address(0) && to != address(0) && previousOwner != to) {
+            _setAgentWalletMetadata(tokenId, address(0));
+        }
+        return previousOwner;
     }
 
-    function completeUnstake(uint256 agentId) external nonReentrant {
-        require(ownerOf(agentId) == msg.sender, "Not agent owner");
+    function _mintAgent(address owner, string memory agentURI) internal returns (uint256 agentId) {
+        agentId = _nextAgentId++;
+        _safeMint(owner, agentId);
+        _setTokenURI(agentId, agentURI);
+    }
 
-        AgentStake storage agentStake = agentStakes[agentId];
-        require(agentStake.unstakeRequestTime > 0, "No unstake request");
-        require(block.timestamp >= agentStake.unstakeRequestTime + unstakeCooldown, "Cooldown not complete");
+    function _applyMetadata(uint256 agentId, MetadataEntry[] calldata metadata) internal {
+        for (uint256 i = 0; i < metadata.length; i++) {
+            _setMetadataInternal(agentId, metadata[i].metadataKey, metadata[i].metadataValue);
+        }
+    }
 
-        uint256 amount = agentStake.unstakeAmount;
-
-        agentStake.stake -= amount;
-        agentStake.unstakeRequestTime = 0;
-        agentStake.unstakeAmount = 0;
-
-        totalStaked -= amount;
-
-        if (address(feeCollector) != address(0)) {
-            feeCollector.updateRewardDebt(msg.sender);
+    function _setMetadataInternal(uint256 agentId, string memory metadataKey, bytes memory metadataValue) internal {
+        if (keccak256(bytes(metadataKey)) == AGENT_WALLET_KEY_HASH) {
+            revert("Reserved key");
         }
 
-        eccoToken.safeTransfer(msg.sender, amount);
+        if (keccak256(bytes(metadataKey)) == PEER_ID_HASH_KEY_HASH) {
+            bytes32 oldHash = bytes32(_metadata[agentId][metadataKey]);
+            if (oldHash != bytes32(0)) {
+                delete peerIdHashToAgentId[oldHash];
+            }
 
-        emit Unstaked(agentId, amount);
-    }
-
-    function slash(uint256 agentId, uint256 percent, string calldata reason) external onlyOwner {
-        require(percent > 0 && percent <= MAX_SLASH_PERCENT, "Invalid slash percentage");
-        require(treasury != address(0), "Treasury not set");
-
-        AgentStake storage agentStake = agentStakes[agentId];
-        require(agentStake.stake > 0, "No stake to slash");
-
-        uint256 slashAmount = (agentStake.stake * percent) / 100;
-
-        agentStake.stake -= slashAmount;
-        totalStaked -= slashAmount;
-
-        address agentOwner = ownerOf(agentId);
-        if (address(feeCollector) != address(0)) {
-            feeCollector.updateRewardDebt(agentOwner);
-        }
-
-        eccoToken.safeTransfer(treasury, slashAmount);
-
-        emit Slashed(agentId, slashAmount, reason);
-    }
-
-    function canWork(address wallet) public view returns (bool) {
-        uint256 balance = balanceOf(wallet);
-        for (uint256 i = 0; i < balance; i++) {
-            uint256 agentId = tokenOfOwnerByIndex(wallet, i);
-            if (agentStakes[agentId].stake >= minStakeToWork) {
-                return true;
+            bytes32 newHash = bytes32(metadataValue);
+            if (newHash != bytes32(0)) {
+                require(
+                    peerIdHashToAgentId[newHash] == 0 || peerIdHashToAgentId[newHash] == agentId,
+                    "PeerId already bound"
+                );
+                peerIdHashToAgentId[newHash] = agentId;
+                emit PeerIdBound(agentId, newHash);
             }
         }
-        return false;
+
+        _metadata[agentId][metadataKey] = metadataValue;
+        emit MetadataSet(agentId, metadataKey, metadataKey, metadataValue);
     }
 
-    function canWorkAgent(uint256 agentId) public view returns (bool) {
-        return agentStakes[agentId].stake >= minStakeToWork;
+    function _setAgentWalletMetadata(uint256 agentId, address wallet) internal {
+        bytes memory value = abi.encodePacked(wallet);
+        _metadata[agentId][AGENT_WALLET_KEY] = value;
+        emit MetadataSet(agentId, AGENT_WALLET_KEY, AGENT_WALLET_KEY, value);
     }
 
-    function reputations(address wallet) external view returns (
-        int256 score,
-        uint256 rawPositive,
-        uint256 rawNegative,
-        uint256 totalJobs,
-        uint256 stakeAmount,
-        uint256 lastActive,
-        uint256 unstakeRequestTime,
-        uint256 unstakeAmount
-    ) {
-        (stakeAmount, lastActive, unstakeRequestTime, unstakeAmount) = _getWalletStakeInfo(wallet);
-        return (0, 0, 0, 0, stakeAmount, lastActive, unstakeRequestTime, unstakeAmount);
-    }
-
-    function _getWalletStakeInfo(address wallet) internal view returns (
-        uint256 totalStakeAmount,
-        uint256 latestActive,
-        uint256 latestUnstakeRequest,
-        uint256 latestUnstakeAmount
-    ) {
-        uint256 balance = balanceOf(wallet);
-        for (uint256 i = 0; i < balance; i++) {
-            AgentStake storage s = agentStakes[tokenOfOwnerByIndex(wallet, i)];
-            totalStakeAmount += s.stake;
-            if (s.lastActive > latestActive) latestActive = s.lastActive;
-            if (s.unstakeRequestTime > latestUnstakeRequest) {
-                latestUnstakeRequest = s.unstakeRequestTime;
-                latestUnstakeAmount = s.unstakeAmount;
-            }
-        }
-    }
-
-    function getAgentStake(uint256 agentId) external view returns (AgentStake memory) {
-        return agentStakes[agentId];
-    }
-
-    function setMinStakeToWork(uint256 _minStakeToWork) external onlyOwner {
-        require(_minStakeToWork > 0, "Min stake must be positive");
-        minStakeToWork = _minStakeToWork;
-    }
-
-    function setUnstakeCooldown(uint256 _cooldown) external onlyOwner {
-        require(_cooldown >= MIN_UNSTAKE_COOLDOWN, "Cooldown below minimum");
-        unstakeCooldown = _cooldown;
-    }
-
-    function setActivityCooldown(uint256 _cooldown) external onlyOwner {
-        require(_cooldown > 0, "Cooldown must be positive");
-        activityCooldown = _cooldown;
-    }
-
-    function setTreasury(address _treasury) external onlyOwner {
-        require(_treasury != address(0), "Invalid treasury address");
-        treasury = _treasury;
-    }
-
-    function setFeeCollector(address _feeCollector) external onlyOwner {
-        require(_feeCollector != address(0), "Invalid fee collector address");
-        feeCollector = IFeeCollector(_feeCollector);
-        emit FeeCollectorSet(_feeCollector);
-    }
-
-    function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) {
-        require(index < balanceOf(owner), "Index out of bounds");
-        uint256 count = 0;
-        for (uint256 i = 1; i < _nextAgentId; i++) {
-            if (_ownerOf(i) == owner) {
-                if (count == index) {
-                    return i;
-                }
-                count++;
-            }
-        }
-        revert("Token not found");
-    }
-
-    function _toString(uint256 value) internal pure returns (string memory) {
-        if (value == 0) {
-            return "0";
-        }
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits -= 1;
-            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
-    }
-
-    function _toHexString(address addr) internal pure returns (string memory) {
-        bytes memory alphabet = "0123456789abcdef";
-        bytes memory str = new bytes(42);
-        str[0] = "0";
-        str[1] = "x";
-        for (uint256 i = 0; i < 20; i++) {
-            str[2 + i * 2] = alphabet[uint8(uint160(addr) >> (8 * (19 - i)) >> 4) & 0x0f];
-            str[3 + i * 2] = alphabet[uint8(uint160(addr) >> (8 * (19 - i))) & 0x0f];
-        }
-        return string(str);
+    function _increaseBalance(address account, uint128 value) internal override(ERC721, ERC721Enumerable) {
+        super._increaseBalance(account, value);
     }
 }

@@ -1,6 +1,6 @@
 import type { GlobalAgentId } from './types';
 
-const GLOBAL_ID_REGEX = /^eip155:(\d+):(0x[a-fA-F0-9]{40}):(\d+)$/;
+const GLOBAL_ID_REGEX = /^eip155:(\d+):(0x[a-fA-F0-9]{40})$/;
 
 const KNOWN_REGISTRIES: Record<number, `0x${string}`> = {
   143: '0x0000000000000000000000000000000000000000',
@@ -9,10 +9,9 @@ const KNOWN_REGISTRIES: Record<number, `0x${string}`> = {
 
 export function formatGlobalId(
   chainId: number,
-  registryAddress: `0x${string}`,
-  agentId: bigint
+  registryAddress: `0x${string}`
 ): string {
-  return `eip155:${chainId}:${registryAddress.toLowerCase()}:${agentId}`;
+  return `eip155:${chainId}:${registryAddress.toLowerCase()}`;
 }
 
 export function parseGlobalId(globalId: string): GlobalAgentId {
@@ -21,12 +20,11 @@ export function parseGlobalId(globalId: string): GlobalAgentId {
     throw new Error(`Invalid global ID format: ${globalId}`);
   }
 
-  const [, chainIdStr, registryAddress, agentIdStr] = match;
+  const [, chainIdStr, registryAddress] = match;
   return {
     namespace: 'eip155',
     chainId: parseInt(chainIdStr, 10),
     registryAddress: registryAddress.toLowerCase() as `0x${string}`,
-    agentId: BigInt(agentIdStr),
   };
 }
 
@@ -53,11 +51,6 @@ export function isChainSupported(chainId: number): boolean {
 export function extractChainId(globalId: string): number {
   const parsed = parseGlobalId(globalId);
   return parsed.chainId;
-}
-
-export function extractAgentId(globalId: string): bigint {
-  const parsed = parseGlobalId(globalId);
-  return parsed.agentId;
 }
 
 export function extractRegistryAddress(globalId: string): `0x${string}` {

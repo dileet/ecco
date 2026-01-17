@@ -1,39 +1,57 @@
-import { keccak256, toBytes, toHex } from 'viem';
+import { keccak256, toBytes } from 'viem';
 import { z } from 'zod';
 import type { OffChainFeedback } from './types';
 import { OffChainFeedbackSchema } from './types';
+import { canonicalJsonStringify } from '../utils/canonical-json';
 
 const HttpStoreResponseSchema = z.object({ uri: z.string() });
 const IpfsStoreResponseSchema = z.object({ Hash: z.string() });
 
 export function createFeedbackContent(
-  agentGlobalId: string,
+  agentRegistry: string,
+  agentId: number,
   clientAddress: `0x${string}`,
   score: number,
-  tags: string[],
-  endpoint: string,
-  summary: string,
-  details?: string,
-  metrics?: Record<string, number>
+  options: {
+    createdAt?: string;
+    tag1?: string;
+    tag2?: string;
+    endpoint?: string;
+    skill?: string;
+    domain?: string;
+    context?: string;
+    task?: string;
+    capability?: 'prompts' | 'resources' | 'tools' | 'completions';
+    name?: string;
+    proofOfPayment?: {
+      fromAddress: string;
+      toAddress: string;
+      chainId: string;
+      txHash: string;
+    };
+  } = {}
 ): Omit<OffChainFeedback, 'signature'> {
   return {
-    version: '1.0',
-    timestamp: Date.now(),
-    agentGlobalId,
+    agentRegistry,
+    agentId,
     clientAddress,
+    createdAt: options.createdAt ?? new Date().toISOString(),
     score,
-    tags,
-    endpoint,
-    content: {
-      summary,
-      details,
-      metrics,
-    },
+    tag1: options.tag1,
+    tag2: options.tag2,
+    endpoint: options.endpoint,
+    skill: options.skill,
+    domain: options.domain,
+    context: options.context,
+    task: options.task,
+    capability: options.capability,
+    name: options.name,
+    proofOfPayment: options.proofOfPayment,
   };
 }
 
 export function computeFeedbackHash(feedback: Omit<OffChainFeedback, 'signature'>): `0x${string}` {
-  const canonical = JSON.stringify(feedback, Object.keys(feedback).sort());
+  const canonical = canonicalJsonStringify(feedback);
   return keccak256(toBytes(canonical));
 }
 
@@ -41,7 +59,7 @@ export async function signFeedback(
   feedback: Omit<OffChainFeedback, 'signature'>,
   signMessage: (message: string) => Promise<`0x${string}`>
 ): Promise<OffChainFeedback> {
-  const canonical = JSON.stringify(feedback, Object.keys(feedback).sort());
+  const canonical = canonicalJsonStringify(feedback);
   const signature = await signMessage(canonical);
   return {
     ...feedback,
@@ -55,7 +73,7 @@ export function verifyFeedbackSignature(
   recoverAddress: (message: string, signature: `0x${string}`) => Promise<`0x${string}`>
 ): Promise<boolean> {
   const { signature, ...rest } = feedback;
-  const canonical = JSON.stringify(rest, Object.keys(rest).sort());
+  const canonical = canonicalJsonStringify(rest);
   return recoverAddress(canonical, signature as `0x${string}`).then(
     (recovered) => recovered.toLowerCase() === expectedSigner.toLowerCase()
   );
@@ -66,7 +84,7 @@ export function validateFeedback(feedback: unknown): OffChainFeedback {
 }
 
 export function serializeFeedback(feedback: OffChainFeedback): string {
-  return JSON.stringify(feedback, null, 2);
+  return canonicalJsonStringify(feedback);
 }
 
 export function deserializeFeedback(json: string): OffChainFeedback {

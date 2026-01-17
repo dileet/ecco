@@ -60,9 +60,15 @@ export async function deployAgentIdentityRegistryFixture() {
     [eccoToken.address, owner.account.address]
   );
 
+  const stakeRegistry = await viem.deployContract(
+    "AgentStakeRegistry",
+    [eccoToken.address, identityRegistry.address, owner.account.address]
+  );
+
   return {
     eccoToken,
     identityRegistry,
+    stakeRegistry,
     owner,
     user1,
     user2,
@@ -85,15 +91,21 @@ export async function deployWorkRewardsFixture() {
     [eccoToken.address, owner.account.address]
   );
 
+  const stakeRegistry = await viem.deployContract(
+    "AgentStakeRegistry",
+    [eccoToken.address, identityRegistry.address, owner.account.address]
+  );
+
   const workRewards = await viem.deployContract("WorkRewards", [
     eccoToken.address,
-    identityRegistry.address,
+    stakeRegistry.address,
     owner.account.address,
   ]);
 
   return {
     eccoToken,
     identityRegistry,
+    stakeRegistry,
     workRewards,
     owner,
     user1,
@@ -117,9 +129,14 @@ export async function deployFeeCollectorFixture() {
     [eccoToken.address, owner.account.address]
   );
 
+  const stakeRegistry = await viem.deployContract(
+    "AgentStakeRegistry",
+    [eccoToken.address, identityRegistry.address, owner.account.address]
+  );
+
   const feeCollector = await viem.deployContract("FeeCollector", [
     eccoToken.address,
-    identityRegistry.address,
+    stakeRegistry.address,
     treasury.account.address,
     owner.account.address,
   ]);
@@ -127,6 +144,7 @@ export async function deployFeeCollectorFixture() {
   return {
     eccoToken,
     identityRegistry,
+    stakeRegistry,
     feeCollector,
     owner,
     treasury,
@@ -171,6 +189,12 @@ export async function deployGovernorFixture() {
     owner.account.address,
   ]);
 
+  const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [
+    eccoToken.address,
+    identityRegistry.address,
+    owner.account.address,
+  ]);
+
   const eccoTimelock = await viem.deployContract("EccoTimelock", [
     TIMELOCK_MIN_DELAY,
     [owner.account.address],
@@ -185,7 +209,7 @@ export async function deployGovernorFixture() {
     VOTING_PERIOD,
     PROPOSAL_THRESHOLD,
     QUORUM_PERCENT,
-    identityRegistry.address,
+    stakeRegistry.address,
   ]);
 
   const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
@@ -204,6 +228,7 @@ export async function deployGovernorFixture() {
     eccoToken,
     eccoTimelock,
     eccoGovernor,
+    stakeRegistry,
     owner,
     voter1,
     voter2,
@@ -247,16 +272,21 @@ export async function deployFullEcosystemFixture() {
     [eccoToken.address, owner.account.address]
   );
 
+  const stakeRegistry = await viem.deployContract(
+    "AgentStakeRegistry",
+    [eccoToken.address, identityRegistry.address, owner.account.address]
+  );
+
   const feeCollector = await viem.deployContract("FeeCollector", [
     eccoToken.address,
-    identityRegistry.address,
+    stakeRegistry.address,
     treasury.account.address,
     owner.account.address,
   ]);
 
   const workRewards = await viem.deployContract("WorkRewards", [
     eccoToken.address,
-    identityRegistry.address,
+    stakeRegistry.address,
     owner.account.address,
   ]);
 
@@ -274,7 +304,7 @@ export async function deployFullEcosystemFixture() {
     VOTING_PERIOD,
     PROPOSAL_THRESHOLD,
     QUORUM_PERCENT,
-    identityRegistry.address,
+    stakeRegistry.address,
   ]);
 
   const PROPOSER_ROLE = await eccoTimelock.read.PROPOSER_ROLE();
@@ -299,11 +329,11 @@ export async function deployFullEcosystemFixture() {
   return {
     eccoToken,
     identityRegistry,
+    stakeRegistry,
     feeCollector,
     workRewards,
     eccoTimelock,
     eccoGovernor,
-    eccoConstitution,
     owner,
     treasury,
     user1,

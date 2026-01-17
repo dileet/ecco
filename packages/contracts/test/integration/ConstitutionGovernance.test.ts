@@ -19,6 +19,7 @@ describe("Constitution Governance Integration", () => {
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
       const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -27,7 +28,7 @@ describe("Constitution Governance Integration", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        identityRegistry.address,
+        stakeRegistry.address,
       ]);
 
       const eccoConstitution = await viem.deployContract("EccoConstitution", [
@@ -110,6 +111,7 @@ describe("Constitution Governance Integration", () => {
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
       const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
         eccoToken.address,
@@ -118,7 +120,7 @@ describe("Constitution Governance Integration", () => {
         VOTING_PERIOD,
         PROPOSAL_THRESHOLD,
         QUORUM_PERCENT,
-        identityRegistry.address,
+        stakeRegistry.address,
       ]);
 
       const eccoConstitution = await viem.deployContract("EccoConstitution", [

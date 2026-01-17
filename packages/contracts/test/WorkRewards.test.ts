@@ -11,6 +11,7 @@ async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> 
 
 type WorkRewardsFixture = Awaited<ReturnType<typeof deployWorkRewardsFixture>>;
 type IdentityRegistry = WorkRewardsFixture["identityRegistry"];
+type StakeRegistry = WorkRewardsFixture["stakeRegistry"];
 type WalletClient = WorkRewardsFixture["user1"];
 
 function getPeerIdHash(peerId: string): `0x${string}` {
@@ -19,6 +20,7 @@ function getPeerIdHash(peerId: string): `0x${string}` {
 
 async function registerAgentWithPeerId(
   identityRegistry: IdentityRegistry,
+  stakeRegistry: StakeRegistry,
   user: WalletClient,
   peerId: string
 ): Promise<bigint> {
@@ -68,16 +70,16 @@ describe("WorkRewards", () => {
 
   describe("Reward Distribution", () => {
     it("should distribute reward to peer", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -93,16 +95,16 @@ describe("WorkRewards", () => {
     });
 
     it("should reject duplicate job ID", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -141,14 +143,14 @@ describe("WorkRewards", () => {
 
   describe("Access Control", () => {
     it("should reject reward from non-authorized distributor", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, user2 } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -183,16 +185,16 @@ describe("WorkRewards", () => {
 
   describe("Reward Bonuses", () => {
     it("should apply consensus bonus when consensusAchieved is true", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -203,16 +205,16 @@ describe("WorkRewards", () => {
     });
 
     it("should apply fast response bonus when fastResponse is true", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const rewardWithoutFast = await workRewards.read.calculateReward([user1.account.address, 1000n, false, false]);
       const rewardWithFast = await workRewards.read.calculateReward([user1.account.address, 1000n, false, true]);
@@ -221,14 +223,14 @@ describe("WorkRewards", () => {
     });
 
     it("should apply all bonuses when both flags are true", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1 } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const rewardNoBonuses = await workRewards.read.calculateReward([user1.account.address, 1000n, false, false]);
       const rewardAllBonuses = await workRewards.read.calculateReward([user1.account.address, 1000n, true, true]);
@@ -351,23 +353,22 @@ describe("WorkRewards", () => {
 
   describe("Batch Rewards", () => {
     it("should distribute batch rewards to multiple peers", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, user2, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, user2, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId1 = generatePeerId(user1.account.address);
-      const agentId1 = await registerAgentWithPeerId(identityRegistry, user1, peerId1);
+      const peerId2 = generatePeerId(user2.account.address);
+      const agentId1 = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId1);
+      const agentId2 = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user2, peerId2);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId1, MIN_STAKE_TO_WORK], { account: user1.account });
-
-      const peerId2 = generatePeerId(user2.account.address);
-      const agentId2 = await registerAgentWithPeerId(identityRegistry, user2, peerId2);
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId1, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([user2.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user2.account });
-      await identityRegistry.write.stake([agentId2, MIN_STAKE_TO_WORK], { account: user2.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user2.account });
+      await stakeRegistry.write.stake([agentId2, MIN_STAKE_TO_WORK], { account: user2.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -389,16 +390,16 @@ describe("WorkRewards", () => {
     });
 
     it("should skip already rewarded jobs in batch", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("10000")]);
 
@@ -491,16 +492,16 @@ describe("WorkRewards", () => {
 
   describe("Reward Pool", () => {
     it("should cap reward at available balance", async () => {
-      const { workRewards, identityRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
+      const { workRewards, identityRegistry, stakeRegistry, eccoToken, user1, distributor } = await loadFixtureWithHelpers(deployWorkRewardsFixture);
 
       await workRewards.write.addDistributor([distributor.account.address]);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       await eccoToken.write.mint([workRewards.address, parseEther("0.1")]);
 

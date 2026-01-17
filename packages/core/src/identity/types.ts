@@ -7,9 +7,14 @@ export const GlobalAgentIdSchema = z.object({
   namespace: z.literal('eip155'),
   chainId: z.number().int().positive(),
   registryAddress: HexAddressSchema,
-  agentId: z.bigint(),
 });
 export type GlobalAgentId = z.infer<typeof GlobalAgentIdSchema>;
+
+export const AgentLocatorSchema = z.object({
+  agentId: z.bigint(),
+  agentRegistry: z.string(),
+});
+export type AgentLocator = z.infer<typeof AgentLocatorSchema>;
 
 export const MetadataEntrySchema = z.object({
   key: z.string().min(1).max(64),
@@ -40,15 +45,15 @@ export const AgentInfoSchema = z.object({
   peerId: z.string().optional(),
   peerIdHash: HexBytes32Schema.optional(),
   stake: AgentStakeSchema.optional(),
-  globalId: z.string(),
+  registryId: z.string(),
 });
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 
 export const FeedbackSchema = z.object({
   client: HexAddressSchema,
   score: z.number().int().min(0).max(100),
-  tag1: HexBytes32Schema,
-  tag2: HexBytes32Schema,
+  tag1: z.string(),
+  tag2: z.string(),
   endpoint: z.string(),
   feedbackURI: z.string(),
   feedbackHash: HexBytes32Schema,
@@ -66,18 +71,28 @@ export const FeedbackSummarySchema = z.object({
 export type FeedbackSummary = z.infer<typeof FeedbackSummarySchema>;
 
 export const OffChainFeedbackSchema = z.object({
-  version: z.literal('1.0'),
-  timestamp: z.number(),
-  agentGlobalId: z.string(),
-  clientAddress: HexAddressSchema,
+  agentRegistry: z.string(),
+  agentId: z.number().int().nonnegative(),
+  clientAddress: z.string(),
+  createdAt: z.string(),
   score: z.number().int().min(0).max(100),
-  tags: z.array(z.string()),
-  endpoint: z.string(),
-  content: z.object({
-    summary: z.string().max(500),
-    details: z.string().max(5000).optional(),
-    metrics: z.record(z.string(), z.number()).optional(),
-  }),
+  tag1: z.string().optional(),
+  tag2: z.string().optional(),
+  endpoint: z.string().optional(),
+  skill: z.string().optional(),
+  domain: z.string().optional(),
+  context: z.string().optional(),
+  task: z.string().optional(),
+  capability: z.enum(["prompts", "resources", "tools", "completions"]).optional(),
+  name: z.string().optional(),
+  proofOfPayment: z
+    .object({
+      fromAddress: z.string(),
+      toAddress: z.string(),
+      chainId: z.string(),
+      txHash: z.string(),
+    })
+    .optional(),
   signature: z.string(),
 });
 export type OffChainFeedback = z.infer<typeof OffChainFeedbackSchema>;
@@ -94,17 +109,17 @@ export const ValidationRequestSchema = z.object({
 export type ValidationRequest = z.infer<typeof ValidationRequestSchema>;
 
 export const ValidationResponseSchema = z.object({
-  response: z.number().int().min(0).max(255),
+  response: z.number().int().min(0).max(100),
   responseURI: z.string(),
   responseHash: HexBytes32Schema,
-  tag: HexBytes32Schema,
+  tag: z.string(),
   timestamp: z.bigint(),
 });
 export type ValidationResponse = z.infer<typeof ValidationResponseSchema>;
 
 export const ValidationSummarySchema = z.object({
   count: z.number(),
-  averageResponse: z.number().min(0).max(255),
+  averageResponse: z.number().min(0).max(100),
 });
 export type ValidationSummary = z.infer<typeof ValidationSummarySchema>;
 
@@ -145,6 +160,12 @@ export interface ReputationRegistryState {
 }
 
 export interface ValidationRegistryState {
+  chainId: number;
+  registryAddress: `0x${string}`;
+  identityRegistryAddress: `0x${string}`;
+}
+
+export interface StakeRegistryState {
   chainId: number;
   registryAddress: `0x${string}`;
   identityRegistryAddress: `0x${string}`;

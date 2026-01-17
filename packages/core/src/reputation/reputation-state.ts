@@ -3,16 +3,16 @@ import { getPublicClient } from '../payments/wallet';
 import {
   createIdentityRegistryState,
   getAgentByPeerId,
-  getStakeInfo,
-  canWork,
   getWalletForPeerId as getWalletForPeerIdIdentity,
   computePeerIdHash,
 } from '../identity';
-import type { IdentityRegistryState, StakeInfo } from '../identity';
+import type { IdentityRegistryState, StakeInfo, StakeRegistryState } from '../identity';
+import { createStakeRegistryState, getStakeInfo as getStakeInfoStake, canWork as canWorkStake } from '../identity/stake-registry';
 import { REPUTATION } from '../networking/constants';
 import { keccak256, toBytes } from 'viem';
 
 const IDENTITY_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
+const STAKE_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
 
 export interface LocalPeerReputation {
   peerId: string;
@@ -59,6 +59,10 @@ export interface ReputationConfig {
 
 function getIdentityState(chainId: number): IdentityRegistryState {
   return createIdentityRegistryState(chainId, IDENTITY_REGISTRY_ADDRESS);
+}
+
+function getStakeState(chainId: number): StakeRegistryState {
+  return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, IDENTITY_REGISTRY_ADDRESS);
 }
 
 export function createReputationState(config: ReputationConfig): ReputationState {
@@ -253,22 +257,24 @@ export async function syncPeerFromChain(
 ): Promise<LocalPeerReputation> {
   const publicClient = getPublicClient(wallet, state.chainId);
   const identityState = getIdentityState(state.chainId);
+  const stakeState = getStakeState(state.chainId);
 
   const now = Date.now();
   const existingPeer = state.peers.get(peerId);
 
   let stakeInfo: StakeInfo | null = null;
+
   try {
     const agentId = await getAgentByPeerId(publicClient, identityState, peerId);
     if (agentId > 0n) {
-      stakeInfo = await getStakeInfo(publicClient, identityState, agentId);
+      stakeInfo = await getStakeInfoStake(publicClient, stakeState, agentId);
     }
   } catch {
   }
 
   let canWorkResult = false;
   try {
-    canWorkResult = await canWork(publicClient, identityState, walletAddress);
+    canWorkResult = await canWorkStake(publicClient, stakeState, walletAddress);
   } catch {
   }
 
@@ -370,6 +376,7 @@ export async function resolveWalletForPeer(
 
   const publicClient = getPublicClient(wallet, state.chainId);
   const identityState = getIdentityState(state.chainId);
+  const stakeState = getStakeState(state.chainId);
 
   const walletAddress = await getWalletForPeerIdIdentity(publicClient, identityState, peerId);
   if (walletAddress) {

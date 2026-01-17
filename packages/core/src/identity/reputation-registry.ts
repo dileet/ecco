@@ -1,6 +1,5 @@
 import type { PublicClient, WalletClient } from 'viem';
-import { keccak256, toBytes, stringToBytes } from 'viem';
-import type { ReputationRegistryState, Feedback, FeedbackSummary } from './types';
+import type { ReputationRegistryState, FeedbackSummary } from './types';
 
 const AGENT_REPUTATION_REGISTRY_ABI = [
   {
@@ -10,8 +9,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     inputs: [
       { name: 'agentId', type: 'uint256' },
       { name: 'score', type: 'uint8' },
-      { name: 'tag1', type: 'bytes32' },
-      { name: 'tag2', type: 'bytes32' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
       { name: 'endpoint', type: 'string' },
       { name: 'feedbackURI', type: 'string' },
       { name: 'feedbackHash', type: 'bytes32' },
@@ -48,8 +47,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     inputs: [
       { name: 'agentId', type: 'uint256' },
       { name: 'clientAddresses', type: 'address[]' },
-      { name: 'tag1', type: 'bytes32' },
-      { name: 'tag2', type: 'bytes32' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
     ],
     outputs: [
       { name: 'count', type: 'uint64' },
@@ -67,38 +66,29 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     ],
     outputs: [
       { name: 'score', type: 'uint8' },
-      { name: 'tag1', type: 'bytes32' },
-      { name: 'tag2', type: 'bytes32' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
       { name: 'isRevoked', type: 'bool' },
     ],
   },
   {
-    name: 'readFullFeedback',
+    name: 'readAllFeedback',
     type: 'function',
     stateMutability: 'view',
     inputs: [
       { name: 'agentId', type: 'uint256' },
-      { name: 'clientAddress', type: 'address' },
-      { name: 'feedbackIndex', type: 'uint64' },
+      { name: 'clientAddresses', type: 'address[]' },
+      { name: 'tag1', type: 'string' },
+      { name: 'tag2', type: 'string' },
+      { name: 'includeRevoked', type: 'bool' },
     ],
     outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'client', type: 'address' },
-          { name: 'score', type: 'uint8' },
-          { name: 'tag1', type: 'bytes32' },
-          { name: 'tag2', type: 'bytes32' },
-          { name: 'endpoint', type: 'string' },
-          { name: 'feedbackURI', type: 'string' },
-          { name: 'feedbackHash', type: 'bytes32' },
-          { name: 'timestamp', type: 'uint256' },
-          { name: 'revoked', type: 'bool' },
-          { name: 'responseURI', type: 'string' },
-          { name: 'responseHash', type: 'bytes32' },
-        ],
-      },
+      { name: 'clientAddresses', type: 'address[]' },
+      { name: 'feedbackIndexes', type: 'uint64[]' },
+      { name: 'scores', type: 'uint8[]' },
+      { name: 'tag1s', type: 'string[]' },
+      { name: 'tag2s', type: 'string[]' },
+      { name: 'revokedStatuses', type: 'bool[]' },
     ],
   },
   {
@@ -119,6 +109,13 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     outputs: [{ name: '', type: 'uint64' }],
   },
   {
+    name: 'getIdentityRegistry',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
     name: 'getFeedbackCount',
     type: 'function',
     stateMutability: 'view',
@@ -132,13 +129,6 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     inputs: [{ name: 'agentId', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint8' }],
   },
-  {
-    name: 'getIdentityRegistry',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
 ] as const;
 
 export function createReputationRegistryState(
@@ -151,22 +141,6 @@ export function createReputationRegistryState(
     registryAddress,
     identityRegistryAddress,
   };
-}
-
-export function stringToBytes32(str: string): `0x${string}` {
-  if (!str) return '0x0000000000000000000000000000000000000000000000000000000000000000';
-  const bytes = stringToBytes(str.slice(0, 32));
-  const padded = new Uint8Array(32);
-  padded.set(bytes);
-  return `0x${Buffer.from(padded).toString('hex')}` as `0x${string}`;
-}
-
-export function bytes32ToString(bytes32: `0x${string}`): string {
-  const hex = bytes32.slice(2);
-  const bytes = Buffer.from(hex, 'hex');
-  let end = bytes.length;
-  while (end > 0 && bytes[end - 1] === 0) end--;
-  return bytes.slice(0, end).toString('utf8');
 }
 
 export async function giveFeedback(
@@ -192,15 +166,7 @@ export async function giveFeedback(
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'giveFeedback',
-    args: [
-      agentId,
-      score,
-      stringToBytes32(tag1),
-      stringToBytes32(tag2),
-      endpoint,
-      feedbackURI,
-      feedbackHash,
-    ],
+    args: [agentId, score, tag1, tag2, endpoint, feedbackURI, feedbackHash],
     account,
   });
 
@@ -264,7 +230,7 @@ export async function getSummary(
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getSummary',
-    args: [agentId, clientAddresses, stringToBytes32(tag1), stringToBytes32(tag2)],
+    args: [agentId, clientAddresses, tag1, tag2],
   });
 
   return {
@@ -289,38 +255,42 @@ export async function readFeedback(
 
   return {
     score,
-    tag1: bytes32ToString(tag1),
-    tag2: bytes32ToString(tag2),
+    tag1,
+    tag2,
     isRevoked,
   };
 }
 
-export async function readFullFeedback(
+export async function readAllFeedback(
   publicClient: PublicClient,
   state: ReputationRegistryState,
   agentId: bigint,
-  clientAddress: `0x${string}`,
-  feedbackIndex: bigint
-): Promise<Feedback> {
-  const result = await publicClient.readContract({
+  clientAddresses: `0x${string}`[] = [],
+  tag1: string = '',
+  tag2: string = '',
+  includeRevoked: boolean = false
+): Promise<{
+  clientAddresses: `0x${string}`[];
+  feedbackIndexes: bigint[];
+  scores: number[];
+  tag1s: string[];
+  tag2s: string[];
+  revokedStatuses: boolean[];
+}> {
+  const [addresses, indexes, scores, tag1s, tag2s, revokedStatuses] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
-    functionName: 'readFullFeedback',
-    args: [agentId, clientAddress, feedbackIndex],
+    functionName: 'readAllFeedback',
+    args: [agentId, clientAddresses, tag1, tag2, includeRevoked],
   });
 
   return {
-    client: result.client,
-    score: result.score,
-    tag1: result.tag1,
-    tag2: result.tag2,
-    endpoint: result.endpoint,
-    feedbackURI: result.feedbackURI,
-    feedbackHash: result.feedbackHash,
-    timestamp: result.timestamp,
-    revoked: result.revoked,
-    responseURI: result.responseURI,
-    responseHash: result.responseHash,
+    clientAddresses: [...addresses],
+    feedbackIndexes: indexes.map((value) => BigInt(value)),
+    scores: [...scores],
+    tag1s: [...tag1s],
+    tag2s: [...tag2s],
+    revokedStatuses: [...revokedStatuses],
   };
 }
 
@@ -349,6 +319,17 @@ export async function getLastIndex(
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getLastIndex',
     args: [agentId, clientAddress],
+  });
+}
+
+export async function getReputationIdentityRegistry(
+  publicClient: PublicClient,
+  state: ReputationRegistryState
+): Promise<`0x${string}`> {
+  return publicClient.readContract({
+    address: state.registryAddress,
+    abi: AGENT_REPUTATION_REGISTRY_ABI,
+    functionName: 'getIdentityRegistry',
   });
 }
 

@@ -5,10 +5,12 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IAgentIdentityRegistry {
     function ownerOf(uint256 agentId) external view returns (address);
+    function isApprovedForAll(address owner, address operator) external view returns (bool);
+    function getApproved(uint256 tokenId) external view returns (address);
 }
 
 contract AgentValidationRegistry is ReentrancyGuard {
-    struct ValidationRequest {
+    struct ValidationRequestData {
         address requester;
         address validator;
         uint256 agentId;
@@ -18,43 +20,26 @@ contract AgentValidationRegistry is ReentrancyGuard {
         bool responded;
     }
 
-    struct ValidationResponse {
+    struct ValidationResponseData {
         uint8 response;
         string responseURI;
         bytes32 responseHash;
-        bytes32 tag;
+        string tag;
         uint256 timestamp;
     }
 
     IAgentIdentityRegistry public immutable identityRegistry;
 
-    mapping(bytes32 => ValidationRequest) private _requests;
-    mapping(bytes32 => ValidationResponse) private _responses;
+    mapping(bytes32 => ValidationRequestData) private _requests;
+    mapping(bytes32 => ValidationResponseData[]) private _responses;
     mapping(uint256 => bytes32[]) private _agentValidations;
     mapping(address => bytes32[]) private _validatorRequests;
 
-    mapping(uint256 => mapping(address => uint256)) private _validatorResponseCount;
-    mapping(uint256 => mapping(address => uint256)) private _validatorResponseTotal;
+    event ValidationRequest(address indexed validatorAddress, uint256 indexed agentId, string requestURI, bytes32 indexed requestHash);
+    event ValidationResponse(address indexed validatorAddress, uint256 indexed agentId, bytes32 indexed requestHash, uint8 response, string responseURI, bytes32 responseHash, string tag);
 
-    event ValidationRequested(
-        bytes32 indexed requestHash,
-        address indexed requester,
-        address indexed validator,
-        uint256 agentId,
-        string requestURI
-    );
-
-    event ValidationResponded(
-        bytes32 indexed requestHash,
-        address indexed validator,
-        uint256 indexed agentId,
-        uint8 response,
-        bytes32 tag,
-        string responseURI
-    );
-
-    constructor(address _identityRegistry) {
-        identityRegistry = IAgentIdentityRegistry(_identityRegistry);
+    constructor(address registry) {
+        identityRegistry = IAgentIdentityRegistry(registry);
     }
 
     function validationRequest(
@@ -62,109 +47,108 @@ contract AgentValidationRegistry is ReentrancyGuard {
         uint256 agentId,
         string calldata requestURI,
         bytes32 requestHash
-    ) external nonReentrant returns (bytes32 requestId) {
+    ) external nonReentrant {
         require(validatorAddress != address(0), "Invalid validator");
+        require(requestHash != bytes32(0), "Invalid request hash");
 
-        requestId = keccak256(abi.encodePacked(
-            msg.sender,
-            validatorAddress,
-            agentId,
-            requestHash,
-            block.timestamp
-        ));
+        address owner = identityRegistry.ownerOf(agentId);
+        if (msg.sender != owner) {
+            require(
+                identityRegistry.isApprovedForAll(owner, msg.sender) ||
+                    identityRegistry.getApproved(agentId) == msg.sender,
+                "Not agent owner"
+            );
+        }
 
-        require(_requests[requestId].timestamp == 0, "Request already exists");
+        if (_requests[requestHash].timestamp == 0) {
+            _requests[requestHash] = ValidationRequestData({
+                requester: msg.sender,
+                validator: validatorAddress,
+                agentId: agentId,
+                requestURI: requestURI,
+                requestHash: requestHash,
+                timestamp: block.timestamp,
+                responded: false
+            });
+            _agentValidations[agentId].push(requestHash);
+            _validatorRequests[validatorAddress].push(requestHash);
+        }
 
-        _requests[requestId] = ValidationRequest({
-            requester: msg.sender,
-            validator: validatorAddress,
-            agentId: agentId,
-            requestURI: requestURI,
-            requestHash: requestHash,
-            timestamp: block.timestamp,
-            responded: false
-        });
-
-        _agentValidations[agentId].push(requestId);
-        _validatorRequests[validatorAddress].push(requestId);
-
-        emit ValidationRequested(requestId, msg.sender, validatorAddress, agentId, requestURI);
+        emit ValidationRequest(validatorAddress, agentId, requestURI, requestHash);
     }
 
     function validationResponse(
-        bytes32 requestId,
+        bytes32 requestHash,
         uint8 response,
         string calldata responseURI,
         bytes32 responseHash,
-        bytes32 tag
+        string calldata tag
     ) external nonReentrant {
-        ValidationRequest storage request = _requests[requestId];
+        ValidationRequestData storage request = _requests[requestHash];
         require(request.timestamp > 0, "Request not found");
         require(request.validator == msg.sender, "Not the designated validator");
-        require(!request.responded, "Already responded");
+        require(response <= 100, "Response must be 0-100");
 
-        request.responded = true;
-
-        _responses[requestId] = ValidationResponse({
+        _responses[requestHash].push(ValidationResponseData({
             response: response,
             responseURI: responseURI,
             responseHash: responseHash,
             tag: tag,
             timestamp: block.timestamp
-        });
+        }));
 
-        _validatorResponseCount[request.agentId][msg.sender] += 1;
-        _validatorResponseTotal[request.agentId][msg.sender] += response;
+        request.responded = true;
 
-        emit ValidationResponded(requestId, msg.sender, request.agentId, response, tag, responseURI);
+        emit ValidationResponse(msg.sender, request.agentId, requestHash, response, responseURI, responseHash, tag);
     }
 
-    function getValidationStatus(bytes32 requestId) external view returns (
+    function getValidationStatus(bytes32 requestHash) external view returns (
         address validatorAddress,
         uint256 agentId,
         uint8 response,
-        bytes32 tag,
+        string memory tag,
         uint256 lastUpdate
     ) {
-        ValidationRequest storage request = _requests[requestId];
+        ValidationRequestData storage request = _requests[requestHash];
         require(request.timestamp > 0, "Request not found");
 
-        ValidationResponse storage resp = _responses[requestId];
+        validatorAddress = request.validator;
+        agentId = request.agentId;
 
-        return (
-            request.validator,
-            request.agentId,
-            resp.response,
-            resp.tag,
-            resp.timestamp > 0 ? resp.timestamp : request.timestamp
-        );
+        uint256 responseCount = _responses[requestHash].length;
+        if (responseCount == 0) {
+            return (validatorAddress, agentId, 0, "", request.timestamp);
+        }
+
+        ValidationResponseData storage latest = _responses[requestHash][responseCount - 1];
+        return (validatorAddress, agentId, latest.response, latest.tag, latest.timestamp);
     }
 
-    function getValidationRequest(bytes32 requestId) external view returns (ValidationRequest memory) {
-        require(_requests[requestId].timestamp > 0, "Request not found");
-        return _requests[requestId];
+    function getValidationRequest(bytes32 requestHash) external view returns (ValidationRequestData memory) {
+        require(_requests[requestHash].timestamp > 0, "Request not found");
+        return _requests[requestHash];
     }
 
-    function getValidationResponse(bytes32 requestId) external view returns (ValidationResponse memory) {
-        require(_requests[requestId].timestamp > 0, "Request not found");
-        return _responses[requestId];
+    function getValidationResponse(bytes32 requestHash) external view returns (ValidationResponseData memory) {
+        uint256 responseCount = _responses[requestHash].length;
+        require(responseCount > 0, "Response not found");
+        return _responses[requestHash][responseCount - 1];
     }
 
     function getSummary(
         uint256 agentId,
         address[] calldata validatorAddresses,
-        bytes32 tag
+        string calldata tag
     ) external view returns (uint64 count, uint8 averageResponse) {
-        bytes32[] storage requestIds = _agentValidations[agentId];
-
+        bytes32[] storage requestHashes = _agentValidations[agentId];
         uint256 totalResponse = 0;
         uint256 totalCount = 0;
 
-        for (uint256 i = 0; i < requestIds.length; i++) {
-            bytes32 requestId = requestIds[i];
-            ValidationRequest storage request = _requests[requestId];
+        for (uint256 i = 0; i < requestHashes.length; i++) {
+        ValidationRequestData storage request = _requests[requestHashes[i]];
+        uint256 responseCount = _responses[requestHashes[i]].length;
 
-            if (!request.responded) continue;
+            if (responseCount == 0) continue;
 
             bool validatorMatch = validatorAddresses.length == 0;
             for (uint256 j = 0; j < validatorAddresses.length && !validatorMatch; j++) {
@@ -174,10 +158,12 @@ contract AgentValidationRegistry is ReentrancyGuard {
             }
             if (!validatorMatch) continue;
 
-            ValidationResponse storage resp = _responses[requestId];
-            if (tag != bytes32(0) && resp.tag != tag) continue;
+            ValidationResponseData storage latest = _responses[requestHashes[i]][responseCount - 1];
+            if (bytes(tag).length > 0 && keccak256(bytes(latest.tag)) != keccak256(bytes(tag))) {
+                continue;
+            }
 
-            totalResponse += resp.response;
+            totalResponse += latest.response;
             totalCount += 1;
         }
 
@@ -194,40 +180,6 @@ contract AgentValidationRegistry is ReentrancyGuard {
 
     function getValidatorRequests(address validatorAddress) external view returns (bytes32[] memory) {
         return _validatorRequests[validatorAddress];
-    }
-
-    function getPendingRequests(address validatorAddress) external view returns (bytes32[] memory) {
-        bytes32[] storage allRequests = _validatorRequests[validatorAddress];
-
-        uint256 pendingCount = 0;
-        for (uint256 i = 0; i < allRequests.length; i++) {
-            if (!_requests[allRequests[i]].responded) {
-                pendingCount++;
-            }
-        }
-
-        bytes32[] memory pending = new bytes32[](pendingCount);
-        uint256 index = 0;
-        for (uint256 i = 0; i < allRequests.length; i++) {
-            if (!_requests[allRequests[i]].responded) {
-                pending[index] = allRequests[i];
-                index++;
-            }
-        }
-
-        return pending;
-    }
-
-    function getValidatorStats(
-        uint256 agentId,
-        address validatorAddress
-    ) external view returns (uint256 responseCount, uint8 averageResponse) {
-        uint256 count = _validatorResponseCount[agentId][validatorAddress];
-        if (count == 0) {
-            return (0, 0);
-        }
-        uint256 total = _validatorResponseTotal[agentId][validatorAddress];
-        return (count, uint8(total / count));
     }
 
     function getIdentityRegistry() external view returns (address) {

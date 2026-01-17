@@ -11,6 +11,7 @@ export default defineConfig({
         runs: 200,
       },
       evmVersion: "cancun",
+      viaIR: true,
     },
   },
   paths: {

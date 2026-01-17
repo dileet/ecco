@@ -15,9 +15,8 @@ import { formatProtocolVersion } from '../networks'
 import {
   createIdentityRegistryState,
   getAgentByPeerId,
-  getStakeInfo as getStakeInfoIdentity,
-  canWork as canWorkIdentity,
 } from '../identity'
+import { createStakeRegistryState, getStakeInfo as getStakeInfoStake, canWork as canWorkStake } from '../identity/stake-registry'
 import type { IdentityRegistryState, StakeInfo } from '../identity'
 import {
   executeOrchestration,
@@ -246,7 +245,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const embed = createEmbedFunction(effectiveEmbedFn, hasLocalModel, config.localModel, modelState)
 
   const identityRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
+  const stakeRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
   const identityState = createIdentityRegistryState(chainId, identityRegistryAddress)
+  const stakeState = createStakeRegistryState(chainId, stakeRegistryAddress, identityRegistryAddress)
 
   const findPeers = async (query?: FindPeersOptions): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
@@ -269,12 +270,13 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
         const agentId = await getAgentByPeerId(publicClient, identityState, match.peer.id)
         let stakeInfo: StakeInfo
 
-        if (agentId > 0n) {
-          stakeInfo = await getStakeInfoIdentity(publicClient, identityState, agentId)
-        } else {
-          const canWorkResult = await canWorkIdentity(publicClient, identityState, peerWallet)
-          stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
-        }
+          if (agentId > 0n) {
+            stakeInfo = await getStakeInfoStake(publicClient, stakeState, agentId)
+          } else {
+            const canWorkResult = await canWorkStake(publicClient, stakeState, peerWallet)
+            stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
+          }
+
 
         if (query.requireStake && !stakeInfo.canWork) continue
         if (query.minStake && stakeInfo.stake < query.minStake) continue

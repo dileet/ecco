@@ -1,6 +1,6 @@
 import type { PublicClient, WalletClient } from 'viem';
-import { keccak256, toBytes, encodeAbiParameters, parseAbiParameters, encodeFunctionData } from 'viem';
-import type { IdentityRegistryState, AgentInfo, AgentStake, MetadataEntry, StakeInfo } from './types';
+import { keccak256, toBytes } from 'viem';
+import type { IdentityRegistryState, AgentInfo, MetadataEntry } from './types';
 import { formatGlobalId } from './global-id';
 
 const AGENT_IDENTITY_REGISTRY_ABI = [
@@ -8,7 +8,31 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     name: 'register',
     type: 'function',
     stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'agentURI', type: 'string' },
+      {
+        name: 'metadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'metadataKey', type: 'string' },
+          { name: 'metadataValue', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'agentId', type: 'uint256' }],
+  },
+  {
+    name: 'register',
+    type: 'function',
+    stateMutability: 'nonpayable',
     inputs: [{ name: 'agentURI', type: 'string' }],
+    outputs: [{ name: 'agentId', type: 'uint256' }],
+  },
+  {
+    name: 'register',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [],
     outputs: [{ name: 'agentId', type: 'uint256' }],
   },
   {
@@ -34,7 +58,7 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     inputs: [
       { name: 'agentId', type: 'uint256' },
-      { name: 'key', type: 'string' },
+      { name: 'metadataKey', type: 'string' },
     ],
     outputs: [{ name: '', type: 'bytes' }],
   },
@@ -44,8 +68,20 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'agentId', type: 'uint256' },
-      { name: 'key', type: 'string' },
-      { name: 'value', type: 'bytes' },
+      { name: 'metadataKey', type: 'string' },
+      { name: 'metadataValue', type: 'bytes' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'setAgentWallet',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'newWallet', type: 'address' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'signature', type: 'bytes' },
     ],
     outputs: [],
   },
@@ -55,13 +91,6 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'tokenId', type: 'uint256' }],
     outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'owner', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
   },
   {
     name: 'getGlobalId',
@@ -75,73 +104,6 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'peerIdHash', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'stake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'agentId', type: 'uint256' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'requestUnstake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'agentId', type: 'uint256' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [],
-  },
-  {
-    name: 'completeUnstake',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [],
-  },
-  {
-    name: 'agentStakes',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [
-      { name: 'stake', type: 'uint256' },
-      { name: 'lastActive', type: 'uint256' },
-      { name: 'unstakeRequestTime', type: 'uint256' },
-      { name: 'unstakeAmount', type: 'uint256' },
-    ],
-  },
-  {
-    name: 'canWork',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'wallet', type: 'address' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    name: 'canWorkAgent',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-  {
-    name: 'totalStaked',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'minStakeToWork',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const;
@@ -183,7 +145,7 @@ export async function registerAgent(
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
 
   const registeredEvent = receipt.logs.find((log) => {
-    return log.topics[0] === keccak256(toBytes('Registered(uint256,address,string)'));
+    return log.topics[0] === keccak256(toBytes('Registered(uint256,string,address)'));
   });
 
   if (!registeredEvent || !registeredEvent.topics[1]) {
@@ -196,7 +158,54 @@ export async function registerAgent(
     agentId,
     owner: account.address,
     agentURI,
-    globalId: formatGlobalId(state.chainId, state.registryAddress, agentId),
+    registryId: formatGlobalId(state.chainId, state.registryAddress),
+  };
+  state.cachedAgents.set(agentId, agentInfo);
+
+  return { agentId, txHash };
+}
+
+export async function registerAgentWithMetadata(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  state: IdentityRegistryState,
+  agentURI: string,
+  metadata: MetadataEntry[]
+): Promise<{ agentId: bigint; txHash: `0x${string}` }> {
+  const account = walletClient.account;
+  if (!account) throw new Error('Wallet client has no account');
+
+  const formattedMetadata = metadata.map((entry) => ({
+    metadataKey: entry.key,
+    metadataValue: Buffer.from(entry.value).length ? (`0x${Buffer.from(entry.value).toString('hex')}` as `0x${string}`) : '0x',
+  }));
+
+  const { request } = await publicClient.simulateContract({
+    address: state.registryAddress,
+    abi: AGENT_IDENTITY_REGISTRY_ABI,
+    functionName: 'register',
+    args: [agentURI, formattedMetadata],
+    account,
+  });
+
+  const txHash = await walletClient.writeContract(request);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+  const registeredEvent = receipt.logs.find((log) => {
+    return log.topics[0] === keccak256(toBytes('Registered(uint256,string,address)'));
+  });
+
+  if (!registeredEvent || !registeredEvent.topics[1]) {
+    throw new Error('Failed to find Registered event');
+  }
+
+  const agentId = BigInt(registeredEvent.topics[1]);
+
+  const agentInfo: AgentInfo = {
+    agentId,
+    owner: account.address,
+    agentURI,
+    registryId: formatGlobalId(state.chainId, state.registryAddress),
   };
   state.cachedAgents.set(agentId, agentInfo);
 
@@ -273,6 +282,29 @@ export async function setMetadata(
   return walletClient.writeContract(request);
 }
 
+export async function setAgentWallet(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  state: IdentityRegistryState,
+  agentId: bigint,
+  newWallet: `0x${string}`,
+  deadline: bigint,
+  signature: `0x${string}`
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error('Wallet client has no account');
+
+  const { request } = await publicClient.simulateContract({
+    address: state.registryAddress,
+    abi: AGENT_IDENTITY_REGISTRY_ABI,
+    functionName: 'setAgentWallet',
+    args: [agentId, newWallet, deadline, signature],
+    account,
+  });
+
+  return walletClient.writeContract(request);
+}
+
 export async function getAgentOwner(
   publicClient: PublicClient,
   state: IdentityRegistryState,
@@ -319,171 +351,6 @@ export async function getAgentByPeerId(
   return agentId;
 }
 
-export async function getAgentStake(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  agentId: bigint
-): Promise<AgentStake> {
-  const [stake, lastActive, unstakeRequestTime, unstakeAmount] = await publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'agentStakes',
-    args: [agentId],
-  });
-
-  return {
-    stake,
-    lastActive,
-    unstakeRequestTime,
-    unstakeAmount,
-  };
-}
-
-export async function stakeForAgent(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  state: IdentityRegistryState,
-  agentId: bigint,
-  amount: bigint
-): Promise<`0x${string}`> {
-  const account = walletClient.account;
-  if (!account) throw new Error('Wallet client has no account');
-
-  const { request } = await publicClient.simulateContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'stake',
-    args: [agentId, amount],
-    account,
-  });
-
-  return walletClient.writeContract(request);
-}
-
-export async function requestUnstake(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  state: IdentityRegistryState,
-  agentId: bigint,
-  amount: bigint
-): Promise<`0x${string}`> {
-  const account = walletClient.account;
-  if (!account) throw new Error('Wallet client has no account');
-
-  const { request } = await publicClient.simulateContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'requestUnstake',
-    args: [agentId, amount],
-    account,
-  });
-
-  return walletClient.writeContract(request);
-}
-
-export async function completeUnstake(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  state: IdentityRegistryState,
-  agentId: bigint
-): Promise<`0x${string}`> {
-  const account = walletClient.account;
-  if (!account) throw new Error('Wallet client has no account');
-
-  const { request } = await publicClient.simulateContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'completeUnstake',
-    args: [agentId],
-    account,
-  });
-
-  return walletClient.writeContract(request);
-}
-
-export async function canWork(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  wallet: `0x${string}`
-): Promise<boolean> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'canWork',
-    args: [wallet],
-  });
-}
-
-export async function canWorkAgent(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  agentId: bigint
-): Promise<boolean> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'canWorkAgent',
-    args: [agentId],
-  });
-}
-
-export async function getTotalStaked(
-  publicClient: PublicClient,
-  state: IdentityRegistryState
-): Promise<bigint> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'totalStaked',
-  });
-}
-
-export async function getMinStakeToWork(
-  publicClient: PublicClient,
-  state: IdentityRegistryState
-): Promise<bigint> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'minStakeToWork',
-  });
-}
-
-export async function getStakeInfo(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  agentId: bigint
-): Promise<StakeInfo> {
-  const [agentStake, canWorkResult] = await Promise.all([
-    getAgentStake(publicClient, state, agentId),
-    canWorkAgent(publicClient, state, agentId),
-  ]);
-
-  const effectiveScore = agentStake.stake > 0n ? agentStake.stake : 0n;
-
-  return {
-    stake: agentStake.stake,
-    canWork: canWorkResult,
-    effectiveScore,
-    agentId,
-  };
-}
-
-export async function getStakeInfoByWallet(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  walletAddress: `0x${string}`
-): Promise<StakeInfo> {
-  const canWorkResult = await canWork(publicClient, state, walletAddress);
-
-  return {
-    stake: 0n,
-    canWork: canWorkResult,
-    effectiveScore: 0n,
-    agentId: undefined,
-  };
-}
-
 export async function getAgentInfo(
   publicClient: PublicClient,
   state: IdentityRegistryState,
@@ -494,10 +361,9 @@ export async function getAgentInfo(
     return cached;
   }
 
-  const [owner, uri, stake] = await Promise.all([
+  const [owner, uri] = await Promise.all([
     getAgentOwner(publicClient, state, agentId),
     getAgentURI(publicClient, state, agentId),
-    getAgentStake(publicClient, state, agentId),
   ]);
 
   let peerId: string | undefined;
@@ -521,8 +387,7 @@ export async function getAgentInfo(
     agentURI: uri,
     peerId,
     peerIdHash,
-    stake,
-    globalId: formatGlobalId(state.chainId, state.registryAddress, agentId),
+    registryId: formatGlobalId(state.chainId, state.registryAddress),
   };
 
   state.cachedAgents.set(agentId, agentInfo);
@@ -545,3 +410,4 @@ export function clearAgentCache(state: IdentityRegistryState, agentId?: bigint):
     state.peerIdToAgentId.clear();
   }
 }
+

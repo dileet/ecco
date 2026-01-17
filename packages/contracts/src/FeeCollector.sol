@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-interface IAgentIdentityRegistry {
+interface IAgentStakeRegistry {
     function reputations(address peer) external view returns (
         int256 score,
         uint256 rawPositive,
@@ -26,7 +26,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
 
     IERC20 public immutable eccoToken;
     ERC20Burnable public immutable eccoTokenBurnable;
-    IAgentIdentityRegistry public immutable identityRegistry;
+    IAgentStakeRegistry public immutable stakeRegistry;
 
     address public treasury;
 
@@ -53,11 +53,11 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event FeesDistributed(uint256 toStakers, uint256 toTreasury, uint256 burned);
 
-    constructor(address _eccoToken, address _identityRegistry, address _treasury, address _owner) Ownable(_owner) {
+    constructor(address _eccoToken, address _stakeRegistry, address _treasury, address _owner) Ownable(_owner) {
         require(_treasury != address(0), "Treasury cannot be zero address");
         eccoToken = IERC20(_eccoToken);
         eccoTokenBurnable = ERC20Burnable(_eccoToken);
-        identityRegistry = IAgentIdentityRegistry(_identityRegistry);
+        stakeRegistry = IAgentStakeRegistry(_stakeRegistry);
         treasury = _treasury;
     }
 
@@ -80,7 +80,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
         uint256 toTreasury = (balance * treasuryShare) / 100;
         uint256 toBurn = (balance * burnShare) / 100;
 
-        uint256 totalStakedAmount = identityRegistry.totalStaked();
+        uint256 totalStakedAmount = stakeRegistry.totalStaked();
         if (totalStakedAmount > 0) {
             require(toStakers <= MAX_SAFE_MULTIPLIER, "toStakers overflow");
             uint256 increment = (toStakers * PRECISION) / totalStakedAmount;
@@ -101,7 +101,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function pendingRewards(address staker) public view returns (uint256) {
-        (,,,, uint256 stake,,,) = identityRegistry.reputations(staker);
+        (,,,, uint256 stake,,,) = stakeRegistry.reputations(staker);
 
         if (stake == 0 || accPerShare == 0) {
             return 0;
@@ -118,7 +118,7 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function claimRewards() external nonReentrant {
-        (,,,, uint256 stake,,,) = identityRegistry.reputations(msg.sender);
+        (,,,, uint256 stake,,,) = stakeRegistry.reputations(msg.sender);
 
         if (stake == 0 || accPerShare == 0) {
             emit RewardsClaimed(msg.sender, 0);
@@ -142,8 +142,8 @@ contract FeeCollector is ReentrancyGuard, Ownable {
     }
 
     function updateRewardDebt(address staker) external {
-        require(msg.sender == address(identityRegistry), "Only ReputationRegistry");
-        (,,,, uint256 stake,,,) = identityRegistry.reputations(staker);
+        require(msg.sender == address(stakeRegistry), "Only ReputationRegistry");
+        (,,,, uint256 stake,,,) = stakeRegistry.reputations(staker);
         if (stake == 0 || accPerShare == 0) {
             rewardDebt[staker] = 0;
             return;

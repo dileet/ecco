@@ -11,6 +11,7 @@ async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> 
 
 type FeeCollectorFixture = Awaited<ReturnType<typeof deployFeeCollectorFixture>>;
 type IdentityRegistry = FeeCollectorFixture["identityRegistry"];
+type StakeRegistry = FeeCollectorFixture["stakeRegistry"];
 type WalletClient = FeeCollectorFixture["user1"];
 
 function getPeerIdHash(peerId: string): `0x${string}` {
@@ -19,6 +20,7 @@ function getPeerIdHash(peerId: string): `0x${string}` {
 
 async function registerAgentWithPeerId(
   identityRegistry: IdentityRegistry,
+  stakeRegistry: StakeRegistry,
   user: WalletClient,
   peerId: string
 ): Promise<bigint> {
@@ -75,14 +77,14 @@ describe("FeeCollector", () => {
 
   describe("Fee Distribution", () => {
     it("should distribute fees correctly", async () => {
-      const { feeCollector, identityRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+      const { feeCollector, identityRegistry, stakeRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const amount = parseEther("10000");
       const fee = (amount * FEE_PERCENT) / 10000n;
@@ -184,14 +186,14 @@ describe("FeeCollector", () => {
 
   describe("Staker Rewards", () => {
     it("should calculate pending rewards correctly", async () => {
-      const { feeCollector, identityRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+      const { feeCollector, identityRegistry, stakeRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const amount = parseEther("10000");
       const fee = (amount * FEE_PERCENT) / 10000n;
@@ -207,14 +209,14 @@ describe("FeeCollector", () => {
     });
 
     it("should allow stakers to claim rewards", async () => {
-      const { feeCollector, identityRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+      const { feeCollector, identityRegistry, stakeRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
 
       const peerId = generatePeerId(user1.account.address);
-      const agentId = await registerAgentWithPeerId(identityRegistry, user1, peerId);
+      const agentId = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const amount = parseEther("10000");
       const fee = (amount * FEE_PERCENT) / 10000n;
@@ -239,21 +241,21 @@ describe("FeeCollector", () => {
     });
 
     it("should distribute rewards proportionally to multiple stakers", async () => {
-      const { feeCollector, identityRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
+      const { feeCollector, identityRegistry, stakeRegistry, eccoToken, treasury, user1, user2 } = await loadFixtureWithHelpers(deployFeeCollectorFixture);
 
       const peerId1 = generatePeerId(user1.account.address);
-      const agentId1 = await registerAgentWithPeerId(identityRegistry, user1, peerId1);
+      const agentId1 = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user1, peerId1);
 
       await eccoToken.write.mint([user1.account.address, MIN_STAKE_TO_WORK]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
-      await identityRegistry.write.stake([agentId1, MIN_STAKE_TO_WORK], { account: user1.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK], { account: user1.account });
+      await stakeRegistry.write.stake([agentId1, MIN_STAKE_TO_WORK], { account: user1.account });
 
       const peerId2 = generatePeerId(user2.account.address);
-      const agentId2 = await registerAgentWithPeerId(identityRegistry, user2, peerId2);
+      const agentId2 = await registerAgentWithPeerId(identityRegistry, stakeRegistry, user2, peerId2);
 
       await eccoToken.write.mint([user2.account.address, MIN_STAKE_TO_WORK * 2n]);
-      await eccoToken.write.approve([identityRegistry.address, MIN_STAKE_TO_WORK * 2n], { account: user2.account });
-      await identityRegistry.write.stake([agentId2, MIN_STAKE_TO_WORK * 2n], { account: user2.account });
+      await eccoToken.write.approve([stakeRegistry.address, MIN_STAKE_TO_WORK * 2n], { account: user2.account });
+      await stakeRegistry.write.stake([agentId2, MIN_STAKE_TO_WORK * 2n], { account: user2.account });
 
       const amount = parseEther("10000");
       const fee = (amount * FEE_PERCENT) / 10000n;
