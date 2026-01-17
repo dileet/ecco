@@ -7,7 +7,7 @@ import {
   computePeerIdHash,
 } from '../identity';
 import type { IdentityRegistryState, StakeInfo, StakeRegistryState } from '../identity';
-import { createStakeRegistryState, getStakeInfo as getStakeInfoStake, canWork as canWorkStake } from '../identity/stake-registry';
+import { createStakeRegistryState, fetchStakeInfo, canWork } from '../identity/stake-registry';
 import { REPUTATION } from '../networking/constants';
 import { keccak256, toBytes } from 'viem';
 
@@ -267,14 +267,14 @@ export async function syncPeerFromChain(
   try {
     const agentId = await getAgentByPeerId(publicClient, identityState, peerId);
     if (agentId > 0n) {
-      stakeInfo = await getStakeInfoStake(publicClient, stakeState, agentId);
+      stakeInfo = await fetchStakeInfo(publicClient, stakeState, agentId);
     }
   } catch {
   }
 
   let canWorkResult = false;
   try {
-    canWorkResult = await canWorkStake(publicClient, stakeState, walletAddress);
+    canWorkResult = await canWork(publicClient, stakeState, walletAddress);
   } catch {
   }
 

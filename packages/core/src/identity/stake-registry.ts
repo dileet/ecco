@@ -129,7 +129,7 @@ export async function canWorkAgent(
   });
 }
 
-export async function getStakeInfo(
+export async function fetchStakeInfo(
   publicClient: PublicClient,
   state: StakeRegistryState,
   agentId: bigint
