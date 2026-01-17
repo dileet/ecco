@@ -3,7 +3,7 @@ import { getPublicClient } from '../payments/wallet';
 import {
   createIdentityRegistryState,
   getAgentByPeerId,
-  getWalletForPeerId as getWalletForPeerIdIdentity,
+  getWalletForPeerId,
   computePeerIdHash,
 } from '../identity';
 import type { IdentityRegistryState, StakeInfo, StakeRegistryState } from '../identity';
@@ -378,7 +378,7 @@ export async function resolveWalletForPeer(
   const identityState = getIdentityState(state.chainId);
   const stakeState = getStakeState(state.chainId);
 
-  const walletAddress = await getWalletForPeerIdIdentity(publicClient, identityState, peerId);
+  const walletAddress = await getWalletForPeerId(publicClient, identityState, peerId);
   if (walletAddress) {
     state.peerIdToWallet.set(peerId, walletAddress);
     const peer = state.peers.get(peerId);
