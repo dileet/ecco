@@ -7,7 +7,7 @@ import {
   findPeersWithPriority,
   getLibp2pPeerId,
   loadOrCreateNodeIdentity,
-  resolveWalletForPeer as resolveWalletForPeerImpl,
+  resolveWalletForPeer,
 } from '../networking'
 import type { StateRef } from '../networking/types'
 import { getAddress, getPublicClient, getWalletClient, type WalletState } from '../payments/wallet'
@@ -264,7 +264,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     const filteredPeers: CapabilityMatch[] = []
 
     for (const match of peers) {
-      const peerWallet = await resolveWalletForPeerImpl(reputationState, walletState, match.peer.id)
+      const peerWallet = await resolveWalletForPeer(reputationState, walletState, match.peer.id)
       if (!peerWallet) {
         if (!query.requireStake) filteredPeers.push(match)
         continue
