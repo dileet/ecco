@@ -123,6 +123,33 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         return peerIdHashToAgentId[peerIdHash];
     }
 
+    function bindPeerId(uint256 agentId, string calldata peerId) external {
+        address owner = ownerOf(agentId);
+        require(_isAuthorized(owner, msg.sender, agentId), "Not authorized");
+
+        bytes memory peerIdBytes = bytes(peerId);
+        bytes32 peerIdHash = keccak256(peerIdBytes);
+
+        _metadata[agentId]["peerId"] = peerIdBytes;
+        emit MetadataSet(agentId, "peerId", "peerId", peerIdBytes);
+
+        bytes32 oldHash = bytes32(_metadata[agentId][PEER_ID_HASH_KEY]);
+        if (oldHash != bytes32(0)) {
+            delete peerIdHashToAgentId[oldHash];
+        }
+
+        require(
+            peerIdHashToAgentId[peerIdHash] == 0 || peerIdHashToAgentId[peerIdHash] == agentId,
+            "PeerId already bound"
+        );
+
+        peerIdHashToAgentId[peerIdHash] = agentId;
+        _metadata[agentId][PEER_ID_HASH_KEY] = abi.encodePacked(peerIdHash);
+
+        emit MetadataSet(agentId, PEER_ID_HASH_KEY, PEER_ID_HASH_KEY, abi.encodePacked(peerIdHash));
+        emit PeerIdBound(agentId, peerIdHash);
+    }
+
     function supportsInterface(bytes4 interfaceId)
         public
         view

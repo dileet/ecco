@@ -1,46 +1,13 @@
-import type { PublicClient, WalletClient } from 'viem';
-import { toHex, toBytes } from 'viem';
+import type { PublicClient } from 'viem';
 import type { IdentityRegistryState } from './types';
 import {
   computePeerIdHash,
   getAgentByPeerIdHash,
   getMetadata,
-  setMetadata,
   getAgentOwner,
 } from './identity-registry';
 
-export async function bindPeerIdToAgent(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  state: IdentityRegistryState,
-  agentId: bigint,
-  peerId: string
-): Promise<{ peerIdTxHash: `0x${string}`; peerIdHashTxHash: `0x${string}` }> {
-  const peerIdBytes = toHex(toBytes(peerId));
-  const peerIdHash = computePeerIdHash(peerId);
-
-  const peerIdTxHash = await setMetadata(
-    publicClient,
-    walletClient,
-    state,
-    agentId,
-    'peerId',
-    peerIdBytes
-  );
-
-  const peerIdHashTxHash = await setMetadata(
-    publicClient,
-    walletClient,
-    state,
-    agentId,
-    'peerIdHash',
-    peerIdHash
-  );
-
-  state.peerIdToAgentId.set(peerId, agentId);
-
-  return { peerIdTxHash, peerIdHashTxHash };
-}
+export { bindPeerId as bindPeerIdToAgent } from './identity-registry';
 
 export async function getAgentIdForPeerId(
   publicClient: PublicClient,

@@ -106,6 +106,16 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     inputs: [{ name: 'peerIdHash', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    name: 'bindPeerId',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'peerId', type: 'string' },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 export function createIdentityRegistryState(
@@ -409,5 +419,37 @@ export function clearAgentCache(state: IdentityRegistryState, agentId?: bigint):
     state.cachedAgents.clear();
     state.peerIdToAgentId.clear();
   }
+}
+
+export async function bindPeerId(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  state: IdentityRegistryState,
+  agentId: bigint,
+  peerId: string
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error('Wallet client has no account');
+
+  const { request } = await publicClient.simulateContract({
+    address: state.registryAddress,
+    abi: AGENT_IDENTITY_REGISTRY_ABI,
+    functionName: 'bindPeerId',
+    args: [agentId, peerId],
+    account,
+  });
+
+  const txHash = await walletClient.writeContract(request);
+
+  const peerIdHash = computePeerIdHash(peerId);
+  state.peerIdToAgentId.set(peerId, agentId);
+
+  const cached = state.cachedAgents.get(agentId);
+  if (cached) {
+    cached.peerId = peerId;
+    cached.peerIdHash = peerIdHash;
+  }
+
+  return txHash;
 }
 

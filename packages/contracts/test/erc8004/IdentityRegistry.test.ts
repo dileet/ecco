@@ -170,4 +170,86 @@ describe("ERC-8004 Identity Registry", () => {
     const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
     expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(owner.account.address)).toString("hex")}` as `0x${string}`);
   });
+
+  it("binds peer ID in single transaction", async () => {
+    const { identityRegistry, user1 } = await loadFixtureWithHelpers(deployAgentIdentityRegistryFixture);
+
+    await identityRegistry.write.register(["ipfs://agent-uri"], { account: user1.account });
+    const events = await identityRegistry.getEvents.Registered();
+    const agentId = events[events.length - 1].args.agentId!;
+
+    const peerId = "12D3KooWTestPeerId123456789";
+    await identityRegistry.write.bindPeerId([agentId, peerId], { account: user1.account });
+
+    const storedPeerId = await identityRegistry.read.getMetadata([agentId, "peerId"]);
+    const decodedPeerId = new TextDecoder().decode(hexToBytes(storedPeerId));
+    expect(decodedPeerId).to.equal(peerId);
+
+    const peerIdHash = keccak256(stringToBytes(peerId));
+    const storedPeerIdHash = await identityRegistry.read.getMetadata([agentId, "peerIdHash"]);
+    expect(storedPeerIdHash).to.equal(peerIdHash);
+
+    const agentIdFromHash = await identityRegistry.read.getAgentByPeerIdHash([peerIdHash]);
+    expect(agentIdFromHash).to.equal(agentId);
+  });
+
+  it("prevents duplicate peer ID bindings", async () => {
+    const { identityRegistry, user1, user2 } = await loadFixtureWithHelpers(deployAgentIdentityRegistryFixture);
+
+    await identityRegistry.write.register(["ipfs://agent-uri-1"], { account: user1.account });
+    const events1 = await identityRegistry.getEvents.Registered();
+    const agentId1 = events1[events1.length - 1].args.agentId!;
+
+    await identityRegistry.write.register(["ipfs://agent-uri-2"], { account: user2.account });
+    const events2 = await identityRegistry.getEvents.Registered();
+    const agentId2 = events2[events2.length - 1].args.agentId!;
+
+    const peerId = "12D3KooWTestPeerId123456789";
+    await identityRegistry.write.bindPeerId([agentId1, peerId], { account: user1.account });
+
+    try {
+      await identityRegistry.write.bindPeerId([agentId2, peerId], { account: user2.account });
+      expect.fail("Expected bindPeerId to revert for duplicate peer ID");
+    } catch (error) {
+      expect(String(error)).to.match(/PeerId already bound/);
+    }
+  });
+
+  it("allows rebinding peer ID to same agent", async () => {
+    const { identityRegistry, user1 } = await loadFixtureWithHelpers(deployAgentIdentityRegistryFixture);
+
+    await identityRegistry.write.register(["ipfs://agent-uri"], { account: user1.account });
+    const events = await identityRegistry.getEvents.Registered();
+    const agentId = events[events.length - 1].args.agentId!;
+
+    const peerId = "12D3KooWTestPeerId123456789";
+    await identityRegistry.write.bindPeerId([agentId, peerId], { account: user1.account });
+    await identityRegistry.write.bindPeerId([agentId, peerId], { account: user1.account });
+
+    const agentIdFromHash = await identityRegistry.read.getAgentByPeerIdHash([keccak256(stringToBytes(peerId))]);
+    expect(agentIdFromHash).to.equal(agentId);
+  });
+
+  it("clears old peer ID hash when rebinding new peer ID", async () => {
+    const { identityRegistry, user1 } = await loadFixtureWithHelpers(deployAgentIdentityRegistryFixture);
+
+    await identityRegistry.write.register(["ipfs://agent-uri"], { account: user1.account });
+    const events = await identityRegistry.getEvents.Registered();
+    const agentId = events[events.length - 1].args.agentId!;
+
+    const peerId1 = "12D3KooWTestPeerId1";
+    const peerId2 = "12D3KooWTestPeerId2";
+
+    await identityRegistry.write.bindPeerId([agentId, peerId1], { account: user1.account });
+    await identityRegistry.write.bindPeerId([agentId, peerId2], { account: user1.account });
+
+    const oldHash = keccak256(stringToBytes(peerId1));
+    const newHash = keccak256(stringToBytes(peerId2));
+
+    const agentIdFromOldHash = await identityRegistry.read.getAgentByPeerIdHash([oldHash]);
+    expect(agentIdFromOldHash).to.equal(0n);
+
+    const agentIdFromNewHash = await identityRegistry.read.getAgentByPeerIdHash([newHash]);
+    expect(agentIdFromNewHash).to.equal(agentId);
+  });
 });
