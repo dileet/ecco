@@ -10,11 +10,13 @@ import {
   resolveWalletForPeer as resolveWalletForPeerImpl,
 } from '../networking'
 import type { StateRef } from '../networking/types'
-import { getAddress, getPublicClient, type WalletState } from '../payments/wallet'
+import { getAddress, getPublicClient, getWalletClient, type WalletState } from '../payments/wallet'
 import { formatProtocolVersion } from '../networks'
 import {
   createIdentityRegistryState,
   getAgentByPeerId,
+  registerAgent,
+  bindPeerId,
 } from '../identity'
 import { createStakeRegistryState, getStakeInfo as getStakeInfoStake, canWork as canWorkStake } from '../identity/stake-registry'
 import type { IdentityRegistryState, StakeInfo } from '../identity'
@@ -44,7 +46,6 @@ import { setupWallet } from './wallet'
 import { setupModels, createEmbedFunction } from './models'
 import { createMessageDispatcher } from './dispatch'
 import { createRequestMethod, createSendMethod } from './requests'
-import { createStakingMethods } from '../reputation/staking'
 
 type StopFn = () => Promise<void>
 const activeAgents = new Map<string, StopFn>()
@@ -489,7 +490,94 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   }
 
   const walletAddress = walletState ? getAddress(walletState) : null
-  const stakingMethods = createStakingMethods({ walletState, reputationState, chainId })
+  let onChainAgentId: bigint | null = null
+
+  const register = async (agentURI?: string): Promise<bigint> => {
+    if (!walletState) {
+      throw new Error('Wallet required for registration. Configure wallet in createAgent options.')
+    }
+    if (onChainAgentId !== null) {
+      return onChainAgentId
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+
+    const { agentId } = await registerAgent(
+      publicClient,
+      walletClient,
+      identityState,
+      agentURI ?? ''
+    )
+
+    await bindPeerId(publicClient, walletClient, identityState, agentId, baseAgent.id)
+
+    onChainAgentId = agentId
+    return agentId
+  }
+
+  const stake = async (amount: bigint): Promise<string> => {
+    if (!walletState) {
+      throw new Error('Wallet required for staking. Configure wallet in createAgent options.')
+    }
+    if (onChainAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before staking.')
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+
+    const { request } = await publicClient.simulateContract({
+      address: stakeState.registryAddress,
+      abi: [{ name: 'stake', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'agentId', type: 'uint256' }, { name: 'amount', type: 'uint256' }], outputs: [] }] as const,
+      functionName: 'stake',
+      args: [onChainAgentId, amount],
+      account: walletClient.account,
+    })
+
+    return walletClient.writeContract(request)
+  }
+
+  const unstake = async (amount: bigint): Promise<string> => {
+    if (!walletState) {
+      throw new Error('Wallet required for unstaking. Configure wallet in createAgent options.')
+    }
+    if (onChainAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before unstaking.')
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+
+    const { request } = await publicClient.simulateContract({
+      address: stakeState.registryAddress,
+      abi: [{ name: 'requestUnstake', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'agentId', type: 'uint256' }, { name: 'amount', type: 'uint256' }], outputs: [] }] as const,
+      functionName: 'requestUnstake',
+      args: [onChainAgentId, amount],
+      account: walletClient.account,
+    })
+
+    return walletClient.writeContract(request)
+  }
+
+  const getStakeInfo = async (): Promise<StakeInfo> => {
+    if (!walletState) {
+      throw new Error('Wallet required to get stake info. Configure wallet in createAgent options.')
+    }
+    if (onChainAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before getting stake info.')
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    return getStakeInfoStake(publicClient, stakeState, onChainAgentId)
+  }
+
+  const resolveWalletForPeer = async (peerId: string): Promise<`0x${string}` | null> => {
+    if (!walletState || !reputationState) {
+      throw new Error('Wallet required to resolve peer wallets. Configure wallet in createAgent options.')
+    }
+    return resolveWalletForPeerImpl(reputationState, walletState, peerId)
+  }
 
   agentInstance = {
     id: baseAgent.id,
@@ -510,7 +598,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     send,
     stop,
     query,
-    ...stakingMethods,
+    onChainAgentId: null,
+    register,
+    stake,
+    unstake,
+    getStakeInfo,
+    resolveWalletForPeer,
   }
 
   registerProcessCleanup()

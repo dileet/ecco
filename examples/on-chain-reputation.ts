@@ -18,7 +18,23 @@ async function demonstrateSimplifiedFlow(): Promise<void> {
   console.log(`Chain ID: ${agent.chainId} (auto-detected from network)`)
   console.log(`Wallet persisted at: ~/.ecco/identity/staked-agent.json`)
 
-  console.log('\n--- Step 2: Check Current Stake ---\n')
+  console.log('\n--- Step 2: Register Agent On-Chain ---\n')
+
+  try {
+    console.log('Registering agent on-chain...')
+    const onChainAgentId = await agent.register('ipfs://agent-metadata')
+    console.log(`On-Chain Agent ID: ${onChainAgentId}`)
+    console.log('Peer ID bound to on-chain identity')
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    if (errorMsg.includes('not supported') || errorMsg.includes('zero address')) {
+      console.log('Contracts not yet deployed to this chain.')
+    } else {
+      console.error('Failed to register:', errorMsg)
+    }
+  }
+
+  console.log('\n--- Step 3: Check Current Stake ---\n')
 
   try {
     const stakeInfo = await agent.getStakeInfo()
@@ -27,14 +43,14 @@ async function demonstrateSimplifiedFlow(): Promise<void> {
     console.log(`Effective Score: ${stakeInfo.effectiveScore}`)
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
-    if (errorMsg.includes('not supported')) {
-      console.log('Contracts not yet deployed to this chain.')
+    if (errorMsg.includes('not supported') || errorMsg.includes('not registered')) {
+      console.log('Agent not registered or contracts not deployed.')
     } else {
       console.error('Failed to fetch stake info:', errorMsg)
     }
   }
 
-  console.log('\n--- Step 3: Stake ECCO Tokens ---\n')
+  console.log('\n--- Step 4: Stake ECCO Tokens ---\n')
 
   try {
     console.log('Staking 100 ECCO tokens...')
@@ -150,17 +166,22 @@ async function main(): Promise<void> {
   console.log('   - Default RPC URLs for Monad Testnet and Monad Mainnet')
   console.log('   - Chain ID auto-detected from network config\n')
 
-  console.log('2. SIMPLE STAKING')
-  console.log('   - `agent.stake(amount)` - handles peerId hash automatically')
+  console.log('2. ON-CHAIN REGISTRATION')
+  console.log('   - `agent.register(agentURI)` - register agent and bind peer ID')
+  console.log('   - Returns on-chain agentId for staking operations')
+  console.log('   - Only needs to be called once per agent\n')
+
+  console.log('3. SIMPLE STAKING')
+  console.log('   - `agent.stake(amount)` - stake tokens (requires registration)')
   console.log('   - `agent.unstake(amount)` - request unstaking')
   console.log('   - `agent.getStakeInfo()` - check your stake status\n')
 
-  console.log('3. STAKE-AWARE PEER DISCOVERY')
+  console.log('4. STAKE-AWARE PEER DISCOVERY')
   console.log('   - `findPeers({ requireStake: true })` - only staked peers')
   console.log('   - `findPeers({ minStake: parseEther("100") })` - minimum stake')
   console.log('   - `resolveWalletForPeer(peerId)` - get peer wallet address\n')
 
-  console.log('4. BACKWARD COMPATIBLE')
+  console.log('5. BACKWARD COMPATIBLE')
   console.log('   - Low-level functions still available for advanced use')
   console.log('   - `computePeerIdHash()`, `stake()`, `getWalletForPeerId()`')
   console.log('   - `createReputationState()` for manual state management\n')

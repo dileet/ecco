@@ -266,6 +266,8 @@ export interface Agent {
   send: (peerId: string, type: MessageType, payload: unknown) => Promise<void>
   stop: () => Promise<void>
   query: (prompt: string, config?: QueryConfig) => Promise<ConsensusResult>
+  onChainAgentId: bigint | null
+  register: (agentURI?: string) => Promise<bigint>
   stake: (amount: bigint) => Promise<string>
   unstake: (amount: bigint) => Promise<string>
   getStakeInfo: () => Promise<StakeInfo>
