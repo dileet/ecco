@@ -1,7 +1,7 @@
 import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Constitution } from './types';
 
-export const MONAD_MAINNET_CHAIN_ID = 143;
-export const MONAD_TESTNET_CHAIN_ID = 10143;
+export const MAINNET_CHAIN_ID = 143;
+export const TESTNET_CHAIN_ID = 10143;
 
 export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   major: 1,
@@ -64,7 +64,7 @@ export const ECCO_MAINNET: NetworkConfig = {
   constitution: DEFAULT_CONSTITUTION,
   onChainConstitution: {
     enabled: true,
-    chainId: MONAD_MAINNET_CHAIN_ID,
+    chainId: MAINNET_CHAIN_ID,
   },
 };
 
@@ -85,7 +85,7 @@ export const ECCO_TESTNET: NetworkConfig = {
   constitution: DEFAULT_CONSTITUTION,
   onChainConstitution: {
     enabled: true,
-    chainId: MONAD_TESTNET_CHAIN_ID,
+    chainId: TESTNET_CHAIN_ID,
   },
 };
 
@@ -142,13 +142,13 @@ export function applyNetworkConfig(
 export const DEFAULT_NETWORK: NetworkName = 'mainnet';
 
 export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
-  mainnet: MONAD_MAINNET_CHAIN_ID,
-  testnet: MONAD_TESTNET_CHAIN_ID,
+  mainnet: MAINNET_CHAIN_ID,
+  testnet: TESTNET_CHAIN_ID,
 };
 
 export const DEFAULT_RPC_URLS: Record<number, string> = {
-  [MONAD_MAINNET_CHAIN_ID]: 'https://rpc.monad.xyz',
-  [MONAD_TESTNET_CHAIN_ID]: 'https://testnet-rpc.monad.xyz',
+  [MAINNET_CHAIN_ID]: 'https://rpc.monad.xyz',
+  [TESTNET_CHAIN_ID]: 'https://testnet-rpc.monad.xyz',
 };
 
 export function getDefaultChainId(network: NetworkName): number {

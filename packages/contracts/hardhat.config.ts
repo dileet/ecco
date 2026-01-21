@@ -21,15 +21,15 @@ export default defineConfig({
     artifacts: "./artifacts",
   },
   networks: {
-    monadTestnet: {
+    testnet: {
       type: "http",
-      url: configVariable("MONAD_TESTNET_RPC_URL"),
+      url: configVariable("TESTNET_RPC_URL"),
       accounts: [configVariable("PRIVATE_KEY")],
       chainId: 10143,
     },
-    monadMainnet: {
+    mainnet: {
       type: "http",
-      url: configVariable("MONAD_MAINNET_RPC_URL"),
+      url: configVariable("MAINNET_RPC_URL"),
       accounts: [configVariable("PRIVATE_KEY")],
       chainId: 143,
     },
