@@ -113,6 +113,18 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     outputs: [{ name: '', type: 'uint64' }],
   },
   {
+    name: 'getResponseCount',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'clientAddress', type: 'address' },
+      { name: 'feedbackIndex', type: 'uint64' },
+      { name: 'responders', type: 'address[]' },
+    ],
+    outputs: [{ name: '', type: 'uint64' }],
+  },
+  {
     name: 'getIdentityRegistry',
     type: 'function',
     stateMutability: 'view',
@@ -137,6 +149,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     ],
   },
 ] as const;
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 export function createReputationRegistryState(
   chainId: number,
@@ -331,6 +345,23 @@ export async function getLastIndex(
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getLastIndex',
     args: [agentId, clientAddress],
+  });
+}
+
+export async function getResponseCount(
+  publicClient: PublicClient,
+  state: ReputationRegistryState,
+  agentId: bigint,
+  clientAddress?: `0x${string}`,
+  feedbackIndex: bigint = 0n,
+  responders: `0x${string}`[] = []
+): Promise<bigint> {
+  const resolvedClient = clientAddress ?? ZERO_ADDRESS;
+  return publicClient.readContract({
+    address: state.registryAddress,
+    abi: AGENT_REPUTATION_REGISTRY_ABI,
+    functionName: 'getResponseCount',
+    args: [agentId, resolvedClient, feedbackIndex, responders],
   });
 }
 

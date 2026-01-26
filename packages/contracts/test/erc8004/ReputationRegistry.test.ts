@@ -139,6 +139,53 @@ describe("ERC-8004 Reputation Registry", () => {
     expect(event.args.responseHash).to.equal(responseHash);
   });
 
+  it("tracks multiple responses and counts them with filters", async () => {
+    const { reputationRegistry, agentId, owner, client1, client2 } = await deployReputationFixture();
+
+    await reputationRegistry.write.giveFeedback([
+      agentId,
+      80n,
+      0,
+      "quality",
+      "speed",
+      "https://api.example.com",
+      "ipfs://feedback",
+      keccak256(stringToBytes("feedback-1")),
+    ], { account: client1.account });
+
+    await reputationRegistry.write.appendResponse([
+      agentId,
+      client1.account.address,
+      1n,
+      "ipfs://response-1",
+      keccak256(stringToBytes("response-1")),
+    ], { account: client2.account });
+
+    await reputationRegistry.write.appendResponse([
+      agentId,
+      client1.account.address,
+      1n,
+      "ipfs://response-2",
+      keccak256(stringToBytes("response-2")),
+    ], { account: owner.account });
+
+    const countAll = await reputationRegistry.read.getResponseCount([
+      agentId,
+      client1.account.address,
+      1n,
+      [],
+    ]);
+    expect(countAll).to.equal(2n);
+
+    const countClient2 = await reputationRegistry.read.getResponseCount([
+      agentId,
+      client1.account.address,
+      1n,
+      [client2.account.address],
+    ]);
+    expect(countClient2).to.equal(1n);
+  });
+
   it("filters readAllFeedback by tag and returns parallel arrays", async () => {
     const { reputationRegistry, agentId, client1, client2 } = await deployReputationFixture();
 

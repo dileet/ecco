@@ -22,9 +22,16 @@ contract AgentReputationRegistry is ReentrancyGuard {
         bytes32 responseHash;
     }
 
+    struct Response {
+        address responder;
+        string responseURI;
+        bytes32 responseHash;
+    }
+
     IAgentIdentityRegistry public immutable identityRegistry;
 
     mapping(uint256 => mapping(address => Feedback[])) private _feedbacks;
+    mapping(uint256 => mapping(address => mapping(uint64 => Response[]))) private _responses;
     mapping(uint256 => address[]) private _clients;
     mapping(uint256 => mapping(address => bool)) private _isClient;
 
@@ -127,6 +134,11 @@ contract AgentReputationRegistry is ReentrancyGuard {
 
         feedbacks[internalIndex].responseURI = responseURI;
         feedbacks[internalIndex].responseHash = responseHash;
+        _responses[agentId][clientAddress][feedbackIndex].push(Response({
+            responder: msg.sender,
+            responseURI: responseURI,
+            responseHash: responseHash
+        }));
 
         emit ResponseAppended(agentId, clientAddress, feedbackIndex, msg.sender, responseURI, responseHash);
     }
@@ -268,6 +280,23 @@ contract AgentReputationRegistry is ReentrancyGuard {
         return uint64(length);
     }
 
+    function getResponseCount(
+        uint256 agentId,
+        address clientAddress,
+        uint64 feedbackIndex,
+        address[] calldata responders
+    ) external view returns (uint64 count) {
+        if (clientAddress == address(0)) {
+            address[] storage clients = _clients[agentId];
+            for (uint256 i = 0; i < clients.length; i++) {
+                count += _countResponses(agentId, clients[i], feedbackIndex, responders);
+            }
+            return count;
+        }
+
+        return _countResponses(agentId, clientAddress, feedbackIndex, responders);
+    }
+
     function getIdentityRegistry() external view returns (address) {
         return address(identityRegistry);
     }
@@ -320,6 +349,50 @@ contract AgentReputationRegistry is ReentrancyGuard {
             return true;
         }
         return keccak256(bytes(value)) == keccak256(bytes(filter));
+    }
+
+    function _countResponses(
+        uint256 agentId,
+        address clientAddress,
+        uint64 feedbackIndex,
+        address[] calldata responders
+    ) internal view returns (uint64 count) {
+        if (feedbackIndex == 0) {
+            Feedback[] storage feedbacks = _feedbacks[agentId][clientAddress];
+            for (uint256 i = 0; i < feedbacks.length; i++) {
+                count += _countResponsesForIndex(agentId, clientAddress, uint64(i + 1), responders);
+            }
+            return count;
+        }
+
+        return _countResponsesForIndex(agentId, clientAddress, feedbackIndex, responders);
+    }
+
+    function _countResponsesForIndex(
+        uint256 agentId,
+        address clientAddress,
+        uint64 feedbackIndex,
+        address[] calldata responders
+    ) internal view returns (uint64 count) {
+        Response[] storage responses = _responses[agentId][clientAddress][feedbackIndex];
+        if (responders.length == 0) {
+            return uint64(responses.length);
+        }
+        for (uint256 i = 0; i < responses.length; i++) {
+            if (_responderAllowed(responses[i].responder, responders)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    function _responderAllowed(address responder, address[] calldata responders) internal pure returns (bool) {
+        for (uint256 i = 0; i < responders.length; i++) {
+            if (responders[i] == responder) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function _resolveClients(uint256 agentId, address[] calldata clientAddresses) internal view returns (address[] memory) {
