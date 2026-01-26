@@ -5,6 +5,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IAgentIdentityRegistry {
     function ownerOf(uint256 agentId) external view returns (address);
+    function getApproved(uint256 tokenId) external view returns (address);
+    function isApprovedForAll(address owner, address operator) external view returns (bool);
 }
 
 contract AgentReputationRegistry is ReentrancyGuard {
@@ -14,9 +16,6 @@ contract AgentReputationRegistry is ReentrancyGuard {
         uint8 valueDecimals;
         string tag1;
         string tag2;
-        string endpoint;
-        string feedbackURI;
-        bytes32 feedbackHash;
         uint256 timestamp;
         bool revoked;
         string responseURI;
@@ -35,7 +34,8 @@ contract AgentReputationRegistry is ReentrancyGuard {
         uint64 feedbackIndex,
         int128 value,
         uint8 valueDecimals,
-        string indexed tag1,
+        string indexed indexedTag1,
+        string tag1,
         string tag2,
         string endpoint,
         string feedbackURI,
@@ -53,7 +53,8 @@ contract AgentReputationRegistry is ReentrancyGuard {
         address indexed clientAddress,
         uint64 feedbackIndex,
         address indexed responder,
-        string responseURI
+        string responseURI,
+        bytes32 responseHash
     );
 
     constructor(address registry) {
@@ -70,7 +71,13 @@ contract AgentReputationRegistry is ReentrancyGuard {
         string calldata feedbackURI,
         bytes32 feedbackHash
     ) external nonReentrant {
-        require(identityRegistry.ownerOf(agentId) != msg.sender, "Owner cannot give feedback");
+        address owner = identityRegistry.ownerOf(agentId);
+        require(
+            owner != msg.sender &&
+                identityRegistry.getApproved(agentId) != msg.sender &&
+                !identityRegistry.isApprovedForAll(owner, msg.sender),
+            "Owner or approved cannot give feedback"
+        );
         require(valueDecimals <= 18, "valueDecimals must be <= 18");
 
         if (!_isClient[agentId][msg.sender]) {
@@ -84,26 +91,24 @@ contract AgentReputationRegistry is ReentrancyGuard {
             valueDecimals: valueDecimals,
             tag1: tag1,
             tag2: tag2,
-            endpoint: endpoint,
-            feedbackURI: feedbackURI,
-            feedbackHash: feedbackHash,
             timestamp: block.timestamp,
             revoked: false,
             responseURI: "",
             responseHash: bytes32(0)
         }));
 
-        uint64 index = uint64(_feedbacks[agentId][msg.sender].length - 1);
-        emit NewFeedback(agentId, msg.sender, index, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash);
+        uint64 index = uint64(_feedbacks[agentId][msg.sender].length);
+        emit NewFeedback(agentId, msg.sender, index, value, valueDecimals, tag1, tag1, tag2, endpoint, feedbackURI, feedbackHash);
     }
 
     function revokeFeedback(uint256 agentId, uint64 feedbackIndex) external nonReentrant {
         Feedback[] storage feedbacks = _feedbacks[agentId][msg.sender];
-        require(feedbackIndex < feedbacks.length, "Invalid feedback index");
-        require(!feedbacks[feedbackIndex].revoked, "Already revoked");
-        require(feedbacks[feedbackIndex].client == msg.sender, "Not feedback owner");
+        require(feedbackIndex > 0 && feedbackIndex <= feedbacks.length, "Invalid feedback index");
+        uint64 internalIndex = feedbackIndex - 1;
+        require(!feedbacks[internalIndex].revoked, "Already revoked");
+        require(feedbacks[internalIndex].client == msg.sender, "Not feedback owner");
 
-        feedbacks[feedbackIndex].revoked = true;
+        feedbacks[internalIndex].revoked = true;
 
         emit FeedbackRevoked(agentId, msg.sender, feedbackIndex);
     }
@@ -115,16 +120,15 @@ contract AgentReputationRegistry is ReentrancyGuard {
         string calldata responseURI,
         bytes32 responseHash
     ) external nonReentrant {
-        require(identityRegistry.ownerOf(agentId) == msg.sender, "Not agent owner");
-
         Feedback[] storage feedbacks = _feedbacks[agentId][clientAddress];
-        require(feedbackIndex < feedbacks.length, "Invalid feedback index");
-        require(!feedbacks[feedbackIndex].revoked, "Feedback revoked");
+        require(feedbackIndex > 0 && feedbackIndex <= feedbacks.length, "Invalid feedback index");
+        uint64 internalIndex = feedbackIndex - 1;
+        require(!feedbacks[internalIndex].revoked, "Feedback revoked");
 
-        feedbacks[feedbackIndex].responseURI = responseURI;
-        feedbacks[feedbackIndex].responseHash = responseHash;
+        feedbacks[internalIndex].responseURI = responseURI;
+        feedbacks[internalIndex].responseHash = responseHash;
 
-        emit ResponseAppended(agentId, clientAddress, feedbackIndex, msg.sender, responseURI);
+        emit ResponseAppended(agentId, clientAddress, feedbackIndex, msg.sender, responseURI, responseHash);
     }
 
     function getSummary(
@@ -188,9 +192,9 @@ contract AgentReputationRegistry is ReentrancyGuard {
         bool isRevoked
     ) {
         Feedback[] storage feedbacks = _feedbacks[agentId][clientAddress];
-        require(feedbackIndex < feedbacks.length, "Invalid feedback index");
+        require(feedbackIndex > 0 && feedbackIndex <= feedbacks.length, "Invalid feedback index");
 
-        Feedback storage fb = feedbacks[feedbackIndex];
+        Feedback storage fb = feedbacks[feedbackIndex - 1];
         return (fb.value, fb.valueDecimals, fb.tag1, fb.tag2, fb.revoked);
     }
 
@@ -227,7 +231,7 @@ contract AgentReputationRegistry is ReentrancyGuard {
                 if (!_matchesTag(feedbacks[j].tag1, tag1)) continue;
                 if (!_matchesTag(feedbacks[j].tag2, tag2)) continue;
                 tempClients[total] = clients[i];
-                tempIndexes[total] = uint64(j);
+                tempIndexes[total] = uint64(j + 1);
                 total += 1;
             }
         }
@@ -243,7 +247,7 @@ contract AgentReputationRegistry is ReentrancyGuard {
         for (uint256 i = 0; i < total; i++) {
             clientAddressesOut[i] = tempClients[i];
             feedbackIndexes[i] = tempIndexes[i];
-            Feedback storage feedback = _feedbacks[agentId][tempClients[i]][tempIndexes[i]];
+            Feedback storage feedback = _feedbacks[agentId][tempClients[i]][tempIndexes[i] - 1];
             values[i] = feedback.value;
             valueDecimalsArr[i] = feedback.valueDecimals;
             tag1s[i] = feedback.tag1;
@@ -261,7 +265,7 @@ contract AgentReputationRegistry is ReentrancyGuard {
         if (length == 0) {
             return 0;
         }
-        return uint64(length - 1);
+        return uint64(length);
     }
 
     function getIdentityRegistry() external view returns (address) {

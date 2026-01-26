@@ -51,7 +51,7 @@ describe("ERC-8004 Reputation Registry", () => {
     const [value, valueDecimals, tag1, tag2, revoked] = await reputationRegistry.read.readFeedback([
       agentId,
       client1.account.address,
-      0n,
+      1n,
     ]);
 
     expect(value).to.equal(85n);
@@ -59,6 +59,84 @@ describe("ERC-8004 Reputation Registry", () => {
     expect(tag1).to.equal("quality");
     expect(tag2).to.equal("speed");
     expect(revoked).to.equal(false);
+  });
+
+  it("rejects feedback from token-approved operators", async () => {
+    const { reputationRegistry, identityRegistry, agentId, owner, client1 } = await deployReputationFixture();
+
+    await identityRegistry.write.approve([client1.account.address, agentId], { account: owner.account });
+
+    try {
+      await reputationRegistry.write.giveFeedback([
+        agentId,
+        85n,
+        0,
+        "quality",
+        "speed",
+        "https://api.example.com",
+        "ipfs://feedback",
+        keccak256(stringToBytes("feedback-1")),
+      ], { account: client1.account });
+      expect.fail("Expected feedback to revert for token-approved operator");
+    } catch (error) {
+      expect(String(error)).to.match(/Owner or approved cannot give feedback/);
+    }
+  });
+
+  it("rejects feedback from operator-for-all", async () => {
+    const { reputationRegistry, identityRegistry, agentId, owner, client1 } = await deployReputationFixture();
+
+    await identityRegistry.write.setApprovalForAll([client1.account.address, true], { account: owner.account });
+
+    try {
+      await reputationRegistry.write.giveFeedback([
+        agentId,
+        85n,
+        0,
+        "quality",
+        "speed",
+        "https://api.example.com",
+        "ipfs://feedback",
+        keccak256(stringToBytes("feedback-1")),
+      ], { account: client1.account });
+      expect.fail("Expected feedback to revert for operator-for-all");
+    } catch (error) {
+      expect(String(error)).to.match(/Owner or approved cannot give feedback/);
+    }
+  });
+
+  it("allows non-owner to append response and emits response hash", async () => {
+    const { reputationRegistry, agentId, client1, client2 } = await deployReputationFixture();
+
+    await reputationRegistry.write.giveFeedback([
+      agentId,
+      80n,
+      0,
+      "quality",
+      "speed",
+      "https://api.example.com",
+      "ipfs://feedback",
+      keccak256(stringToBytes("feedback-1")),
+    ], { account: client1.account });
+
+    const responseHash = keccak256(stringToBytes("response-1"));
+    await reputationRegistry.write.appendResponse([
+      agentId,
+      client1.account.address,
+      1n,
+      "ipfs://response",
+      responseHash,
+    ], { account: client2.account });
+
+    const events = await reputationRegistry.getEvents.ResponseAppended();
+    expect(events.length).to.be.greaterThan(0);
+    const event = events[events.length - 1];
+    expect(event.args.agentId).to.equal(agentId);
+    expect(event.args.clientAddress.toLowerCase()).to.equal(client1.account.address.toLowerCase());
+    expect(event.args.feedbackIndex).to.equal(1n);
+    expect(event.args.responder.toLowerCase()).to.equal(client2.account.address.toLowerCase());
+    expect(event.args.responseURI).to.equal("ipfs://response");
+    expect(event.args.responseHash).to.equal(responseHash);
   });
 
   it("filters readAllFeedback by tag and returns parallel arrays", async () => {
@@ -118,7 +196,7 @@ describe("ERC-8004 Reputation Registry", () => {
       keccak256(stringToBytes("feedback-1")),
     ], { account: client1.account });
 
-    await reputationRegistry.write.revokeFeedback([agentId, 0n], { account: client1.account });
+    await reputationRegistry.write.revokeFeedback([agentId, 1n], { account: client1.account });
 
     const [clients] = await reputationRegistry.read.readAllFeedback([
       agentId,
@@ -145,7 +223,7 @@ describe("ERC-8004 Reputation Registry", () => {
       keccak256(stringToBytes("feedback-1")),
     ], { account: client1.account });
 
-    await reputationRegistry.write.revokeFeedback([agentId, 0n], { account: client1.account });
+    await reputationRegistry.write.revokeFeedback([agentId, 1n], { account: client1.account });
 
     const [clients, indexes, , , , , revoked] = await reputationRegistry.read.readAllFeedback([
       agentId,
@@ -156,7 +234,7 @@ describe("ERC-8004 Reputation Registry", () => {
     ]);
 
     expect(clients.length).to.equal(1);
-    expect(indexes[0]).to.equal(0n);
+    expect(indexes[0]).to.equal(1n);
     expect(revoked[0]).to.equal(true);
   });
 });
