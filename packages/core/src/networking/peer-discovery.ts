@@ -11,7 +11,7 @@ import type { LRUCache } from '../utils/lru-cache';
 import type { PriorityDiscoveryConfig, DiscoveryPriority } from '../agent/types';
 import { getProximityPeers, getPeersByPhase, type DiscoveryResult } from './hybrid-discovery';
 import { findCandidates, type FilterTier } from '../reputation/reputation-filter';
-import { getLocalReputation, getEffectiveScore, createReputationScorer } from '../reputation/reputation-state';
+import { getLocalReputation, getDiscoveryReputationScore, createReputationScorer, resolveAndSyncPeer } from '../reputation/reputation-state';
 import { getPeerZone, getZoneWeight, type LatencyZone } from '../reputation/latency-zones';
 import { initiateHandshake, isHandshakeRequired, removePeerValidation, type MessageBridgeState } from './message-bridge';
 import { removeAllTopicSubscriptionsForPeer } from './messaging';
@@ -74,6 +74,35 @@ function cleanupStaleEntries(discoveredPeers: Map<string, number>): void {
   }
 }
 
+function getProximityPeerIds(state: NodeState): Set<string> | undefined {
+  if (!state.transport) {
+    return undefined;
+  }
+  const proximityPeers = getProximityPeers(state.transport);
+  if (proximityPeers.length === 0) {
+    return undefined;
+  }
+  return new Set(proximityPeers.map((result) => result.peer.id));
+}
+
+async function syncReputationForMatches(
+  stateRef: StateRef<NodeState>,
+  matches: CapabilityMatch[]
+): Promise<void> {
+  if (matches.length === 0) {
+    return;
+  }
+  const state = getState(stateRef);
+  const reputationState = state.reputationState;
+  const wallet = state.wallet;
+  if (!reputationState || !wallet) {
+    return;
+  }
+
+  await Promise.allSettled(
+    matches.map((match) => resolveAndSyncPeer(reputationState, wallet, match.peer.id))
+  );
+}
 export function setupEventListeners(
   state: NodeState,
   stateRef: StateRef<NodeState>
@@ -299,6 +328,7 @@ interface PeerScoringFactors {
   reputationScore: number;
   latencyZone: LatencyZone | null;
   matchScore: number;
+  proximityBonus: number;
 }
 
 function calculateCombinedScore(factors: PeerScoringFactors): number {
@@ -323,7 +353,8 @@ function getPeerScoringFactors(
   state: NodeState,
   peerId: string,
   matchScore: number,
-  capability: string
+  capability: string,
+  proximityPeerIds?: Set<string>
 ): PeerScoringFactors {
   let bloomTier: FilterTier | null = null;
   if (state.bloomFilters) {
@@ -337,7 +368,7 @@ function getPeerScoringFactors(
   if (state.reputationState) {
     const rep = getLocalReputation(state.reputationState, peerId);
     if (rep) {
-      reputationScore = getEffectiveScore(rep);
+      reputationScore = getDiscoveryReputationScore(rep);
     }
   }
 
@@ -346,33 +377,48 @@ function getPeerScoringFactors(
     latencyZone = getPeerZone(state.latencyZones, peerId) ?? null;
   }
 
+  const proximityBonus = proximityPeerIds && proximityPeerIds.has(peerId) ? 1 : 0;
+
   return {
     bloomTier,
     reputationScore,
     latencyZone,
     matchScore,
+    proximityBonus,
   };
 }
 
 function prioritizeWithAllFactors(
   state: NodeState,
   matches: CapabilityMatch[],
-  capability: string
+  capability: string,
+  proximityPeerIds?: Set<string>
 ): CapabilityMatch[] {
   if (matches.length === 0) {
     return matches;
   }
 
   const scoredMatches = matches.map((match) => {
-    const factors = getPeerScoringFactors(state, match.peer.id, match.matchScore, capability);
+    const factors = getPeerScoringFactors(state, match.peer.id, match.matchScore, capability, proximityPeerIds);
     const combinedScore = calculateCombinedScore(factors);
     return { match, combinedScore, factors };
   });
 
-  scoredMatches.sort((a, b) => b.combinedScore - a.combinedScore);
+  scoredMatches.sort((a, b) => {
+    const repDiff = b.factors.reputationScore - a.factors.reputationScore;
+    if (repDiff !== 0) {
+      return repDiff;
+    }
+    const proximityDiff = b.factors.proximityBonus - a.factors.proximityBonus;
+    if (proximityDiff !== 0) {
+      return proximityDiff;
+    }
+    return b.combinedScore - a.combinedScore;
+  });
 
   return scoredMatches.map((s) => ({
     ...s.match,
+    peer: { ...s.match.peer, reputation: s.factors.reputationScore },
     score: s.combinedScore,
   }));
 }
@@ -380,9 +426,10 @@ function prioritizeWithAllFactors(
 function prioritizeWithBloomFilter(
   state: NodeState,
   matches: CapabilityMatch[],
-  capability: string
+  capability: string,
+  proximityPeerIds?: Set<string>
 ): CapabilityMatch[] {
-  return prioritizeWithAllFactors(state, matches, capability);
+  return prioritizeWithAllFactors(state, matches, capability, proximityPeerIds);
 }
 
 const pollForMatches = async (
@@ -459,7 +506,9 @@ export async function findPeers(
           matches = [...matches, ...newMatches];
         }
       }
-      matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
+      await syncReputationForMatches(stateRef, matches);
+      state = getState(stateRef);
+      matches = prioritizeWithBloomFilter(state, matches, primaryCapability, getProximityPeerIds(state));
       return matches;
     }
 
@@ -474,7 +523,9 @@ export async function findPeers(
       const updatedPeerList = getAllPeers(state);
       matches = matchPeers(updatedPeerList, query);
       if (matches.length > 0) {
-        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
+        await syncReputationForMatches(stateRef, matches);
+        state = getState(stateRef);
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability, getProximityPeerIds(state));
         return matches;
       }
     }
@@ -482,13 +533,17 @@ export async function findPeers(
     if (strategy === 'gossip') {
       matches = await queryGossip(stateRef, query);
       if (matches.length > 0) {
-        matches = prioritizeWithBloomFilter(state, matches, primaryCapability);
+        await syncReputationForMatches(stateRef, matches);
+        state = getState(stateRef);
+        matches = prioritizeWithBloomFilter(state, matches, primaryCapability, getProximityPeerIds(state));
         return matches;
       }
     }
   }
 
-  return prioritizeWithBloomFilter(state, matches, primaryCapability);
+  await syncReputationForMatches(stateRef, matches);
+  state = getState(stateRef);
+  return prioritizeWithBloomFilter(state, matches, primaryCapability, getProximityPeerIds(state));
 }
 
 function discoveryResultToPeerInfo(result: DiscoveryResult): PeerInfo {
@@ -582,12 +637,10 @@ export async function findPeersWithPriority(
     }
   }
 
-  if (config.preferProximity && state.transport) {
-    const proximityPeerIds = new Set(
-      getProximityPeers(state.transport).map((r) => r.peer.id)
-    );
-    allMatches = sortByProximity(allMatches, proximityPeerIds);
-  }
+  await syncReputationForMatches(stateRef, allMatches);
 
-  return allMatches;
+  const updatedState = getState(stateRef);
+  const proximityPeerIds = config.preferProximity ? getProximityPeerIds(updatedState) : undefined;
+  const primaryCapability = query.requiredCapabilities[0]?.type ?? 'unknown';
+  return prioritizeWithBloomFilter(updatedState, allMatches, primaryCapability, proximityPeerIds);
 }

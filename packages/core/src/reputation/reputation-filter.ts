@@ -5,7 +5,7 @@ import type { EccoEvent } from '../events';
 import type { NodeState, StateRef } from '../networking/types';
 import { getState, setState } from '../networking/state';
 import { publish, subscribeWithRef } from '../networking/messaging';
-import { getEffectiveScore, type ReputationState } from './reputation-state';
+import { getDiscoveryReputationScore, type ReputationState } from './reputation-state';
 import { canonicalJsonStringify } from '../utils/canonical-json';
 import { BLOOM_FILTER } from '../networking/constants';
 
@@ -280,7 +280,7 @@ export function buildLocalFilters(
       let updatedFilter = filter;
 
       for (const [peerId, peer] of reputationState.peers) {
-        const score = getEffectiveScore(peer);
+        const score = getDiscoveryReputationScore(peer);
         if (score >= TIER_THRESHOLDS[tier]) {
           updatedFilter = addToFilter(bloomState, updatedFilter, peerId);
         }

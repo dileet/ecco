@@ -12,8 +12,6 @@ interface IFeeCollector {
 
 interface IAgentIdentityRegistry {
     function ownerOf(uint256 agentId) external view returns (address);
-    function balanceOf(address owner) external view returns (uint256);
-    function tokenOfOwnerByIndex(address owner, uint256 index) external view returns (uint256);
 }
 
 contract AgentStakeRegistry is ReentrancyGuard, Ownable {
@@ -41,6 +39,9 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
     uint256 public constant MIN_UNSTAKE_COOLDOWN = 1 days;
 
     mapping(uint256 => AgentStake) public agentStakes;
+    mapping(address => uint256[]) private _stakedAgentsByOwner;
+    mapping(uint256 => uint256) private _stakedAgentIndex;
+    mapping(uint256 => address) private _stakedAgentOwner;
 
     event Staked(uint256 indexed agentId, address indexed staker, uint256 amount);
     event UnstakeRequested(uint256 indexed agentId, uint256 amount);
@@ -59,6 +60,7 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
         require(amount > 0, "Must stake positive amount");
 
         AgentStake storage agentStake = agentStakes[agentId];
+        _ensureAgentOwner(agentId, owner);
 
         if (agentStake.unstakeRequestTime > 0) {
             agentStake.unstakeRequestTime = 0;
@@ -110,6 +112,11 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
 
         totalStaked -= amount;
 
+        if (agentStake.stake == 0) {
+            _ensureAgentOwner(agentId, owner);
+            _removeAgentFromOwner(owner, agentId);
+        }
+
         if (address(feeCollector) != address(0)) {
             feeCollector.updateRewardDebt(msg.sender);
         }
@@ -142,9 +149,12 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
     }
 
     function canWork(address wallet) public view returns (bool) {
-        uint256 balance = identityRegistry.balanceOf(wallet);
-        for (uint256 i = 0; i < balance; i++) {
-            uint256 agentId = identityRegistry.tokenOfOwnerByIndex(wallet, i);
+        uint256[] storage agents = _stakedAgentsByOwner[wallet];
+        for (uint256 i = 0; i < agents.length; i++) {
+            uint256 agentId = agents[i];
+            if (identityRegistry.ownerOf(agentId) != wallet) {
+                continue;
+            }
             if (agentStakes[agentId].stake >= minStakeToWork) {
                 return true;
             }
@@ -176,9 +186,13 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
         uint256 latestUnstakeRequest,
         uint256 latestUnstakeAmount
     ) {
-        uint256 balance = identityRegistry.balanceOf(wallet);
-        for (uint256 i = 0; i < balance; i++) {
-            AgentStake storage stakeInfo = agentStakes[identityRegistry.tokenOfOwnerByIndex(wallet, i)];
+        uint256[] storage agents = _stakedAgentsByOwner[wallet];
+        for (uint256 i = 0; i < agents.length; i++) {
+            uint256 agentId = agents[i];
+            if (identityRegistry.ownerOf(agentId) != wallet) {
+                continue;
+            }
+            AgentStake storage stakeInfo = agentStakes[agentId];
             totalStakeAmount += stakeInfo.stake;
             if (stakeInfo.lastActive > latestActive) {
                 latestActive = stakeInfo.lastActive;
@@ -214,5 +228,44 @@ contract AgentStakeRegistry is ReentrancyGuard, Ownable {
         require(newFeeCollector != address(0), "Invalid fee collector address");
         feeCollector = IFeeCollector(newFeeCollector);
         emit FeeCollectorSet(newFeeCollector);
+    }
+
+    function syncAgentOwner(uint256 agentId) external {
+        address owner = identityRegistry.ownerOf(agentId);
+        _ensureAgentOwner(agentId, owner);
+    }
+
+    function _ensureAgentOwner(uint256 agentId, address owner) internal {
+        address current = _stakedAgentOwner[agentId];
+        if (current == owner) {
+            return;
+        }
+        if (current != address(0)) {
+            _removeAgentFromOwner(current, agentId);
+        }
+        _stakedAgentsByOwner[owner].push(agentId);
+        _stakedAgentIndex[agentId] = _stakedAgentsByOwner[owner].length;
+        _stakedAgentOwner[agentId] = owner;
+    }
+
+    function _removeAgentFromOwner(address owner, uint256 agentId) internal {
+        uint256 index = _stakedAgentIndex[agentId];
+        if (index == 0) {
+            return;
+        }
+        uint256 lastIndex = _stakedAgentsByOwner[owner].length;
+        if (lastIndex == 0) {
+            return;
+        }
+        uint256 lastAgentId = _stakedAgentsByOwner[owner][lastIndex - 1];
+        if (index != lastIndex) {
+            _stakedAgentsByOwner[owner][index - 1] = lastAgentId;
+            _stakedAgentIndex[lastAgentId] = index;
+        }
+        _stakedAgentsByOwner[owner].pop();
+        _stakedAgentIndex[agentId] = 0;
+        if (_stakedAgentOwner[agentId] == owner) {
+            _stakedAgentOwner[agentId] = address(0);
+        }
     }
 }

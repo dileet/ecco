@@ -1,5 +1,6 @@
 import { network } from "hardhat";
 import { formatEther, parseEther, type Address } from "viem";
+import { ERC8004_ADDRESSES, hasOfficialERC8004 } from "../addresses";
 
 const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS as Address | undefined;
 const ECOSYSTEM_ADDRESS = process.env.ECOSYSTEM_ADDRESS as Address | undefined;
@@ -22,36 +23,33 @@ async function main() {
   const balance = await publicClient.getBalance({ address: deployer.account.address });
   console.log("Account balance:", formatEther(balance), "ETH");
 
+  const chainId = await publicClient.getChainId();
+
+  if (!hasOfficialERC8004(chainId)) {
+    throw new Error(`Chain ${chainId} does not have official ERC-8004 registries deployed. Please deploy to a supported chain (Sepolia: 11155111) or wait for official deployment.`);
+  }
+
+  const officialAddresses = ERC8004_ADDRESSES[chainId];
+  const identityRegistryAddress = officialAddresses.identityRegistry;
+  const reputationRegistryAddress = officialAddresses.reputationRegistry;
+  const validationRegistryAddress = officialAddresses.validationRegistry;
+
+  console.log("\n--- Using Official ERC-8004 Registries ---");
+  console.log("IdentityRegistry:", identityRegistryAddress);
+  console.log("ReputationRegistry:", reputationRegistryAddress);
+  console.log("ValidationRegistry:", validationRegistryAddress);
+
   console.log("\n--- Deploying EccoToken ---");
   const eccoToken = await viem.deployContract("EccoToken", [deployer.account.address]);
   console.log("EccoToken deployed to:", eccoToken.address);
 
-  console.log("\n--- Deploying AgentIdentityRegistry ---");
-  const agentIdentityRegistry = await viem.deployContract("AgentIdentityRegistry", [
-    eccoToken.address,
-    deployer.account.address,
-  ]);
-  console.log("AgentIdentityRegistry deployed to:", agentIdentityRegistry.address);
-
   console.log("\n--- Deploying AgentStakeRegistry ---");
   const agentStakeRegistry = await viem.deployContract("AgentStakeRegistry", [
     eccoToken.address,
-    agentIdentityRegistry.address,
+    identityRegistryAddress,
     deployer.account.address,
   ]);
   console.log("AgentStakeRegistry deployed to:", agentStakeRegistry.address);
-
-  console.log("\n--- Deploying AgentReputationRegistry ---");
-  const agentReputationRegistry = await viem.deployContract("AgentReputationRegistry", [
-    agentIdentityRegistry.address,
-  ]);
-  console.log("AgentReputationRegistry deployed to:", agentReputationRegistry.address);
-
-  console.log("\n--- Deploying AgentValidationRegistry ---");
-  const agentValidationRegistry = await viem.deployContract("AgentValidationRegistry", [
-    agentIdentityRegistry.address,
-  ]);
-  console.log("AgentValidationRegistry deployed to:", agentValidationRegistry.address);
 
   console.log("\n--- Deploying FeeCollector ---");
   const feeCollector = await viem.deployContract("FeeCollector", [
@@ -127,8 +125,6 @@ async function main() {
   console.log("\n--- Transferring Contract Ownership to Timelock ---");
   await eccoToken.write.transferOwnership([eccoTimelock.address]);
   console.log("EccoToken ownership transferred to Timelock");
-  await agentIdentityRegistry.write.transferOwnership([eccoTimelock.address]);
-  console.log("AgentIdentityRegistry ownership transferred to Timelock");
   await agentStakeRegistry.write.transferOwnership([eccoTimelock.address]);
   console.log("AgentStakeRegistry ownership transferred to Timelock");
   await feeCollector.write.transferOwnership([eccoTimelock.address]);
@@ -138,16 +134,14 @@ async function main() {
   await eccoConstitution.write.transferOwnership([eccoTimelock.address]);
   console.log("EccoConstitution ownership transferred to Timelock");
 
-  const chainId = await publicClient.getChainId();
-
   console.log("\n--- Deployment Summary ---");
   console.log("Network:", connection.networkName);
   console.log("Chain ID:", chainId);
   console.log("");
   console.log("EccoToken:", eccoToken.address);
-  console.log("AgentIdentityRegistry:", agentIdentityRegistry.address);
-  console.log("AgentReputationRegistry:", agentReputationRegistry.address);
-  console.log("AgentValidationRegistry:", agentValidationRegistry.address);
+  console.log("IdentityRegistry:", identityRegistryAddress, "(official ERC-8004)");
+  console.log("ReputationRegistry:", reputationRegistryAddress, "(official ERC-8004)");
+  console.log("ValidationRegistry:", validationRegistryAddress, "(official ERC-8004)");
   console.log("AgentStakeRegistry:", agentStakeRegistry.address);
   console.log("FeeCollector:", feeCollector.address);
   console.log("WorkRewards:", workRewards.address);
@@ -155,13 +149,13 @@ async function main() {
   console.log("EccoGovernor:", eccoGovernor.address);
   console.log("EccoConstitution:", eccoConstitution.address);
   console.log("");
-  console.log("Update packages/contracts/dist/addresses.ts with these addresses:");
+  console.log("Update packages/contracts/addresses.ts with these addresses:");
   console.log(`
   [${chainId}]: {
     eccoToken: '${eccoToken.address}' as const,
-    agentIdentityRegistry: '${agentIdentityRegistry.address}' as const,
-    agentReputationRegistry: '${agentReputationRegistry.address}' as const,
-    agentValidationRegistry: '${agentValidationRegistry.address}' as const,
+    agentIdentityRegistry: '${identityRegistryAddress}' as const,
+    agentReputationRegistry: '${reputationRegistryAddress}' as const,
+    agentValidationRegistry: '${validationRegistryAddress}' as const,
     agentStakeRegistry: '${agentStakeRegistry.address}' as const,
     feeCollector: '${feeCollector.address}' as const,
     workRewards: '${workRewards.address}' as const,

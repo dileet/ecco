@@ -46,10 +46,10 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     outputs: [],
   },
   {
-    name: 'agentURI',
+    name: 'tokenURI',
     type: 'function',
     stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
     outputs: [{ name: '', type: 'string' }],
   },
   {
@@ -106,30 +106,6 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     inputs: [{ name: 'tokenId', type: 'uint256' }],
     outputs: [{ name: '', type: 'address' }],
   },
-  {
-    name: 'getGlobalId',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'string' }],
-  },
-  {
-    name: 'getAgentByPeerIdHash',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'peerIdHash', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'bindPeerId',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'agentId', type: 'uint256' },
-      { name: 'peerId', type: 'string' },
-    ],
-    outputs: [],
-  },
 ] as const;
 
 export function createIdentityRegistryState(
@@ -140,7 +116,6 @@ export function createIdentityRegistryState(
     chainId,
     registryAddress,
     cachedAgents: new Map(),
-    peerIdToAgentId: new Map(),
   };
 }
 
@@ -244,7 +219,7 @@ export async function getAgentURI(
   return publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'agentURI',
+    functionName: 'tokenURI',
     args: [agentId],
   });
 }
@@ -375,39 +350,6 @@ export async function getAgentOwner(
   });
 }
 
-export async function getAgentByPeerIdHash(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  peerIdHash: `0x${string}`
-): Promise<bigint> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'getAgentByPeerIdHash',
-    args: [peerIdHash],
-  });
-}
-
-export async function getAgentByPeerId(
-  publicClient: PublicClient,
-  state: IdentityRegistryState,
-  peerId: string
-): Promise<bigint> {
-  const cached = state.peerIdToAgentId.get(peerId);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const peerIdHash = computePeerIdHash(peerId);
-  const agentId = await getAgentByPeerIdHash(publicClient, state, peerIdHash);
-
-  if (agentId > 0n) {
-    state.peerIdToAgentId.set(peerId, agentId);
-  }
-
-  return agentId;
-}
-
 export async function getAgentInfo(
   publicClient: PublicClient,
   state: IdentityRegistryState,
@@ -448,9 +390,6 @@ export async function getAgentInfo(
   };
 
   state.cachedAgents.set(agentId, agentInfo);
-  if (peerId) {
-    state.peerIdToAgentId.set(peerId, agentId);
-  }
 
   return agentInfo;
 }
@@ -458,44 +397,8 @@ export async function getAgentInfo(
 export function clearAgentCache(state: IdentityRegistryState, agentId?: bigint): void {
   if (agentId !== undefined) {
     const cached = state.cachedAgents.get(agentId);
-    if (cached?.peerId) {
-      state.peerIdToAgentId.delete(cached.peerId);
-    }
     state.cachedAgents.delete(agentId);
   } else {
     state.cachedAgents.clear();
-    state.peerIdToAgentId.clear();
   }
-}
-
-export async function bindPeerId(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  state: IdentityRegistryState,
-  agentId: bigint,
-  peerId: string
-): Promise<`0x${string}`> {
-  const account = walletClient.account;
-  if (!account) throw new Error('Wallet client has no account');
-
-  const { request } = await publicClient.simulateContract({
-    address: state.registryAddress,
-    abi: AGENT_IDENTITY_REGISTRY_ABI,
-    functionName: 'bindPeerId',
-    args: [agentId, peerId],
-    account,
-  });
-
-  const txHash = await walletClient.writeContract(request);
-
-  const peerIdHash = computePeerIdHash(peerId);
-  state.peerIdToAgentId.set(peerId, agentId);
-
-  const cached = state.cachedAgents.get(agentId);
-  if (cached) {
-    cached.peerId = peerId;
-    cached.peerIdHash = peerIdHash;
-  }
-
-  return txHash;
 }

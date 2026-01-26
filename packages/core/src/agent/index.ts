@@ -7,7 +7,7 @@ import {
   findPeersWithPriority,
   getLibp2pPeerId,
   loadOrCreateNodeIdentity,
-  resolveWalletForPeer,
+  resolvePeerIdentity,
 } from '../networking'
 import type { StateRef } from '../networking/types'
 import { getAddress, getPublicClient, getWalletClient, type WalletState } from '../payments/wallet'
@@ -15,11 +15,10 @@ import { formatProtocolVersion } from '../networks'
 import {
   createIdentityRegistryState,
   createStakeRegistryState,
-  getAgentByPeerId,
   fetchStakeInfo,
   canWork,
-  registerAgent,
-  bindPeerId,
+  registerAgentWithMetadata,
+  computePeerIdHash,
 } from '../identity'
 import type { StakeInfo } from '../identity'
 import {
@@ -49,6 +48,7 @@ import { setupModels, createEmbedFunction } from './models'
 import { createMessageDispatcher } from './dispatch'
 import { createRequestMethod, createSendMethod } from './requests'
 import { createStakingMethods } from '../reputation/staking'
+import { getERC8004Addresses } from '@ecco/contracts/addresses'
 
 type StopFn = () => Promise<void>
 const activeAgents = new Map<string, StopFn>()
@@ -248,7 +248,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
   const embed = createEmbedFunction(effectiveEmbedFn, hasLocalModel, config.localModel, modelState)
 
-  const identityRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
+  const identityRegistryAddress: `0x${string}` =
+    config.reputation?.identityRegistryAddress ??
+    getERC8004Addresses(chainId)?.identityRegistry ??
+    '0x0000000000000000000000000000000000000000'
   const stakeRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
   const identityState = createIdentityRegistryState(chainId, identityRegistryAddress)
   const stakeState = createStakeRegistryState(chainId, stakeRegistryAddress, identityRegistryAddress)
@@ -264,26 +267,25 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     const filteredPeers: CapabilityMatch[] = []
 
     for (const match of peers) {
-      const peerWallet = await resolveWalletForPeer(reputationState, walletState, match.peer.id)
+      const { walletAddress: peerWallet, agentId } = await resolvePeerIdentity(reputationState, walletState, match.peer.id)
       if (!peerWallet) {
         if (!query.requireStake) filteredPeers.push(match)
         continue
       }
 
       try {
-        const agentId = await getAgentByPeerId(publicClient, identityState, match.peer.id)
         let stakeInfo: StakeInfo
 
-          if (agentId > 0n) {
-            stakeInfo = await fetchStakeInfo(publicClient, stakeState, agentId)
-          } else {
-            const canWorkResult = await canWork(publicClient, stakeState, peerWallet)
-            stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
-          }
+        if (agentId !== null) {
+          stakeInfo = await fetchStakeInfo(publicClient, stakeState, agentId)
+        } else {
+          const canWorkResult = await canWork(publicClient, stakeState, peerWallet)
+          stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
+        }
 
 
         if (query.requireStake && !stakeInfo.canWork) continue
-        if (query.minStake && stakeInfo.stake < query.minStake) continue
+        if (query.minStake && (stakeInfo.agentId === undefined || stakeInfo.stake < query.minStake)) continue
 
         filteredPeers.push({
           ...match,
@@ -506,14 +508,20 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     const publicClient = getPublicClient(walletState, chainId)
     const walletClient = getWalletClient(walletState, chainId)
 
-    const { agentId } = await registerAgent(
+    const peerId = getLibp2pPeerId(baseAgent.ref) ?? identity.peerId
+    const peerIdHash = computePeerIdHash(peerId)
+    const metadata = [
+      { key: 'peerId', value: Buffer.from(peerId, 'utf8') },
+      { key: 'peerIdHash', value: Buffer.from(peerIdHash.slice(2), 'hex') },
+    ]
+
+    const { agentId } = await registerAgentWithMetadata(
       publicClient,
       walletClient,
       identityState,
-      agentURI ?? ''
+      agentURI ?? '',
+      metadata
     )
-
-    await bindPeerId(publicClient, walletClient, identityState, agentId, baseAgent.id)
 
     onChainAgentId = agentId
     return agentId

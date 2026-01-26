@@ -1,10 +1,39 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const CONTRACTS = ["EccoToken", "AgentIdentityRegistry", "AgentReputationRegistry", "AgentValidationRegistry", "AgentStakeRegistry", "FeeCollector", "WorkRewards", "EccoGovernor", "EccoTimelock", "EccoConstitution"];
+const CONTRACTS = [
+  "EccoToken",
+  "AgentStakeRegistry",
+  "FeeCollector",
+  "WorkRewards",
+  "EccoGovernor",
+  "EccoTimelock",
+  "EccoConstitution",
+];
 
-const ARTIFACTS_DIR = join(import.meta.dir, "../artifacts/src");
+const ARTIFACTS_DIR = join(import.meta.dir, "../artifacts");
 const OUTPUT_DIR = join(import.meta.dir, "../dist");
+
+function findArtifactPath(contract: string): string | null {
+  const target = `${contract}.json`;
+  const stack = [ARTIFACTS_DIR];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (!dir) continue;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
+      if (entry.isFile() && entry.name === target) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
 
 function generateAbis() {
   if (!existsSync(OUTPUT_DIR)) {
@@ -14,10 +43,10 @@ function generateAbis() {
   const exports: string[] = [];
 
   for (const contract of CONTRACTS) {
-    const artifactPath = join(ARTIFACTS_DIR, `${contract}.sol`, `${contract}.json`);
+    const artifactPath = findArtifactPath(contract);
 
-    if (!existsSync(artifactPath)) {
-      console.error(`Artifact not found: ${artifactPath}`);
+    if (!artifactPath || !existsSync(artifactPath)) {
+      console.error(`Artifact not found for ${contract}`);
       console.error("Run 'bun run compile' first");
       process.exit(1);
     }

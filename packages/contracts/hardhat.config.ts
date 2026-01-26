@@ -21,17 +21,11 @@ export default defineConfig({
     artifacts: "./artifacts",
   },
   networks: {
-    testnet: {
+    sepolia: {
       type: "http",
-      url: configVariable("TESTNET_RPC_URL"),
+      url: configVariable("SEPOLIA_RPC_URL"),
       accounts: [configVariable("PRIVATE_KEY")],
-      chainId: 10143,
-    },
-    mainnet: {
-      type: "http",
-      url: configVariable("MAINNET_RPC_URL"),
-      accounts: [configVariable("PRIVATE_KEY")],
-      chainId: 143,
+      chainId: 11155111,
     },
   },
 });

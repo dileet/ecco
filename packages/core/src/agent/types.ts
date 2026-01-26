@@ -13,6 +13,7 @@ import type { StakeInfo } from '../identity'
 import type { NodeState, StateRef } from '../networking/types'
 import type { WalletState } from '../payments/wallet'
 import type { LocalModelState } from '../llm/local-model'
+import type { PeerResolver } from '../reputation/reputation-state'
 import type {
   MultiAgentConfig,
   AgentResponse,
@@ -200,6 +201,9 @@ export interface AgentReputationConfig {
   chainId?: number
   commitThreshold?: number
   syncIntervalMs?: number
+  peerResolver?: PeerResolver
+  identityRegistryAddress?: `0x${string}`
+  reputationRegistryAddress?: `0x${string}`
 }
 
 export interface AgentConfig {

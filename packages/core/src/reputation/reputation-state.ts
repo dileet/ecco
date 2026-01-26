@@ -1,24 +1,37 @@
+import type { PublicClient } from 'viem';
+import { decodeEventLog, keccak256, parseAbiItem, toBytes } from 'viem';
+import { getERC8004Addresses } from '@ecco/contracts/addresses';
 import type { WalletState } from '../payments/wallet';
 import { getPublicClient } from '../payments/wallet';
 import {
-  createIdentityRegistryState,
-  getAgentByPeerId,
-  getWalletForPeerId,
   computePeerIdHash,
+  createIdentityRegistryState,
+  createReputationRegistryState,
+  getAgentOwner,
+  getAgentWallet,
+  getClients,
+  getSummary,
+  readAllFeedback,
+  valueToNumber,
 } from '../identity';
-import type { IdentityRegistryState, StakeInfo, StakeRegistryState } from '../identity';
+import type { IdentityRegistryState, ReputationRegistryState, StakeInfo, StakeRegistryState } from '../identity';
 import { createStakeRegistryState, fetchStakeInfo, canWork } from '../identity/stake-registry';
 import { REPUTATION } from '../networking/constants';
-import { keccak256, toBytes } from 'viem';
+import { clamp } from '../utils/validation';
 
-const IDENTITY_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
-const STAKE_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
+const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
+const METADATA_SET_EVENT = parseAbiItem('event MetadataSet(uint256 indexed agentId,string indexed indexedMetadataKey,string metadataKey,bytes metadataValue)');
+
+const STAKE_REGISTRY_ADDRESS: `0x${string}` = ZERO_ADDRESS;
 
 export interface LocalPeerReputation {
   peerId: string;
   walletAddress: string | null;
+  agentId?: bigint;
   localScore: number;
   onChainScore: bigint | null;
+  feedbackScore: number | null;
+  feedbackCount: number;
   stake: bigint;
   canWork: boolean;
   totalJobs: number;
@@ -42,39 +55,179 @@ export interface PendingRating {
 export interface ReputationState {
   peers: Map<string, LocalPeerReputation>;
   peerIdToWallet: Map<string, `0x${string}`>;
+  peerIdToAgentId: Map<string, bigint>;
   pendingCommits: PendingRating[];
   commitThreshold: number;
   commitIntervalMs: number;
   lastCommitAt: number;
   chainId: number;
   syncIntervalMs: number;
+  identityRegistryAddress: `0x${string}`;
+  reputationRegistryAddress: `0x${string}`;
+  peerResolver?: PeerResolver;
 }
+
+export interface PeerResolverResult {
+  agentId?: bigint;
+  walletAddress?: `0x${string}`;
+}
+
+export type PeerResolver = (peerId: string) => Promise<PeerResolverResult | null>;
 
 export interface ReputationConfig {
   chainId: number;
   commitThreshold?: number;
   commitIntervalMs?: number;
   syncIntervalMs?: number;
+  peerResolver?: PeerResolver;
+  identityRegistryAddress?: `0x${string}`;
+  reputationRegistryAddress?: `0x${string}`;
 }
 
-function getIdentityState(chainId: number): IdentityRegistryState {
-  return createIdentityRegistryState(chainId, IDENTITY_REGISTRY_ADDRESS);
+export function resolveRegistryAddresses(
+  chainId: number,
+  overrides: {
+    identityRegistryAddress?: `0x${string}`;
+    reputationRegistryAddress?: `0x${string}`;
+  } = {}
+): { identityRegistryAddress: `0x${string}`; reputationRegistryAddress: `0x${string}` } {
+  const addresses = getERC8004Addresses(chainId);
+  return {
+    identityRegistryAddress: overrides.identityRegistryAddress ?? addresses?.identityRegistry ?? ZERO_ADDRESS,
+    reputationRegistryAddress: overrides.reputationRegistryAddress ?? addresses?.reputationRegistry ?? ZERO_ADDRESS,
+  };
 }
 
-function getStakeState(chainId: number): StakeRegistryState {
-  return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, IDENTITY_REGISTRY_ADDRESS);
+function getIdentityState(chainId: number, identityRegistryAddress: `0x${string}`): IdentityRegistryState {
+  return createIdentityRegistryState(chainId, identityRegistryAddress);
+}
+
+function getReputationRegistryState(
+  chainId: number,
+  reputationRegistryAddress: `0x${string}`,
+  identityRegistryAddress: `0x${string}`
+): ReputationRegistryState {
+  return createReputationRegistryState(chainId, reputationRegistryAddress, identityRegistryAddress);
+}
+
+function getStakeState(chainId: number, identityRegistryAddress: `0x${string}`): StakeRegistryState {
+  return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, identityRegistryAddress);
 }
 
 export function createReputationState(config: ReputationConfig): ReputationState {
+  const addresses = resolveRegistryAddresses(config.chainId, {
+    identityRegistryAddress: config.identityRegistryAddress,
+    reputationRegistryAddress: config.reputationRegistryAddress,
+  });
   return {
     peers: new Map(),
     peerIdToWallet: new Map(),
+    peerIdToAgentId: new Map(),
     pendingCommits: [],
     commitThreshold: config.commitThreshold ?? REPUTATION.DEFAULT_COMMIT_THRESHOLD,
     commitIntervalMs: config.commitIntervalMs ?? REPUTATION.DEFAULT_COMMIT_INTERVAL_MS,
     lastCommitAt: Date.now(),
     chainId: config.chainId,
     syncIntervalMs: config.syncIntervalMs ?? REPUTATION.DEFAULT_SYNC_INTERVAL_MS,
+    identityRegistryAddress: addresses.identityRegistryAddress,
+    reputationRegistryAddress: addresses.reputationRegistryAddress,
+    peerResolver: config.peerResolver,
+  };
+}
+
+export function createDefaultPeerResolver(config: {
+  chainId: number;
+  wallet: WalletState;
+  identityRegistryAddress: `0x${string}`;
+}): PeerResolver {
+  const publicClient = getPublicClient(config.wallet, config.chainId);
+  const identityState = createIdentityRegistryState(config.chainId, config.identityRegistryAddress);
+
+  return async (peerId: string): Promise<PeerResolverResult | null> => {
+    if (config.identityRegistryAddress === ZERO_ADDRESS) {
+      return null;
+    }
+
+    const peerIdHash = computePeerIdHash(peerId);
+
+    let logs: Awaited<ReturnType<PublicClient['getLogs']>> = [];
+    try {
+      logs = await publicClient.getLogs({
+        address: config.identityRegistryAddress,
+        event: METADATA_SET_EVENT,
+        fromBlock: 0n,
+        toBlock: 'latest',
+      });
+    } catch {
+      return null;
+    }
+
+    let matchedAgentId: bigint | null = null;
+    for (const log of logs) {
+      try {
+        const decoded = decodeEventLog({
+          abi: [METADATA_SET_EVENT],
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName !== 'MetadataSet') {
+          continue;
+        }
+        const args = decoded.args;
+        if (!args || typeof args !== 'object') {
+          continue;
+        }
+        const indexedMetadataKey = 'indexedMetadataKey' in args && typeof args.indexedMetadataKey === 'string'
+          ? args.indexedMetadataKey
+          : null;
+        const metadataValue = 'metadataValue' in args && typeof args.metadataValue === 'string'
+          ? args.metadataValue
+          : null;
+        const agentId = 'agentId' in args && typeof args.agentId === 'bigint'
+          ? args.agentId
+          : null;
+        if (!indexedMetadataKey || !metadataValue || agentId === null) {
+          continue;
+        }
+        if (indexedMetadataKey !== 'peerIdHash') {
+          continue;
+        }
+        if (metadataValue.toLowerCase() !== peerIdHash.toLowerCase()) {
+          continue;
+        }
+        matchedAgentId = agentId;
+      } catch {
+        continue;
+      }
+    }
+
+    if (matchedAgentId === null) {
+      return null;
+    }
+
+    const agentId = matchedAgentId;
+
+    let walletAddress: `0x${string}` | null = null;
+    try {
+      const agentWallet = await getAgentWallet(publicClient, identityState, agentId);
+      if (agentWallet !== ZERO_ADDRESS) {
+        walletAddress = agentWallet;
+      }
+    } catch {
+    }
+
+    if (!walletAddress) {
+      try {
+        walletAddress = await getAgentOwner(publicClient, identityState, agentId);
+      } catch {
+      }
+    }
+
+    if (!walletAddress) {
+      return { agentId };
+    }
+
+    return { agentId, walletAddress };
   };
 }
 
@@ -113,6 +266,8 @@ export function recordLocalSuccess(state: ReputationState, peerId: string, walle
     walletAddress: walletAddress ?? null,
     localScore: 0,
     onChainScore: null,
+    feedbackScore: null,
+    feedbackCount: 0,
     stake: 0n,
     canWork: false,
     totalJobs: 0,
@@ -144,6 +299,8 @@ export function recordLocalFailure(state: ReputationState, peerId: string, walle
     walletAddress: walletAddress ?? null,
     localScore: 0,
     onChainScore: null,
+    feedbackScore: null,
+    feedbackCount: 0,
     stake: 0n,
     canWork: false,
     totalJobs: 0,
@@ -249,6 +406,58 @@ export function shouldCommit(state: ReputationState): boolean {
   return false;
 }
 
+async function fetchFeedbackSignal(
+  publicClient: PublicClient,
+  reputationRegistryState: ReputationRegistryState,
+  agentId: bigint
+): Promise<{ score: number | null; count: number }> {
+  let clients: `0x${string}`[] = [];
+  try {
+    clients = await getClients(publicClient, reputationRegistryState, agentId);
+  } catch {
+    return { score: null, count: 0 };
+  }
+
+  if (clients.length === 0) {
+    return { score: null, count: 0 };
+  }
+
+  let summaryScore: number | null = null;
+  let summaryCount = 0;
+
+  try {
+    const summary = await getSummary(publicClient, reputationRegistryState, agentId, clients);
+    summaryCount = summary.count;
+    if (summary.count > 0) {
+      summaryScore = valueToNumber(summary.averageValue, summary.maxDecimals);
+    }
+  } catch {
+  }
+
+  try {
+    const feedback = await readAllFeedback(publicClient, reputationRegistryState, agentId, clients);
+    let total = 0;
+    let count = 0;
+    for (let i = 0; i < feedback.values.length; i += 1) {
+      if (feedback.revokedStatuses[i]) continue;
+      total += valueToNumber(feedback.values[i], feedback.valueDecimalsArr[i]);
+      count += 1;
+    }
+    if (count > 0) {
+      const average = total / count;
+      if (summaryScore === null) {
+        summaryScore = average;
+      }
+      if (summaryCount === 0) {
+        summaryCount = count;
+      }
+    }
+  } catch {
+  }
+
+  return { score: summaryScore, count: summaryCount };
+}
+
 export async function syncPeerFromChain(
   state: ReputationState,
   wallet: WalletState,
@@ -256,20 +465,37 @@ export async function syncPeerFromChain(
   walletAddress: `0x${string}`
 ): Promise<LocalPeerReputation> {
   const publicClient = getPublicClient(wallet, state.chainId);
-  const identityState = getIdentityState(state.chainId);
-  const stakeState = getStakeState(state.chainId);
+  const identityState = getIdentityState(state.chainId, state.identityRegistryAddress);
+  const stakeState = getStakeState(state.chainId, state.identityRegistryAddress);
+  const reputationRegistryState = getReputationRegistryState(
+    state.chainId,
+    state.reputationRegistryAddress,
+    state.identityRegistryAddress
+  );
 
   const now = Date.now();
   const existingPeer = state.peers.get(peerId);
 
   let stakeInfo: StakeInfo | null = null;
+  let resolvedAgentId: bigint | null = null;
+  let feedbackScore = existingPeer?.feedbackScore ?? null;
+  let feedbackCount = existingPeer?.feedbackCount ?? 0;
 
   try {
-    const agentId = await getAgentByPeerId(publicClient, identityState, peerId);
-    if (agentId > 0n) {
-      stakeInfo = await fetchStakeInfo(publicClient, stakeState, agentId);
+    resolvedAgentId = await resolveAgentIdForPeer(state, wallet, peerId);
+    if (resolvedAgentId !== null) {
+      stakeInfo = await fetchStakeInfo(publicClient, stakeState, resolvedAgentId);
     }
   } catch {
+  }
+
+  if (resolvedAgentId !== null && state.reputationRegistryAddress !== ZERO_ADDRESS) {
+    try {
+      const feedback = await fetchFeedbackSignal(publicClient, reputationRegistryState, resolvedAgentId);
+      feedbackScore = feedback.score;
+      feedbackCount = feedback.count;
+    } catch {
+    }
   }
 
   let canWorkResult = false;
@@ -283,6 +509,8 @@ export async function syncPeerFromChain(
     walletAddress,
     localScore: 0,
     onChainScore: null,
+    feedbackScore: null,
+    feedbackCount: 0,
     stake: 0n,
     canWork: false,
     totalJobs: 0,
@@ -295,7 +523,10 @@ export async function syncPeerFromChain(
 
   const updatedPeer: LocalPeerReputation = {
     ...basePeer,
+    agentId: resolvedAgentId ?? basePeer.agentId,
     onChainScore: stakeInfo?.effectiveScore ?? null,
+    feedbackScore,
+    feedbackCount,
     stake: stakeInfo?.stake ?? 0n,
     canWork: canWorkResult,
     lastSyncedAt: now,
@@ -335,7 +566,23 @@ export function getEffectiveScore(peer: LocalPeerReputation): number {
     score += Number(peer.onChainScore) / 1e18;
   }
 
+  if (peer.feedbackScore !== null) {
+    const clamped = clamp(peer.feedbackScore, -100, 100);
+    const weight = peer.feedbackCount > 0 ? Math.min(1, Math.log10(peer.feedbackCount + 1)) : 0;
+    score += clamped * weight;
+  }
+
   return score;
+}
+
+export function getDiscoveryReputationScore(peer: LocalPeerReputation): number {
+  if (peer.feedbackScore !== null && peer.feedbackCount > 0) {
+    const clamped = clamp(peer.feedbackScore, -100, 100);
+    const weight = Math.min(1, Math.log10(peer.feedbackCount + 1));
+    return clamp(clamped * weight, -100, 100);
+  }
+
+  return clamp(getEffectiveScore(peer), -100, 100);
 }
 
 export function getPeersByScore(state: ReputationState, limit?: number): LocalPeerReputation[] {
@@ -364,30 +611,98 @@ export function setCachedWallet(state: ReputationState, peerId: string, wallet: 
   }
 }
 
+function cachePeerResolution(state: ReputationState, peerId: string, result: PeerResolverResult): void {
+  if (result.agentId !== undefined) {
+    state.peerIdToAgentId.set(peerId, result.agentId);
+  }
+  if (result.walletAddress) {
+    state.peerIdToWallet.set(peerId, result.walletAddress);
+  }
+  const peer = state.peers.get(peerId);
+  if (peer) {
+    state.peers.set(peerId, {
+      ...peer,
+      walletAddress: result.walletAddress ?? peer.walletAddress,
+      agentId: result.agentId ?? peer.agentId,
+    });
+  }
+}
+
+async function resolveFromResolver(state: ReputationState, peerId: string): Promise<PeerResolverResult | null> {
+  if (!state.peerResolver) {
+    return null;
+  }
+  const result = await state.peerResolver(peerId);
+  if (!result) {
+    return null;
+  }
+  cachePeerResolution(state, peerId, result);
+  return result;
+}
+
+export async function resolvePeerIdentity(
+  state: ReputationState,
+  wallet: WalletState,
+  peerId: string
+): Promise<{ agentId: bigint | null; walletAddress: `0x${string}` | null }> {
+  const cachedWallet = state.peerIdToWallet.get(peerId) ?? null;
+  const cachedAgentId = state.peerIdToAgentId.get(peerId) ?? null;
+
+  let agentId = cachedAgentId;
+  let walletAddress = cachedWallet;
+
+  const resolved = (agentId === null || walletAddress === null)
+    ? await resolveFromResolver(state, peerId)
+    : null;
+  if (resolved?.agentId !== undefined) {
+    agentId = resolved.agentId;
+  }
+  if (resolved?.walletAddress) {
+    walletAddress = resolved.walletAddress;
+  }
+
+  if (!walletAddress && agentId !== null) {
+    const publicClient = getPublicClient(wallet, state.chainId);
+    if (state.identityRegistryAddress !== ZERO_ADDRESS) {
+      const identityState = getIdentityState(state.chainId, state.identityRegistryAddress);
+      try {
+        const agentWallet = await getAgentWallet(publicClient, identityState, agentId);
+        if (agentWallet !== ZERO_ADDRESS) {
+          walletAddress = agentWallet;
+        }
+      } catch {
+      }
+      if (!walletAddress) {
+        try {
+          walletAddress = await getAgentOwner(publicClient, identityState, agentId);
+        } catch {
+        }
+      }
+      if (walletAddress) {
+        cachePeerResolution(state, peerId, { agentId, walletAddress });
+      }
+    }
+  }
+
+  return { agentId, walletAddress };
+}
+
 export async function resolveWalletForPeer(
   state: ReputationState,
   wallet: WalletState,
   peerId: string
 ): Promise<`0x${string}` | null> {
-  const cached = state.peerIdToWallet.get(peerId);
-  if (cached) {
-    return cached;
-  }
+  const resolved = await resolvePeerIdentity(state, wallet, peerId);
+  return resolved.walletAddress;
+}
 
-  const publicClient = getPublicClient(wallet, state.chainId);
-  const identityState = getIdentityState(state.chainId);
-  const stakeState = getStakeState(state.chainId);
-
-  const walletAddress = await getWalletForPeerId(publicClient, identityState, peerId);
-  if (walletAddress) {
-    state.peerIdToWallet.set(peerId, walletAddress);
-    const peer = state.peers.get(peerId);
-    if (peer) {
-      state.peers.set(peerId, { ...peer, walletAddress });
-    }
-  }
-
-  return walletAddress;
+export async function resolveAgentIdForPeer(
+  state: ReputationState,
+  wallet: WalletState,
+  peerId: string
+): Promise<bigint | null> {
+  const resolved = await resolvePeerIdentity(state, wallet, peerId);
+  return resolved.agentId;
 }
 
 export async function resolveAndSyncPeer(
@@ -395,7 +710,7 @@ export async function resolveAndSyncPeer(
   wallet: WalletState,
   peerId: string
 ): Promise<LocalPeerReputation | null> {
-  const walletAddress = await resolveWalletForPeer(state, wallet, peerId);
+  const { walletAddress } = await resolvePeerIdentity(state, wallet, peerId);
   if (!walletAddress) {
     return null;
   }
@@ -432,6 +747,6 @@ export function createReputationScorer(state: ReputationState | undefined): (pee
     if (!rep) {
       return 0;
     }
-    return getEffectiveScore(rep);
+    return getDiscoveryReputationScore(rep);
   };
 }

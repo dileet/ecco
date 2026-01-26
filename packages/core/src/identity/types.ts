@@ -163,7 +163,6 @@ export interface IdentityRegistryState {
   chainId: number;
   registryAddress: `0x${string}`;
   cachedAgents: Map<bigint, AgentInfo>;
-  peerIdToAgentId: Map<string, bigint>;
 }
 
 export interface ReputationRegistryState {

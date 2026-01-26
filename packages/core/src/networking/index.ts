@@ -275,8 +275,10 @@ export {
   getPeersByScore,
   getStakedPeers as getStakedPeersFromReputation,
   resolveWalletForPeer,
+  resolvePeerIdentity,
+  resolveAgentIdForPeer,
 } from '../reputation/reputation-state';
-export type { LocalPeerReputation, ReputationState, ReputationConfig, PendingRating } from '../reputation/reputation-state';
+export type { LocalPeerReputation, ReputationState, ReputationConfig, PendingRating, PeerResolver, PeerResolverResult } from '../reputation/reputation-state';
 
 export {
   createPeerTracker,

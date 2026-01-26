@@ -10,6 +10,7 @@ import {
   QUORUM_PERCENT,
   INITIAL_CONSTITUTION_ITEMS,
 } from "../helpers/constants";
+import { deployMockIdentityRegistry } from "../helpers/fixtures";
 
 describe("Constitution Governance Integration", () => {
   describe("Adding Items via Governance", () => {
@@ -18,7 +19,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
@@ -110,7 +111,7 @@ describe("Constitution Governance Integration", () => {
       const [owner, voter1] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [

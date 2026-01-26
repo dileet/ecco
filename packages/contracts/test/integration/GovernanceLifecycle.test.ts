@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { parseEther, encodeFunctionData, keccak256, toBytes } from "viem";
 import hre from "hardhat";
 import { PROPOSAL_THRESHOLD, TIMELOCK_MIN_DELAY, VOTING_DELAY, VOTING_PERIOD, QUORUM_PERCENT } from "../helpers/constants";
+import { deployMockIdentityRegistry } from "../helpers/fixtures";
 
 describe("Governance Lifecycle Tests", () => {
   describe("Complete Proposal Lifecycle", () => {
@@ -11,7 +12,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [
@@ -95,7 +96,7 @@ describe("Governance Lifecycle Tests", () => {
       const [owner, voter1, voter2, voter3] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [eccoToken.address, owner.account.address]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [eccoToken.address, identityRegistry.address, owner.account.address]);
       const eccoTimelock = await viem.deployContract("EccoTimelock", [TIMELOCK_MIN_DELAY, [owner.account.address], [owner.account.address], owner.account.address]);
       const eccoGovernor = await viem.deployContract("EccoGovernor", [

@@ -390,11 +390,15 @@ export {
   getCachedWallet,
   setCachedWallet,
   resolveWalletForPeer,
+  resolvePeerIdentity,
+  resolveAgentIdForPeer,
   resolveAndSyncPeer,
   type LocalPeerReputation,
   type ReputationState,
   type ReputationConfig,
   type PendingRating,
+  type PeerResolver,
+  type PeerResolverResult,
 } from './reputation/reputation-state';
 
 export {

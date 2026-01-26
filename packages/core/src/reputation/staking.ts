@@ -9,6 +9,7 @@ import {
 } from '../identity'
 import type { StakeInfo, StakeRegistryState } from '../identity'
 import { resolveWalletForPeer as resolveWalletForPeerImpl } from '../networking'
+import { getERC8004Addresses } from '@ecco/contracts/addresses'
 
 const STAKE_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000'
 const IDENTITY_REGISTRY_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000'
@@ -24,7 +25,11 @@ export function createStakingMethods(config: StakingMethodsConfig) {
   const { walletState, reputationState, chainId, getAgentId } = config
 
   const getStakeState = (): StakeRegistryState => {
-    return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, IDENTITY_REGISTRY_ADDRESS)
+    const resolvedIdentityRegistryAddress =
+      reputationState?.identityRegistryAddress ??
+      getERC8004Addresses(chainId)?.identityRegistry ??
+      IDENTITY_REGISTRY_ADDRESS
+    return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, resolvedIdentityRegistryAddress)
   }
 
   const stake = async (amount: bigint): Promise<string> => {

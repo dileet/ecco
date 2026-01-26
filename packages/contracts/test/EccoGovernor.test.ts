@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import { expect } from "chai";
 import hre from "hardhat";
 import { parseEther, keccak256, stringToBytes } from "viem";
-import { deployGovernorFixture, getNetworkHelpers } from "./helpers/fixtures";
+import { deployGovernorFixture, getNetworkHelpers, deployMockIdentityRegistry } from "./helpers/fixtures";
 import { TIMELOCK_MIN_DELAY, VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_PERCENT } from "./helpers/constants";
 
 async function loadFixtureWithHelpers<T>(fixture: () => Promise<T>): Promise<T> {
@@ -17,10 +17,7 @@ describe("EccoGovernor", () => {
       const [owner, staker] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
-        eccoToken.address,
-        owner.account.address,
-      ]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [
         eccoToken.address,
         identityRegistry.address,
@@ -79,10 +76,7 @@ describe("EccoGovernor", () => {
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
-        eccoToken.address,
-        owner.account.address,
-      ]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [
         eccoToken.address,
         identityRegistry.address,
@@ -122,10 +116,7 @@ describe("EccoGovernor", () => {
       const [owner] = await viem.getWalletClients();
 
       const eccoToken = await viem.deployContract("EccoToken", [owner.account.address]);
-      const identityRegistry = await viem.deployContract("AgentIdentityRegistry", [
-        eccoToken.address,
-        owner.account.address,
-      ]);
+      const identityRegistry = await deployMockIdentityRegistry(viem);
       const stakeRegistry = await viem.deployContract("AgentStakeRegistry", [
         eccoToken.address,
         identityRegistry.address,

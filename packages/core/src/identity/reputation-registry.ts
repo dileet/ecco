@@ -131,23 +131,6 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'address' }],
   },
-  {
-    name: 'getFeedbackCount',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'getAverageValue',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [
-      { name: 'averageValue', type: 'int128' },
-      { name: 'maxDecimals', type: 'uint8' },
-    ],
-  },
 ] as const;
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
@@ -248,11 +231,19 @@ export async function getSummary(
   tag1: string = '',
   tag2: string = ''
 ): Promise<FeedbackSummary> {
+  const resolvedClients = clientAddresses.length > 0
+    ? clientAddresses
+    : await getClients(publicClient, state, agentId);
+
+  if (resolvedClients.length === 0) {
+    return { count: 0, averageValue: 0n, maxDecimals: 0 };
+  }
+
   const [count, averageValue, maxDecimals] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getSummary',
-    args: [agentId, clientAddresses, tag1, tag2],
+    args: [agentId, resolvedClients, tag1, tag2],
   });
 
   return {
@@ -374,32 +365,4 @@ export async function getReputationIdentityRegistry(
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getIdentityRegistry',
   });
-}
-
-export async function getFeedbackCount(
-  publicClient: PublicClient,
-  state: ReputationRegistryState,
-  agentId: bigint
-): Promise<bigint> {
-  return publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_REPUTATION_REGISTRY_ABI,
-    functionName: 'getFeedbackCount',
-    args: [agentId],
-  });
-}
-
-export async function getAverageValue(
-  publicClient: PublicClient,
-  state: ReputationRegistryState,
-  agentId: bigint
-): Promise<{ averageValue: bigint; maxDecimals: number }> {
-  const [averageValue, maxDecimals] = await publicClient.readContract({
-    address: state.registryAddress,
-    abi: AGENT_REPUTATION_REGISTRY_ABI,
-    functionName: 'getAverageValue',
-    args: [agentId],
-  });
-
-  return { averageValue, maxDecimals };
 }

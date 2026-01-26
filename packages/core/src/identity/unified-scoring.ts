@@ -7,7 +7,7 @@ import type {
   ScoringWeights,
 } from './types';
 import { DEFAULT_SCORING_WEIGHTS } from './types';
-import { getAverageValue } from './reputation-registry';
+import { getSummary } from './reputation-registry';
 
 export function normalizeScore(score: number, min: number, max: number): number {
   if (max === min) return 0.5;
@@ -69,7 +69,7 @@ export async function calculateUnifiedScore(
   let feedbackValue = 0n;
   let feedbackDecimals = 0;
   try {
-    const result = await getAverageValue(publicClient, reputationState, agentId);
+    const result = await getSummary(publicClient, reputationState, agentId);
     feedbackValue = result.averageValue;
     feedbackDecimals = result.maxDecimals;
   } catch {
