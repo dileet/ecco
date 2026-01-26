@@ -39,7 +39,8 @@ describe("ERC-8004 Reputation Registry", () => {
     const feedbackHash = keccak256(stringToBytes("feedback-1"));
     await reputationRegistry.write.giveFeedback([
       agentId,
-      85,
+      85n,
+      0,
       "quality",
       "speed",
       "https://api.example.com",
@@ -47,13 +48,14 @@ describe("ERC-8004 Reputation Registry", () => {
       feedbackHash,
     ], { account: client1.account });
 
-    const [score, tag1, tag2, revoked] = await reputationRegistry.read.readFeedback([
+    const [value, valueDecimals, tag1, tag2, revoked] = await reputationRegistry.read.readFeedback([
       agentId,
       client1.account.address,
       0n,
     ]);
 
-    expect(score).to.equal(85);
+    expect(value).to.equal(85n);
+    expect(valueDecimals).to.equal(0);
     expect(tag1).to.equal("quality");
     expect(tag2).to.equal("speed");
     expect(revoked).to.equal(false);
@@ -64,7 +66,8 @@ describe("ERC-8004 Reputation Registry", () => {
 
     await reputationRegistry.write.giveFeedback([
       agentId,
-      90,
+      90n,
+      0,
       "accuracy",
       "speed",
       "https://endpoint-1",
@@ -74,7 +77,8 @@ describe("ERC-8004 Reputation Registry", () => {
 
     await reputationRegistry.write.giveFeedback([
       agentId,
-      70,
+      70n,
+      0,
       "quality",
       "tone",
       "https://endpoint-2",
@@ -82,7 +86,7 @@ describe("ERC-8004 Reputation Registry", () => {
       keccak256(stringToBytes("feedback-2")),
     ], { account: client2.account });
 
-    const [clients, indexes, scores, tag1s, tag2s, revoked] = await reputationRegistry.read.readAllFeedback([
+    const [clients, indexes, values, valueDecimalsArr, tag1s, tag2s, revoked] = await reputationRegistry.read.readAllFeedback([
       agentId,
       [],
       "accuracy",
@@ -92,7 +96,9 @@ describe("ERC-8004 Reputation Registry", () => {
 
     expect(clients.length).to.equal(1);
     expect(indexes.length).to.equal(1);
-    expect(scores.length).to.equal(1);
+    expect(values.length).to.equal(1);
+    expect(values[0]).to.equal(90n);
+    expect(valueDecimalsArr[0]).to.equal(0);
     expect(tag1s[0]).to.equal("accuracy");
     expect(tag2s[0]).to.equal("speed");
     expect(revoked[0]).to.equal(false);
@@ -103,7 +109,8 @@ describe("ERC-8004 Reputation Registry", () => {
 
     await reputationRegistry.write.giveFeedback([
       agentId,
-      60,
+      60n,
+      0,
       "quality",
       "tone",
       "https://endpoint-1",
@@ -129,7 +136,8 @@ describe("ERC-8004 Reputation Registry", () => {
 
     await reputationRegistry.write.giveFeedback([
       agentId,
-      50,
+      50n,
+      0,
       "quality",
       "tone",
       "https://endpoint-1",
@@ -139,7 +147,7 @@ describe("ERC-8004 Reputation Registry", () => {
 
     await reputationRegistry.write.revokeFeedback([agentId, 0n], { account: client1.account });
 
-    const [clients, indexes, , , , revoked] = await reputationRegistry.read.readAllFeedback([
+    const [clients, indexes, , , , , revoked] = await reputationRegistry.read.readAllFeedback([
       agentId,
       [],
       "",

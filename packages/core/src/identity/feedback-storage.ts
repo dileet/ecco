@@ -11,7 +11,8 @@ export function createFeedbackContent(
   agentRegistry: string,
   agentId: number,
   clientAddress: `0x${string}`,
-  score: number,
+  value: number,
+  valueDecimals: number,
   options: {
     createdAt?: string;
     tag1?: string;
@@ -23,6 +24,16 @@ export function createFeedbackContent(
     task?: string;
     capability?: 'prompts' | 'resources' | 'tools' | 'completions';
     name?: string;
+    mcp?: string;
+    a2a?: {
+      skills?: string[];
+      contextId?: string;
+      taskId?: string;
+    };
+    oasf?: {
+      skills?: string[];
+      domains?: string[];
+    };
     proofOfPayment?: {
       fromAddress: string;
       toAddress: string;
@@ -36,7 +47,8 @@ export function createFeedbackContent(
     agentId,
     clientAddress,
     createdAt: options.createdAt ?? new Date().toISOString(),
-    score,
+    value,
+    valueDecimals,
     tag1: options.tag1,
     tag2: options.tag2,
     endpoint: options.endpoint,
@@ -46,6 +58,9 @@ export function createFeedbackContent(
     task: options.task,
     capability: options.capability,
     name: options.name,
+    mcp: options.mcp,
+    a2a: options.a2a,
+    oasf: options.oasf,
     proofOfPayment: options.proofOfPayment,
   };
 }

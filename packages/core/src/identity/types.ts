@@ -51,7 +51,8 @@ export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 
 export const FeedbackSchema = z.object({
   client: HexAddressSchema,
-  score: z.number().int().min(0).max(100),
+  value: z.bigint(),
+  valueDecimals: z.number().int().min(0).max(18),
   tag1: z.string(),
   tag2: z.string(),
   endpoint: z.string(),
@@ -66,7 +67,8 @@ export type Feedback = z.infer<typeof FeedbackSchema>;
 
 export const FeedbackSummarySchema = z.object({
   count: z.number(),
-  averageScore: z.number().min(0).max(100),
+  averageValue: z.bigint(),
+  maxDecimals: z.number().int().min(0).max(18),
 });
 export type FeedbackSummary = z.infer<typeof FeedbackSummarySchema>;
 
@@ -75,7 +77,8 @@ export const OffChainFeedbackSchema = z.object({
   agentId: z.number().int().nonnegative(),
   clientAddress: z.string(),
   createdAt: z.string(),
-  score: z.number().int().min(0).max(100),
+  value: z.number(),
+  valueDecimals: z.number().int().min(0).max(18),
   tag1: z.string().optional(),
   tag2: z.string().optional(),
   endpoint: z.string().optional(),
@@ -85,6 +88,16 @@ export const OffChainFeedbackSchema = z.object({
   task: z.string().optional(),
   capability: z.enum(["prompts", "resources", "tools", "completions"]).optional(),
   name: z.string().optional(),
+  mcp: z.string().optional(),
+  a2a: z.object({
+    skills: z.array(z.string()).optional(),
+    contextId: z.string().optional(),
+    taskId: z.string().optional(),
+  }).optional(),
+  oasf: z.object({
+    skills: z.array(z.string()).optional(),
+    domains: z.array(z.string()).optional(),
+  }).optional(),
   proofOfPayment: z
     .object({
       fromAddress: z.string(),

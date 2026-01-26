@@ -8,7 +8,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'agentId', type: 'uint256' },
-      { name: 'score', type: 'uint8' },
+      { name: 'value', type: 'int128' },
+      { name: 'valueDecimals', type: 'uint8' },
       { name: 'tag1', type: 'string' },
       { name: 'tag2', type: 'string' },
       { name: 'endpoint', type: 'string' },
@@ -52,7 +53,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     ],
     outputs: [
       { name: 'count', type: 'uint64' },
-      { name: 'averageScore', type: 'uint8' },
+      { name: 'averageValue', type: 'int128' },
+      { name: 'maxDecimals', type: 'uint8' },
     ],
   },
   {
@@ -65,7 +67,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
       { name: 'feedbackIndex', type: 'uint64' },
     ],
     outputs: [
-      { name: 'score', type: 'uint8' },
+      { name: 'value', type: 'int128' },
+      { name: 'valueDecimals', type: 'uint8' },
       { name: 'tag1', type: 'string' },
       { name: 'tag2', type: 'string' },
       { name: 'isRevoked', type: 'bool' },
@@ -85,7 +88,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     outputs: [
       { name: 'clientAddresses', type: 'address[]' },
       { name: 'feedbackIndexes', type: 'uint64[]' },
-      { name: 'scores', type: 'uint8[]' },
+      { name: 'values', type: 'int128[]' },
+      { name: 'valueDecimalsArr', type: 'uint8[]' },
       { name: 'tag1s', type: 'string[]' },
       { name: 'tag2s', type: 'string[]' },
       { name: 'revokedStatuses', type: 'bool[]' },
@@ -123,11 +127,14 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
-    name: 'getAverageScore',
+    name: 'getAverageValue',
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'agentId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint8' }],
+    outputs: [
+      { name: 'averageValue', type: 'int128' },
+      { name: 'maxDecimals', type: 'uint8' },
+    ],
   },
 ] as const;
 
@@ -148,7 +155,8 @@ export async function giveFeedback(
   walletClient: WalletClient,
   state: ReputationRegistryState,
   agentId: bigint,
-  score: number,
+  value: bigint,
+  valueDecimals: number,
   tag1: string,
   tag2: string,
   endpoint: string,
@@ -158,15 +166,15 @@ export async function giveFeedback(
   const account = walletClient.account;
   if (!account) throw new Error('Wallet client has no account');
 
-  if (score < 0 || score > 100) {
-    throw new Error('Score must be between 0 and 100');
+  if (valueDecimals < 0 || valueDecimals > 18) {
+    throw new Error('valueDecimals must be between 0 and 18');
   }
 
   const { request } = await publicClient.simulateContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'giveFeedback',
-    args: [agentId, score, tag1, tag2, endpoint, feedbackURI, feedbackHash],
+    args: [agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash],
     account,
   });
 
@@ -226,7 +234,7 @@ export async function getSummary(
   tag1: string = '',
   tag2: string = ''
 ): Promise<FeedbackSummary> {
-  const [count, averageScore] = await publicClient.readContract({
+  const [count, averageValue, maxDecimals] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getSummary',
@@ -235,7 +243,8 @@ export async function getSummary(
 
   return {
     count: Number(count),
-    averageScore,
+    averageValue,
+    maxDecimals,
   };
 }
 
@@ -245,8 +254,8 @@ export async function readFeedback(
   agentId: bigint,
   clientAddress: `0x${string}`,
   feedbackIndex: bigint
-): Promise<{ score: number; tag1: string; tag2: string; isRevoked: boolean }> {
-  const [score, tag1, tag2, isRevoked] = await publicClient.readContract({
+): Promise<{ value: bigint; valueDecimals: number; tag1: string; tag2: string; isRevoked: boolean }> {
+  const [value, valueDecimals, tag1, tag2, isRevoked] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'readFeedback',
@@ -254,7 +263,8 @@ export async function readFeedback(
   });
 
   return {
-    score,
+    value,
+    valueDecimals,
     tag1,
     tag2,
     isRevoked,
@@ -272,12 +282,13 @@ export async function readAllFeedback(
 ): Promise<{
   clientAddresses: `0x${string}`[];
   feedbackIndexes: bigint[];
-  scores: number[];
+  values: bigint[];
+  valueDecimalsArr: number[];
   tag1s: string[];
   tag2s: string[];
   revokedStatuses: boolean[];
 }> {
-  const [addresses, indexes, scores, tag1s, tag2s, revokedStatuses] = await publicClient.readContract({
+  const [addresses, indexes, values, valueDecimalsArr, tag1s, tag2s, revokedStatuses] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'readAllFeedback',
@@ -286,8 +297,9 @@ export async function readAllFeedback(
 
   return {
     clientAddresses: [...addresses],
-    feedbackIndexes: indexes.map((value) => BigInt(value)),
-    scores: [...scores],
+    feedbackIndexes: indexes.map((idx) => BigInt(idx)),
+    values: [...values],
+    valueDecimalsArr: [...valueDecimalsArr],
     tag1s: [...tag1s],
     tag2s: [...tag2s],
     revokedStatuses: [...revokedStatuses],
@@ -346,15 +358,17 @@ export async function getFeedbackCount(
   });
 }
 
-export async function getAverageScore(
+export async function getAverageValue(
   publicClient: PublicClient,
   state: ReputationRegistryState,
   agentId: bigint
-): Promise<number> {
-  return publicClient.readContract({
+): Promise<{ averageValue: bigint; maxDecimals: number }> {
+  const [averageValue, maxDecimals] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
-    functionName: 'getAverageScore',
+    functionName: 'getAverageValue',
     args: [agentId],
   });
+
+  return { averageValue, maxDecimals };
 }

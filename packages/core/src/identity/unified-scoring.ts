@@ -7,7 +7,7 @@ import type {
   ScoringWeights,
 } from './types';
 import { DEFAULT_SCORING_WEIGHTS } from './types';
-import { getAverageScore } from './reputation-registry';
+import { getAverageValue } from './reputation-registry';
 
 export function normalizeScore(score: number, min: number, max: number): number {
   if (max === min) return 0.5;
@@ -18,8 +18,13 @@ export function normalizeLocalScore(localScore: number): number {
   return normalizeScore(localScore, -1000, 1000);
 }
 
-export function normalizeFeedbackScore(feedbackScore: number): number {
-  return normalizeScore(feedbackScore, 0, 100);
+export function valueToNumber(value: bigint, decimals: number): number {
+  return Number(value) / Math.pow(10, decimals);
+}
+
+export function normalizeFeedbackValue(value: bigint, decimals: number): number {
+  const numericValue = valueToNumber(value, decimals);
+  return normalizeScore(numericValue, -100, 100);
 }
 
 export function normalizeValidationScore(validationScore: number): number {
@@ -28,12 +33,13 @@ export function normalizeValidationScore(validationScore: number): number {
 
 export function combineScores(
   localScore: number,
-  feedbackScore: number,
+  feedbackValue: bigint,
+  feedbackDecimals: number,
   validationScore: number,
   weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
 ): { combined: number; confidence: number } {
   const normalizedLocal = normalizeLocalScore(localScore);
-  const normalizedFeedback = normalizeFeedbackScore(feedbackScore);
+  const normalizedFeedback = normalizeFeedbackValue(feedbackValue, feedbackDecimals);
   const normalizedValidation = normalizeValidationScore(validationScore);
 
   const combined =
@@ -42,7 +48,7 @@ export function combineScores(
     normalizedValidation * weights.validationScore;
 
   const hasLocal = localScore !== 0;
-  const hasFeedback = feedbackScore > 0;
+  const hasFeedback = feedbackValue !== 0n;
   const hasValidation = validationScore > 0;
   const sourcesCount = [hasLocal, hasFeedback, hasValidation].filter(Boolean).length;
   const confidence = sourcesCount / 3;
@@ -60,13 +66,18 @@ export async function calculateUnifiedScore(
   validationScore: number = 0,
   weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
 ): Promise<UnifiedScore> {
-  let feedbackScore = 0;
+  let feedbackValue = 0n;
+  let feedbackDecimals = 0;
   try {
-    feedbackScore = await getAverageScore(publicClient, reputationState, agentId);
+    const result = await getAverageValue(publicClient, reputationState, agentId);
+    feedbackValue = result.averageValue;
+    feedbackDecimals = result.maxDecimals;
   } catch {
   }
 
-  const { combined, confidence } = combineScores(localScore, feedbackScore, validationScore, weights);
+  const { combined, confidence } = combineScores(localScore, feedbackValue, feedbackDecimals, validationScore, weights);
+
+  const feedbackScore = valueToNumber(feedbackValue, feedbackDecimals);
 
   return {
     agentId,
