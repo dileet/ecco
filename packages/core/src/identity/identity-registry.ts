@@ -86,6 +86,20 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
     outputs: [],
   },
   {
+    name: 'getAgentWallet',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    name: 'unsetAgentWallet',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'agentId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
     name: 'ownerOf',
     type: 'function',
     stateMutability: 'view',
@@ -315,6 +329,39 @@ export async function setAgentWallet(
   return walletClient.writeContract(request);
 }
 
+export async function getAgentWallet(
+  publicClient: PublicClient,
+  state: IdentityRegistryState,
+  agentId: bigint
+): Promise<`0x${string}`> {
+  return publicClient.readContract({
+    address: state.registryAddress,
+    abi: AGENT_IDENTITY_REGISTRY_ABI,
+    functionName: 'getAgentWallet',
+    args: [agentId],
+  });
+}
+
+export async function unsetAgentWallet(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  state: IdentityRegistryState,
+  agentId: bigint
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error('Wallet client has no account');
+
+  const { request } = await publicClient.simulateContract({
+    address: state.registryAddress,
+    abi: AGENT_IDENTITY_REGISTRY_ABI,
+    functionName: 'unsetAgentWallet',
+    args: [agentId],
+    account,
+  });
+
+  return walletClient.writeContract(request);
+}
+
 export async function getAgentOwner(
   publicClient: PublicClient,
   state: IdentityRegistryState,
@@ -452,4 +499,3 @@ export async function bindPeerId(
 
   return txHash;
 }
-

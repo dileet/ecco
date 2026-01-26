@@ -83,12 +83,51 @@ describe("ERC-8004 Identity Registry", () => {
     const signature = await user2.signTypedData({ domain, types, primaryType: "AgentWallet", message });
 
     await identityRegistry.write.setAgentWallet([agentId, user2.account.address, deadline, signature], { account: user1.account });
-    const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
-    expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(user2.account.address)).toString("hex")}` as `0x${string}`);
+    const agentWallet = await identityRegistry.read.getAgentWallet([agentId]);
+    expect(agentWallet.toLowerCase()).to.equal(user2.account.address.toLowerCase());
 
     await identityRegistry.write.transferFrom([user1.account.address, user2.account.address, agentId], { account: user1.account });
-    const reset = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
+    const reset = await identityRegistry.read.getAgentWallet([agentId]);
     expect(reset).to.equal("0x0000000000000000000000000000000000000000");
+  });
+
+  it("unsets agent wallet via owner", async () => {
+    const { identityRegistry, user1, user2, publicClient: testClient } = await loadFixtureWithHelpers(deployAgentIdentityRegistryFixture);
+
+    await identityRegistry.write.register(["ipfs://agent-uri"], { account: user1.account });
+    const events = await identityRegistry.getEvents.Registered();
+    const agentId = events[events.length - 1].args.agentId!;
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const chainId = await testClient.getChainId();
+    const domain = {
+      name: "AgentIdentityRegistry",
+      version: "1",
+      chainId: BigInt(chainId),
+      verifyingContract: identityRegistry.address,
+    };
+    const types = {
+      AgentWallet: [
+        { name: "agentId", type: "uint256" },
+        { name: "newWallet", type: "address" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+    const message = {
+      agentId,
+      newWallet: user2.account.address,
+      deadline,
+    };
+
+    const signature = await user2.signTypedData({ domain, types, primaryType: "AgentWallet", message });
+
+    await identityRegistry.write.setAgentWallet([agentId, user2.account.address, deadline, signature], { account: user1.account });
+    const setWallet = await identityRegistry.read.getAgentWallet([agentId]);
+    expect(setWallet.toLowerCase()).to.equal(user2.account.address.toLowerCase());
+
+    await identityRegistry.write.unsetAgentWallet([agentId], { account: user1.account });
+    const cleared = await identityRegistry.read.getAgentWallet([agentId]);
+    expect(cleared).to.equal("0x0000000000000000000000000000000000000000");
   });
 
   it("returns global registry ID without agent id", async () => {
@@ -168,8 +207,8 @@ describe("ERC-8004 Identity Registry", () => {
       placeholderSignature,
     ], { account: owner.account });
 
-    const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
-    expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(walletMock.address)).toString("hex")}` as `0x${string}`);
+    const agentWallet = await identityRegistry.read.getAgentWallet([agentId]);
+    expect(agentWallet.toLowerCase()).to.equal(walletMock.address.toLowerCase());
   });
 
   it("binds peer ID in single transaction", async () => {

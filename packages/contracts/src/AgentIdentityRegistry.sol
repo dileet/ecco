@@ -110,6 +110,28 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         _setAgentWalletMetadata(agentId, newWallet);
     }
 
+    function getAgentWallet(uint256 agentId) external view returns (address) {
+        _requireOwned(agentId);
+        bytes memory value = _metadata[agentId][AGENT_WALLET_KEY];
+        if (value.length == 0) {
+            return address(0);
+        }
+        if (value.length != 20) {
+            revert("Invalid agent wallet metadata");
+        }
+        address wallet;
+        assembly {
+            wallet := shr(96, mload(add(value, 32)))
+        }
+        return wallet;
+    }
+
+    function unsetAgentWallet(uint256 agentId) external {
+        address owner = ownerOf(agentId);
+        require(_isAuthorized(owner, msg.sender, agentId), "Not authorized");
+        _setAgentWalletMetadata(agentId, address(0));
+    }
+
     function getGlobalId(uint256 agentId) external view returns (string memory) {
         _requireOwned(agentId);
         return string(abi.encodePacked(
