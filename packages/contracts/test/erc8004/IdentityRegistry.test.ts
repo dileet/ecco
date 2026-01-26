@@ -77,7 +77,7 @@ describe("ERC-8004 Identity Registry", () => {
       deadline,
     };
 
-    const signature = await user1.signTypedData({ domain, types, primaryType: "AgentWallet", message });
+    const signature = await user2.signTypedData({ domain, types, primaryType: "AgentWallet", message });
 
     await identityRegistry.write.setAgentWallet([agentId, user2.account.address, deadline, signature], { account: user1.account });
     const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
@@ -132,8 +132,6 @@ describe("ERC-8004 Identity Registry", () => {
     const events = await identityRegistry.getEvents.Registered();
     const agentId = events[events.length - 1].args.agentId!;
 
-    await identityRegistry.write.transferFrom([owner.account.address, walletMock.address, agentId], { account: owner.account });
-
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
     const chainId = await (await viem.getPublicClient()).getChainId();
     const domain = {
@@ -151,7 +149,7 @@ describe("ERC-8004 Identity Registry", () => {
     };
     const message = {
       agentId,
-      newWallet: owner.account.address,
+      newWallet: walletMock.address,
       deadline,
     };
 
@@ -162,13 +160,13 @@ describe("ERC-8004 Identity Registry", () => {
 
     await identityRegistry.write.setAgentWallet([
       agentId,
-      owner.account.address,
+      walletMock.address,
       deadline,
       placeholderSignature,
     ], { account: owner.account });
 
     const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
-    expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(owner.account.address)).toString("hex")}` as `0x${string}`);
+    expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(walletMock.address)).toString("hex")}` as `0x${string}`);
   });
 
   it("binds peer ID in single transaction", async () => {

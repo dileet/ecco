@@ -42,15 +42,15 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         token;
     }
 
-    function register(string calldata agentURI, MetadataEntry[] calldata metadata) external returns (uint256 agentId) {
-        agentId = _mintAgent(msg.sender, agentURI);
+    function register(string calldata uri, MetadataEntry[] calldata metadata) external returns (uint256 agentId) {
+        agentId = _mintAgent(msg.sender, uri);
         _applyMetadata(agentId, metadata);
-        emit Registered(agentId, agentURI, msg.sender);
+        emit Registered(agentId, uri, msg.sender);
     }
 
-    function register(string calldata agentURI) external returns (uint256 agentId) {
-        agentId = _mintAgent(msg.sender, agentURI);
-        emit Registered(agentId, agentURI, msg.sender);
+    function register(string calldata uri) external returns (uint256 agentId) {
+        agentId = _mintAgent(msg.sender, uri);
+        emit Registered(agentId, uri, msg.sender);
     }
 
     function register() external returns (uint256 agentId) {
@@ -90,6 +90,7 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         require(newWallet != address(0), "Invalid new wallet");
 
         address owner = ownerOf(agentId);
+        require(_isAuthorized(owner, msg.sender, agentId), "Not authorized");
         bytes32 structHash = keccak256(abi.encode(
             AGENT_WALLET_TYPEHASH,
             agentId,
@@ -98,12 +99,12 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         ));
         bytes32 digest = _hashTypedDataV4(structHash);
 
-        if (owner.code.length > 0) {
-            bytes4 result = IERC1271(owner).isValidSignature(digest, signature);
+        if (newWallet.code.length > 0) {
+            bytes4 result = IERC1271(newWallet).isValidSignature(digest, signature);
             require(result == IERC1271.isValidSignature.selector, "Invalid signature");
         } else {
             address signer = ECDSA.recover(digest, signature);
-            require(signer == owner, "Invalid signature");
+            require(signer == newWallet, "Invalid signature");
         }
 
         _setAgentWalletMetadata(agentId, newWallet);
@@ -171,10 +172,10 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         return previousOwner;
     }
 
-    function _mintAgent(address owner, string memory agentURI) internal returns (uint256 agentId) {
+    function _mintAgent(address owner, string memory uri) internal returns (uint256 agentId) {
         agentId = _nextAgentId++;
         _safeMint(owner, agentId);
-        _setTokenURI(agentId, agentURI);
+        _setTokenURI(agentId, uri);
     }
 
     function _applyMetadata(uint256 agentId, MetadataEntry[] calldata metadata) internal {
