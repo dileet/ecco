@@ -12,20 +12,19 @@ import type { AgentConfig } from './types'
 const RpcUrlSchema = z.string().url()
 
 export function resolveNetworkConfig(network: AgentConfig['network']): NetworkConfig {
-  if (network === 'testnet') return ECCO_TESTNET
-  return ECCO_MAINNET
+  if (network === 'mainnet') return ECCO_MAINNET
+  return ECCO_TESTNET
 }
 
 export function resolveBootstrapAddrs(network: AgentConfig['network'], bootstrap?: string[]): string[] {
   if (bootstrap && bootstrap.length > 0) return bootstrap
-  if (network === 'testnet') return ECCO_TESTNET.bootstrap.peers
   if (network === 'mainnet') return ECCO_MAINNET.bootstrap.peers
-  return ECCO_MAINNET.bootstrap.peers
+  return ECCO_TESTNET.bootstrap.peers
 }
 
 export function resolveNetworkName(network: AgentConfig['network']): NetworkName {
-  if (network === 'testnet') return 'testnet'
-  return 'mainnet'
+  if (network === 'mainnet') return 'mainnet'
+  return 'testnet'
 }
 
 export function resolveChainId(network: AgentConfig['network'], reputationConfig?: { chainId?: number }): number {

@@ -1,7 +1,7 @@
 import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Constitution } from './types';
 
 export const MAINNET_CHAIN_ID = 143;
-export const TESTNET_CHAIN_ID = 10143;
+export const TESTNET_CHAIN_ID = 11155111;
 
 export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   major: 1,
@@ -139,7 +139,7 @@ export function applyNetworkConfig(
   };
 }
 
-export const DEFAULT_NETWORK: NetworkName = 'mainnet';
+export const DEFAULT_NETWORK: NetworkName = 'testnet';
 
 export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
   mainnet: MAINNET_CHAIN_ID,
@@ -148,7 +148,7 @@ export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
 
 export const DEFAULT_RPC_URLS: Record<number, string> = {
   [MAINNET_CHAIN_ID]: 'https://rpc.monad.xyz',
-  [TESTNET_CHAIN_ID]: 'https://testnet-rpc.monad.xyz',
+  [TESTNET_CHAIN_ID]: 'https://rpc.sepolia.org',
 };
 
 export function getDefaultChainId(network: NetworkName): number {
@@ -166,4 +166,3 @@ export function getDefaultRpcUrls(chainId: number): Record<number, string> {
   }
   return {};
 }
-

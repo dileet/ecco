@@ -1,13 +1,13 @@
 import type { EccoConfig } from './types';
-import { ECCO_MAINNET, type NetworkName, type NetworkConfig, applyNetworkConfig } from './networks';
+import { ECCO_TESTNET, type NetworkName, type NetworkConfig, applyNetworkConfig } from './networks';
 
 export const configDefaults: EccoConfig = {
-  discovery: ECCO_MAINNET.discovery,
+  discovery: ECCO_TESTNET.discovery,
   authentication: { enabled: false },
-  networkId: ECCO_MAINNET.networkId,
-  bootstrap: ECCO_MAINNET.bootstrap,
-  protocol: ECCO_MAINNET.protocol,
-  constitution: ECCO_MAINNET.constitution,
+  networkId: ECCO_TESTNET.networkId,
+  bootstrap: ECCO_TESTNET.bootstrap,
+  protocol: ECCO_TESTNET.protocol,
+  constitution: ECCO_TESTNET.constitution,
 };
 
 export function mergeConfig(base: EccoConfig, overrides: Partial<EccoConfig>): EccoConfig {
@@ -16,7 +16,7 @@ export function mergeConfig(base: EccoConfig, overrides: Partial<EccoConfig>): E
 
 export function createConfig(
   overrides: Partial<EccoConfig> = {},
-  network: NetworkName | NetworkConfig = 'mainnet'
+  network: NetworkName | NetworkConfig = 'testnet'
 ): EccoConfig {
   return applyNetworkConfig(overrides, network);
 }
