@@ -11,7 +11,7 @@ export function createFeedbackContent(
   agentRegistry: string,
   agentId: number,
   clientAddress: `0x${string}`,
-  value: number,
+  value: bigint | string,
   valueDecimals: number,
   options: {
     createdAt?: string;
@@ -47,7 +47,7 @@ export function createFeedbackContent(
     agentId,
     clientAddress,
     createdAt: options.createdAt ?? new Date().toISOString(),
-    value,
+    value: String(value),
     valueDecimals,
     tag1: options.tag1,
     tag2: options.tag2,

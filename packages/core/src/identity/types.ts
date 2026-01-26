@@ -77,7 +77,7 @@ export const OffChainFeedbackSchema = z.object({
   agentId: z.number().int().nonnegative(),
   clientAddress: z.string(),
   createdAt: z.string(),
-  value: z.number(),
+  value: z.string().regex(/^-?\d+$/, "value must be an integer string"),
   valueDecimals: z.number().int().min(0).max(18),
   tag1: z.string().optional(),
   tag2: z.string().optional(),
