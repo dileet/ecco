@@ -176,6 +176,7 @@ contract AgentIdentityRegistry is ERC721URIStorage, ERC721Enumerable, EIP712, Ow
         agentId = _nextAgentId++;
         _safeMint(owner, agentId);
         _setTokenURI(agentId, uri);
+        _setAgentWalletMetadata(agentId, owner);
     }
 
     function _applyMetadata(uint256 agentId, MetadataEntry[] calldata metadata) internal {

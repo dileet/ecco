@@ -25,6 +25,9 @@ describe("ERC-8004 Identity Registry", () => {
     const agentId = event.args.agentId!;
     const uri = await identityRegistry.read.agentURI([agentId]);
     expect(uri).to.equal("ipfs://agent-uri");
+
+    const agentWallet = await identityRegistry.read.getMetadata([agentId, "agentWallet"]);
+    expect(agentWallet).to.equal(`0x${Buffer.from(hexToBytes(user1.account.address)).toString("hex")}` as `0x${string}`);
   });
 
   it("registers with metadata and blocks reserved agentWallet key", async () => {
