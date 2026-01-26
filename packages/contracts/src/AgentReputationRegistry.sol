@@ -71,6 +71,7 @@ contract AgentReputationRegistry is ReentrancyGuard {
         bytes32 feedbackHash
     ) external nonReentrant {
         require(identityRegistry.ownerOf(agentId) != msg.sender, "Owner cannot give feedback");
+        require(valueDecimals <= 18, "valueDecimals must be <= 18");
 
         if (!_isClient[agentId][msg.sender]) {
             _clients[agentId].push(msg.sender);
