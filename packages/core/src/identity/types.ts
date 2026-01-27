@@ -67,8 +67,8 @@ export type Feedback = z.infer<typeof FeedbackSchema>;
 
 export const FeedbackSummarySchema = z.object({
   count: z.number(),
-  averageValue: z.bigint(),
-  maxDecimals: z.number().int().min(0).max(18),
+  summaryValue: z.bigint(),
+  summaryValueDecimals: z.number().int().min(0).max(18),
 });
 export type FeedbackSummary = z.infer<typeof FeedbackSummarySchema>;
 
@@ -82,7 +82,7 @@ export const OffChainFeedbackSchema = z.object({
   agentId: z.number().int().nonnegative(),
   clientAddress: Eip155AddressSchema,
   createdAt: z.string(),
-  value: z.string().regex(/^-?\d+$/, "value must be an integer string"),
+  value: z.number().int(),
   valueDecimals: z.number().int().min(0).max(18),
   tag1: z.string().optional(),
   tag2: z.string().optional(),

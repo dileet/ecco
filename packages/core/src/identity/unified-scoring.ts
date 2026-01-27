@@ -110,8 +110,8 @@ export async function calculateUnifiedScore(
     const clients = await getClients(publicClient, reputationState, agentId);
     if (clients.length > 0) {
       const result = await getSummary(publicClient, reputationState, agentId, clients);
-      feedbackValue = result.averageValue;
-      feedbackDecimals = result.maxDecimals;
+      feedbackValue = result.summaryValue;
+      feedbackDecimals = result.summaryValueDecimals;
     }
   } catch {
   }

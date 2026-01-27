@@ -53,8 +53,8 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     ],
     outputs: [
       { name: 'count', type: 'uint64' },
-      { name: 'averageValue', type: 'int128' },
-      { name: 'maxDecimals', type: 'uint8' },
+      { name: 'summaryValue', type: 'int128' },
+      { name: 'summaryValueDecimals', type: 'uint8' },
     ],
   },
   {
@@ -235,7 +235,7 @@ export async function getSummary(
     throw new Error('clientAddresses MUST be provided (non-empty) per ERC-8004 spec');
   }
 
-  const [count, averageValue, maxDecimals] = await publicClient.readContract({
+  const [count, summaryValue, summaryValueDecimals] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getSummary',
@@ -244,8 +244,8 @@ export async function getSummary(
 
   return {
     count: Number(count),
-    averageValue,
-    maxDecimals,
+    summaryValue,
+    summaryValueDecimals,
   };
 }
 

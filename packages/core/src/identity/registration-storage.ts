@@ -22,6 +22,8 @@ const RegistrationInputSchema = z.object({
   services: z.array(RegistrationServiceSchema).optional(),
   registrations: z.array(RegistrationLocatorSchema).optional(),
   supportedTrust: z.array(z.string()).optional(),
+  x402Support: z.boolean().optional(),
+  active: z.boolean().optional(),
 }).catchall(z.unknown());
 
 const RegistrationSchema = RegistrationInputSchema.extend({

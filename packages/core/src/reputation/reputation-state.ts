@@ -727,12 +727,12 @@ function computeFeedbackAverage(
   values: bigint[],
   valueDecimals: number[],
   revokedStatuses: boolean[]
-): { averageValue: bigint; maxDecimals: number; count: number } | null {
-  let maxDecimals = 0;
+): { summaryValue: bigint; summaryValueDecimals: number; count: number } | null {
+  let summaryValueDecimals = 0;
   for (let i = 0; i < valueDecimals.length; i += 1) {
     if (revokedStatuses[i]) continue;
-    if (valueDecimals[i] > maxDecimals) {
-      maxDecimals = valueDecimals[i];
+    if (valueDecimals[i] > summaryValueDecimals) {
+      summaryValueDecimals = valueDecimals[i];
     }
   }
 
@@ -740,7 +740,7 @@ function computeFeedbackAverage(
   let sum = 0n;
   for (let i = 0; i < values.length; i += 1) {
     if (revokedStatuses[i]) continue;
-    const scale = BigInt(maxDecimals - valueDecimals[i]);
+    const scale = BigInt(summaryValueDecimals - valueDecimals[i]);
     const scaled = values[i] * (10n ** scale);
     sum += scaled;
     count += 1;
@@ -750,8 +750,8 @@ function computeFeedbackAverage(
     return null;
   }
 
-  const averageValue = sum / BigInt(count);
-  return { averageValue, maxDecimals, count };
+  const summaryValue = sum / BigInt(count);
+  return { summaryValue, summaryValueDecimals, count };
 }
 
 async function fetchFeedbackSignal(
@@ -779,9 +779,9 @@ async function fetchFeedbackSignal(
     const summary = await getSummary(publicClient, reputationRegistryState, agentId, clients);
     summaryCount = summary.count;
     if (summary.count > 0) {
-      summaryScore = valueToNumber(summary.averageValue, summary.maxDecimals);
-      summaryValue = summary.averageValue;
-      summaryDecimals = summary.maxDecimals;
+      summaryScore = valueToNumber(summary.summaryValue, summary.summaryValueDecimals);
+      summaryValue = summary.summaryValue;
+      summaryDecimals = summary.summaryValueDecimals;
     }
   } catch {
   }
@@ -795,9 +795,9 @@ async function fetchFeedbackSignal(
     );
     if (computed) {
       if (summaryScore === null) {
-        summaryScore = valueToNumber(computed.averageValue, computed.maxDecimals);
-        summaryValue = computed.averageValue;
-        summaryDecimals = computed.maxDecimals;
+        summaryScore = valueToNumber(computed.summaryValue, computed.summaryValueDecimals);
+        summaryValue = computed.summaryValue;
+        summaryDecimals = computed.summaryValueDecimals;
       }
       if (summaryCount === 0) {
         summaryCount = computed.count;
