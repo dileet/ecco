@@ -338,6 +338,10 @@ export {
   type LocalModelConfig,
   type AgentReputationConfig,
   type FindPeersOptions,
+  type PublishRegistrationOptions,
+  type PublishRegistrationResult,
+  type VerifyAgentWalletParams,
+  type VerifyAgentWalletResult,
 } from './agent';
 
 export {
@@ -376,11 +380,13 @@ export {
 
 export {
   createReputationState,
+  resolveRegistryAddresses,
   getLocalReputation,
   recordLocalSuccess,
   recordLocalFailure,
   queueRating,
   commitPendingRatings,
+  submitExplicitFeedback,
   shouldCommit,
   syncPeerFromChain,
   syncAllPeersFromChain,
@@ -397,6 +403,12 @@ export {
   type ReputationState,
   type ReputationConfig,
   type PendingRating,
+  type FeedbackConfig,
+  type FeedbackDefaults,
+  type FeedbackMetadata,
+  type FeedbackStorageConfig,
+  type ExplicitFeedbackOptions,
+  type FeedbackSubmissionResult,
   type PeerResolver,
   type PeerResolverResult,
 } from './reputation/reputation-state';

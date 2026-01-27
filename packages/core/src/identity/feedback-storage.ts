@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { OffChainFeedback } from './types';
 import { OffChainFeedbackSchema } from './types';
 import { canonicalJsonStringify } from '../utils/canonical-json';
+import { createProviderStorage, type StorageProviderConfig } from './provider-storage';
 
 const HttpStoreResponseSchema = z.object({ uri: z.string() });
 const IpfsStoreResponseSchema = z.object({ Hash: z.string() });
@@ -110,6 +111,10 @@ export function deserializeFeedback(json: string): OffChainFeedback {
 export interface FeedbackStorage {
   store(feedback: OffChainFeedback): Promise<string>;
   retrieve(uri: string): Promise<OffChainFeedback | null>;
+}
+
+export function createProviderFeedbackStorage(config: StorageProviderConfig): FeedbackStorage {
+  return createProviderStorage(config, serializeFeedback, deserializeFeedback);
 }
 
 export function createLocalStorage(basePath: string): FeedbackStorage {

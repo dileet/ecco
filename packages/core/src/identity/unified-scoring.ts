@@ -56,6 +56,44 @@ export function combineScores(
   return { combined, confidence };
 }
 
+export function combineScoresWithAvailability(
+  localScore: number,
+  feedbackValue: bigint | null,
+  feedbackDecimals: number,
+  validationScore: number,
+  weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
+): { combined: number; confidence: number } {
+  const hasLocal = localScore !== 0;
+  const hasFeedback = feedbackValue !== null;
+  const hasValidation = validationScore > 0;
+
+  const totalWeight =
+    (hasLocal ? weights.localScore : 0) +
+    (hasFeedback ? weights.feedbackScore : 0) +
+    (hasValidation ? weights.validationScore : 0);
+
+  if (totalWeight === 0) {
+    return { combined: 0, confidence: 0 };
+  }
+
+  const normalizedLocal = normalizeLocalScore(localScore);
+  const normalizedFeedback = hasFeedback
+    ? normalizeFeedbackValue(feedbackValue ?? 0n, feedbackDecimals)
+    : 0;
+  const normalizedValidation = hasValidation ? normalizeValidationScore(validationScore) : 0;
+
+  const combined =
+    (hasLocal ? normalizedLocal * weights.localScore : 0) +
+    (hasFeedback ? normalizedFeedback * weights.feedbackScore : 0) +
+    (hasValidation ? normalizedValidation * weights.validationScore : 0);
+
+  const normalizedCombined = combined / totalWeight;
+  const sourcesCount = [hasLocal, hasFeedback, hasValidation].filter(Boolean).length;
+  const confidence = sourcesCount / 3;
+
+  return { combined: normalizedCombined, confidence };
+}
+
 export async function calculateUnifiedScore(
   publicClient: PublicClient,
   identityState: IdentityRegistryState,

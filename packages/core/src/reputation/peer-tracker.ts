@@ -1,5 +1,5 @@
 import type { PeerPerformanceState } from './peer-performance';
-import type { ReputationState } from './reputation-state';
+import type { FeedbackMetadata, ReputationState } from './reputation-state';
 import type { WalletState } from '../payments/wallet';
 import {
   recordSuccess as recordPerformanceSuccess,
@@ -33,6 +33,7 @@ export interface TrackSuccessOptions {
   txHash?: string;
   paymentAmount?: bigint;
   ratingDelta?: number;
+  feedback?: FeedbackMetadata;
 }
 
 export interface TrackFailureOptions {
@@ -82,7 +83,8 @@ export async function trackSuccess(
         options.walletAddress as `0x${string}`,
         options.txHash,
         options.paymentAmount,
-        delta
+        delta,
+        options.feedback
       );
 
       if (state.autoCommit && shouldCommit(state.reputation)) {

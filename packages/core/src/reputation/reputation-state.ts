@@ -1,12 +1,14 @@
 import type { PublicClient } from 'viem';
 import { decodeEventLog, keccak256, parseAbiItem, toBytes } from 'viem';
+import { z } from 'zod';
 import { getERC8004Addresses } from '@ecco/contracts/addresses';
 import type { WalletState } from '../payments/wallet';
-import { getPublicClient } from '../payments/wallet';
+import { getAddress, getPublicClient, getWalletClient } from '../payments/wallet';
 import {
   computePeerIdHash,
   createIdentityRegistryState,
   createReputationRegistryState,
+  giveFeedback,
   getAgentOwner,
   getAgentWallet,
   getClients,
@@ -16,6 +18,16 @@ import {
 } from '../identity';
 import type { IdentityRegistryState, ReputationRegistryState, StakeInfo, StakeRegistryState } from '../identity';
 import { createStakeRegistryState, fetchStakeInfo, canWork } from '../identity/stake-registry';
+import {
+  createFeedbackContent,
+  computeFeedbackHash,
+  signFeedback,
+  createProviderFeedbackStorage,
+  type FeedbackStorage,
+} from '../identity/feedback-storage';
+import { type StorageProviderConfig, StorageProviderConfigSchema } from '../identity/provider-storage';
+import { formatGlobalId } from '../identity/global-id';
+import { combineScoresWithAvailability, scoreToDisplay } from '../identity/unified-scoring';
 import { REPUTATION } from '../networking/constants';
 import { clamp } from '../utils/validation';
 
@@ -24,6 +36,72 @@ const METADATA_SET_EVENT = parseAbiItem('event MetadataSet(uint256 indexed agent
 
 const STAKE_REGISTRY_ADDRESS: `0x${string}` = ZERO_ADDRESS;
 
+const FeedbackDefaultsSchema = z.object({
+  tag1: z.string().optional(),
+  tag2: z.string().optional(),
+  endpoint: z.string().optional(),
+});
+
+const FeedbackConfigSchema = z.object({
+  storageProvider: StorageProviderConfigSchema.optional(),
+  defaults: FeedbackDefaultsSchema.optional(),
+});
+
+const ExplicitFeedbackSchema = z.object({
+  value: z.number().int().min(-100).max(100),
+  valueDecimals: z.number().int().min(0).max(18).optional(),
+});
+
+export interface FeedbackDefaults {
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+}
+
+export interface FeedbackConfig {
+  storageProvider?: StorageProviderConfig;
+  defaults?: FeedbackDefaults;
+}
+
+export interface FeedbackMetadata {
+  createdAt?: string;
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+  skill?: string;
+  domain?: string;
+  context?: string;
+  task?: string;
+  capability?: 'prompts' | 'resources' | 'tools' | 'completions';
+  name?: string;
+  mcp?: string;
+  a2a?: {
+    skills?: string[];
+    contextId?: string;
+    taskId?: string;
+  };
+  oasf?: {
+    skills?: string[];
+    domains?: string[];
+  };
+  proofOfPayment?: {
+    fromAddress: string;
+    toAddress: string;
+    chainId: string;
+    txHash: string;
+  };
+}
+
+export interface ExplicitFeedbackOptions extends FeedbackMetadata {
+  valueDecimals?: number;
+}
+
+export interface FeedbackSubmissionResult {
+  txHash: `0x${string}`;
+  feedbackURI: string;
+  feedbackHash: `0x${string}`;
+}
+
 export interface LocalPeerReputation {
   peerId: string;
   walletAddress: string | null;
@@ -31,6 +109,8 @@ export interface LocalPeerReputation {
   localScore: number;
   onChainScore: bigint | null;
   feedbackScore: number | null;
+  feedbackValue: bigint | null;
+  feedbackDecimals: number;
   feedbackCount: number;
   stake: bigint;
   canWork: boolean;
@@ -45,11 +125,16 @@ export interface LocalPeerReputation {
 export interface PendingRating {
   paymentId: `0x${string}`;
   txHash: string;
-  payee: string;
+  payee: `0x${string}`;
   amount: bigint;
   delta: number;
+  value: bigint;
+  valueDecimals: number;
   timestamp: number;
   recorded: boolean;
+  peerId: string;
+  agentId?: bigint;
+  metadata?: FeedbackMetadata;
 }
 
 export interface ReputationState {
@@ -64,6 +149,8 @@ export interface ReputationState {
   syncIntervalMs: number;
   identityRegistryAddress: `0x${string}`;
   reputationRegistryAddress: `0x${string}`;
+  feedbackStorage: FeedbackStorage | null;
+  feedbackDefaults: FeedbackDefaults;
   peerResolver?: PeerResolver;
 }
 
@@ -82,6 +169,7 @@ export interface ReputationConfig {
   peerResolver?: PeerResolver;
   identityRegistryAddress?: `0x${string}`;
   reputationRegistryAddress?: `0x${string}`;
+  feedback?: FeedbackConfig;
 }
 
 export function resolveRegistryAddresses(
@@ -95,6 +183,44 @@ export function resolveRegistryAddresses(
   return {
     identityRegistryAddress: overrides.identityRegistryAddress ?? addresses?.identityRegistry ?? ZERO_ADDRESS,
     reputationRegistryAddress: overrides.reputationRegistryAddress ?? addresses?.reputationRegistry ?? ZERO_ADDRESS,
+  };
+}
+
+function resolveFeedbackDefaults(defaults: FeedbackDefaults | undefined): FeedbackDefaults {
+  if (!defaults) {
+    return {};
+  }
+  const parsed = FeedbackDefaultsSchema.safeParse(defaults);
+  if (!parsed.success) {
+    throw new Error('Invalid feedback defaults');
+  }
+  return parsed.data;
+}
+
+function resolveFeedbackStorage(storageProvider: StorageProviderConfig | undefined): FeedbackStorage | null {
+  if (!storageProvider) {
+    return null;
+  }
+  return createProviderFeedbackStorage(storageProvider);
+}
+
+function resolveFeedbackConfig(config: FeedbackConfig | undefined): {
+  storage: FeedbackStorage | null;
+  defaults: FeedbackDefaults;
+} {
+  if (!config) {
+    return {
+      storage: null,
+      defaults: {},
+    };
+  }
+  const parsed = FeedbackConfigSchema.safeParse(config);
+  if (!parsed.success) {
+    throw new Error('Invalid feedback config');
+  }
+  return {
+    storage: resolveFeedbackStorage(parsed.data.storageProvider),
+    defaults: resolveFeedbackDefaults(parsed.data.defaults),
   };
 }
 
@@ -119,6 +245,7 @@ export function createReputationState(config: ReputationConfig): ReputationState
     identityRegistryAddress: config.identityRegistryAddress,
     reputationRegistryAddress: config.reputationRegistryAddress,
   });
+  const feedback = resolveFeedbackConfig(config.feedback);
   return {
     peers: new Map(),
     peerIdToWallet: new Map(),
@@ -131,6 +258,8 @@ export function createReputationState(config: ReputationConfig): ReputationState
     syncIntervalMs: config.syncIntervalMs ?? REPUTATION.DEFAULT_SYNC_INTERVAL_MS,
     identityRegistryAddress: addresses.identityRegistryAddress,
     reputationRegistryAddress: addresses.reputationRegistryAddress,
+    feedbackStorage: feedback.storage,
+    feedbackDefaults: feedback.defaults,
     peerResolver: config.peerResolver,
   };
 }
@@ -267,6 +396,8 @@ export function recordLocalSuccess(state: ReputationState, peerId: string, walle
     localScore: 0,
     onChainScore: null,
     feedbackScore: null,
+    feedbackValue: null,
+    feedbackDecimals: 0,
     feedbackCount: 0,
     stake: 0n,
     canWork: false,
@@ -300,6 +431,8 @@ export function recordLocalFailure(state: ReputationState, peerId: string, walle
     localScore: 0,
     onChainScore: null,
     feedbackScore: null,
+    feedbackValue: null,
+    feedbackDecimals: 0,
     feedbackCount: 0,
     stake: 0n,
     canWork: false,
@@ -340,22 +473,39 @@ export async function queueRating(
   payeeAddress: `0x${string}`,
   txHash: string,
   amount: bigint,
-  delta: number
+  delta: number,
+  metadata?: FeedbackMetadata
 ): Promise<void> {
   if (state.pendingCommits.length >= REPUTATION.MAX_PENDING_RATINGS) {
     return;
   }
 
   const paymentId = generatePaymentId(txHash, wallet.account.address, payeeAddress, Date.now());
+  const clampedDelta = Math.max(-5, Math.min(5, delta));
+  const value = BigInt(clampedDelta * 20);
+  const valueDecimals = 0;
+  let agentId: bigint | undefined;
+  try {
+    const resolved = await resolveAgentIdForPeer(state, wallet, peerId);
+    if (resolved !== null) {
+      agentId = resolved;
+    }
+  } catch {
+  }
 
   const rating: PendingRating = {
     paymentId,
     txHash,
     payee: payeeAddress,
     amount,
-    delta: Math.max(-5, Math.min(5, delta)),
+    delta: clampedDelta,
+    value,
+    valueDecimals,
     timestamp: Date.now(),
     recorded: false,
+    peerId,
+    agentId,
+    metadata,
   };
 
   const peer = state.peers.get(peerId);
@@ -385,10 +535,173 @@ export async function commitPendingRatings(
     return { committed: 0, failed: 0 };
   }
 
-  state.pendingCommits = state.pendingCommits.filter((r) => r.recorded);
+  if (state.reputationRegistryAddress === ZERO_ADDRESS || !state.feedbackStorage) {
+    return { committed: 0, failed: unrecorded.length };
+  }
+
+  let committed = 0;
+  let failed = 0;
+  const remaining: PendingRating[] = [];
+
+  for (const rating of state.pendingCommits) {
+    if (rating.recorded) {
+      continue;
+    }
+    try {
+      const resolvedAgentId = rating.agentId ?? await resolveAgentIdForPeer(state, wallet, rating.peerId);
+      if (resolvedAgentId === null) {
+        failed += 1;
+        remaining.push(rating);
+        continue;
+      }
+
+      const metadata: FeedbackMetadata = {
+        ...rating.metadata,
+        createdAt: new Date(rating.timestamp).toISOString(),
+        proofOfPayment: {
+          fromAddress: getAddress(wallet),
+          toAddress: rating.payee,
+          chainId: String(state.chainId),
+          txHash: rating.txHash,
+        },
+      };
+
+      await submitFeedbackInternal(
+        state,
+        wallet,
+        resolvedAgentId,
+        rating.value,
+        rating.valueDecimals,
+        metadata
+      );
+
+      committed += 1;
+      const peer = state.peers.get(rating.peerId);
+      if (peer) {
+        const updatedRatings = peer.pendingRatings.filter((r) => r.paymentId !== rating.paymentId);
+        state.peers.set(rating.peerId, { ...peer, pendingRatings: updatedRatings });
+      }
+    } catch {
+      failed += 1;
+      remaining.push(rating);
+    }
+  }
+
+  state.pendingCommits = remaining;
   state.lastCommitAt = Date.now();
 
-  return { committed: 0, failed: unrecorded.length };
+  return { committed, failed };
+}
+
+async function submitFeedbackInternal(
+  state: ReputationState,
+  wallet: WalletState,
+  agentId: bigint,
+  value: bigint,
+  valueDecimals: number,
+  metadata: FeedbackMetadata
+): Promise<FeedbackSubmissionResult> {
+  if (state.reputationRegistryAddress === ZERO_ADDRESS) {
+    throw new Error('Reputation registry not configured');
+  }
+  if (!state.feedbackStorage) {
+    throw new Error('Feedback storage not configured');
+  }
+  if (valueDecimals < 0 || valueDecimals > 18) {
+    throw new Error('valueDecimals must be between 0 and 18');
+  }
+  if (agentId > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('AgentId exceeds maximum safe integer');
+  }
+
+  const clientAddress = getAddress(wallet);
+  const registryId = formatGlobalId(state.chainId, state.identityRegistryAddress);
+  const resolvedMetadata: FeedbackMetadata = {
+    ...metadata,
+    tag1: metadata.tag1 ?? state.feedbackDefaults.tag1,
+    tag2: metadata.tag2 ?? state.feedbackDefaults.tag2,
+    endpoint: metadata.endpoint ?? state.feedbackDefaults.endpoint,
+  };
+
+  const feedbackContent = createFeedbackContent(
+    registryId,
+    Number(agentId),
+    clientAddress,
+    value,
+    valueDecimals,
+    resolvedMetadata
+  );
+
+  const feedbackHash = computeFeedbackHash(feedbackContent);
+  const walletClient = getWalletClient(wallet, state.chainId);
+  const account = walletClient.account;
+  if (!account) {
+    throw new Error('Wallet client has no account');
+  }
+
+  const signMessage = (message: string): Promise<`0x${string}`> => {
+    return walletClient.signMessage({ account, message });
+  };
+
+  const signedFeedback = await signFeedback(feedbackContent, signMessage);
+  const feedbackURI = await state.feedbackStorage.store(signedFeedback);
+
+  const publicClient = getPublicClient(wallet, state.chainId);
+  const reputationRegistryState = getReputationRegistryState(
+    state.chainId,
+    state.reputationRegistryAddress,
+    state.identityRegistryAddress
+  );
+
+  const txHash = await giveFeedback(
+    publicClient,
+    walletClient,
+    reputationRegistryState,
+    agentId,
+    value,
+    valueDecimals,
+    resolvedMetadata.tag1 ?? '',
+    resolvedMetadata.tag2 ?? '',
+    resolvedMetadata.endpoint ?? '',
+    feedbackURI,
+    feedbackHash
+  );
+
+  return { txHash, feedbackURI, feedbackHash };
+}
+
+export async function submitExplicitFeedback(
+  state: ReputationState,
+  wallet: WalletState,
+  peerId: string,
+  value: number,
+  options?: ExplicitFeedbackOptions
+): Promise<FeedbackSubmissionResult> {
+  const parsed = ExplicitFeedbackSchema.safeParse({
+    value,
+    valueDecimals: options?.valueDecimals,
+  });
+  if (!parsed.success) {
+    throw new Error('Invalid feedback value');
+  }
+
+  const resolvedAgentId = await resolveAgentIdForPeer(state, wallet, peerId);
+  if (resolvedAgentId === null) {
+    throw new Error('Unable to resolve agent for peer');
+  }
+
+  const { valueDecimals, ...metadata } = options ?? {};
+  const resolvedDecimals = parsed.data.valueDecimals ?? 0;
+  const feedbackValue = BigInt(parsed.data.value);
+
+  return submitFeedbackInternal(
+    state,
+    wallet,
+    resolvedAgentId,
+    feedbackValue,
+    resolvedDecimals,
+    metadata
+  );
 }
 
 export function shouldCommit(state: ReputationState): boolean {
@@ -406,56 +719,95 @@ export function shouldCommit(state: ReputationState): boolean {
   return false;
 }
 
+function computeFeedbackAverage(
+  values: bigint[],
+  valueDecimals: number[],
+  revokedStatuses: boolean[]
+): { averageValue: bigint; maxDecimals: number; count: number } | null {
+  let maxDecimals = 0;
+  for (let i = 0; i < valueDecimals.length; i += 1) {
+    if (revokedStatuses[i]) continue;
+    if (valueDecimals[i] > maxDecimals) {
+      maxDecimals = valueDecimals[i];
+    }
+  }
+
+  let count = 0;
+  let sum = 0n;
+  for (let i = 0; i < values.length; i += 1) {
+    if (revokedStatuses[i]) continue;
+    const scale = BigInt(maxDecimals - valueDecimals[i]);
+    const scaled = values[i] * (10n ** scale);
+    sum += scaled;
+    count += 1;
+  }
+
+  if (count === 0) {
+    return null;
+  }
+
+  const averageValue = sum / BigInt(count);
+  return { averageValue, maxDecimals, count };
+}
+
 async function fetchFeedbackSignal(
   publicClient: PublicClient,
   reputationRegistryState: ReputationRegistryState,
   agentId: bigint
-): Promise<{ score: number | null; count: number }> {
+): Promise<{ score: number | null; count: number; value: bigint | null; decimals: number }> {
   let clients: `0x${string}`[] = [];
   try {
     clients = await getClients(publicClient, reputationRegistryState, agentId);
   } catch {
-    return { score: null, count: 0 };
+    return { score: null, count: 0, value: null, decimals: 0 };
   }
 
   if (clients.length === 0) {
-    return { score: null, count: 0 };
+    return { score: null, count: 0, value: null, decimals: 0 };
   }
 
   let summaryScore: number | null = null;
   let summaryCount = 0;
+  let summaryValue: bigint | null = null;
+  let summaryDecimals = 0;
 
   try {
     const summary = await getSummary(publicClient, reputationRegistryState, agentId, clients);
     summaryCount = summary.count;
     if (summary.count > 0) {
       summaryScore = valueToNumber(summary.averageValue, summary.maxDecimals);
+      summaryValue = summary.averageValue;
+      summaryDecimals = summary.maxDecimals;
     }
   } catch {
   }
 
   try {
     const feedback = await readAllFeedback(publicClient, reputationRegistryState, agentId, clients);
-    let total = 0;
-    let count = 0;
-    for (let i = 0; i < feedback.values.length; i += 1) {
-      if (feedback.revokedStatuses[i]) continue;
-      total += valueToNumber(feedback.values[i], feedback.valueDecimalsArr[i]);
-      count += 1;
-    }
-    if (count > 0) {
-      const average = total / count;
+    const computed = computeFeedbackAverage(
+      feedback.values,
+      feedback.valueDecimalsArr,
+      feedback.revokedStatuses
+    );
+    if (computed) {
       if (summaryScore === null) {
-        summaryScore = average;
+        summaryScore = valueToNumber(computed.averageValue, computed.maxDecimals);
+        summaryValue = computed.averageValue;
+        summaryDecimals = computed.maxDecimals;
       }
       if (summaryCount === 0) {
-        summaryCount = count;
+        summaryCount = computed.count;
       }
     }
   } catch {
   }
 
-  return { score: summaryScore, count: summaryCount };
+  return {
+    score: summaryScore,
+    count: summaryCount,
+    value: summaryValue,
+    decimals: summaryDecimals,
+  };
 }
 
 export async function syncPeerFromChain(
@@ -465,7 +817,6 @@ export async function syncPeerFromChain(
   walletAddress: `0x${string}`
 ): Promise<LocalPeerReputation> {
   const publicClient = getPublicClient(wallet, state.chainId);
-  const identityState = getIdentityState(state.chainId, state.identityRegistryAddress);
   const stakeState = getStakeState(state.chainId, state.identityRegistryAddress);
   const reputationRegistryState = getReputationRegistryState(
     state.chainId,
@@ -479,6 +830,8 @@ export async function syncPeerFromChain(
   let stakeInfo: StakeInfo | null = null;
   let resolvedAgentId: bigint | null = null;
   let feedbackScore = existingPeer?.feedbackScore ?? null;
+  let feedbackValue = existingPeer?.feedbackValue ?? null;
+  let feedbackDecimals = existingPeer?.feedbackDecimals ?? 0;
   let feedbackCount = existingPeer?.feedbackCount ?? 0;
 
   try {
@@ -494,6 +847,8 @@ export async function syncPeerFromChain(
       const feedback = await fetchFeedbackSignal(publicClient, reputationRegistryState, resolvedAgentId);
       feedbackScore = feedback.score;
       feedbackCount = feedback.count;
+      feedbackValue = feedback.value;
+      feedbackDecimals = feedback.decimals;
     } catch {
     }
   }
@@ -510,6 +865,8 @@ export async function syncPeerFromChain(
     localScore: 0,
     onChainScore: null,
     feedbackScore: null,
+    feedbackValue: null,
+    feedbackDecimals: 0,
     feedbackCount: 0,
     stake: 0n,
     canWork: false,
@@ -526,6 +883,8 @@ export async function syncPeerFromChain(
     agentId: resolvedAgentId ?? basePeer.agentId,
     onChainScore: stakeInfo?.effectiveScore ?? null,
     feedbackScore,
+    feedbackValue,
+    feedbackDecimals,
     feedbackCount,
     stake: stakeInfo?.stake ?? 0n,
     canWork: canWorkResult,
@@ -576,13 +935,17 @@ export function getEffectiveScore(peer: LocalPeerReputation): number {
 }
 
 export function getDiscoveryReputationScore(peer: LocalPeerReputation): number {
-  if (peer.feedbackScore !== null && peer.feedbackCount > 0) {
-    const clamped = clamp(peer.feedbackScore, -100, 100);
-    const weight = Math.min(1, Math.log10(peer.feedbackCount + 1));
-    return clamp(clamped * weight, -100, 100);
-  }
-
-  return clamp(getEffectiveScore(peer), -100, 100);
+  const feedbackValue = peer.feedbackValue;
+  const feedbackDecimals = peer.feedbackDecimals;
+  const validationScore = 0;
+  const { combined } = combineScoresWithAvailability(
+    peer.localScore,
+    feedbackValue,
+    feedbackDecimals,
+    validationScore
+  );
+  const displayScore = scoreToDisplay(combined);
+  return clamp(displayScore, 0, 100);
 }
 
 export function getPeersByScore(state: ReputationState, limit?: number): LocalPeerReputation[] {

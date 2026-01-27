@@ -19,6 +19,9 @@ import {
   canWork,
   registerAgentWithMetadata,
   computePeerIdHash,
+  setAgentURI,
+  setAgentWallet,
+  createSetAgentWalletTypedData,
 } from '../identity'
 import type { StakeInfo } from '../identity'
 import {
@@ -48,6 +51,10 @@ import { setupModels, createEmbedFunction } from './models'
 import { createMessageDispatcher } from './dispatch'
 import { createRequestMethod, createSendMethod } from './requests'
 import { createStakingMethods } from '../reputation/staking'
+import { submitExplicitFeedback } from '../reputation/reputation-state'
+import { normalizeRegistration, validateRegistration, createProviderRegistrationStorage } from '../identity/registration-storage'
+import { formatGlobalId } from '../identity/global-id'
+import { StorageProviderConfigSchema } from '../identity/provider-storage'
 import { getERC8004Addresses } from '@ecco/contracts/addresses'
 
 type StopFn = () => Promise<void>
@@ -83,6 +90,13 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const hasBootstrap = bootstrapAddrs.length > 0
   const chainId = resolveChainId(config.network, config.reputation)
   const rpcUrls = mergeRpcUrls(config.wallet?.rpcUrls)
+  const providerConfig = config.reputation?.feedback?.storageProvider
+  if (providerConfig) {
+    const parsedProvider = StorageProviderConfigSchema.safeParse(providerConfig)
+    if (!parsedProvider.success) {
+      throw new Error('Invalid storage provider config')
+    }
+  }
 
   const identity = await loadOrCreateNodeIdentity({
     nodeId: config.name,
@@ -494,6 +508,107 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     await stopInternal()
   }
 
+  const publishRegistration: Agent['publishRegistration'] = async (registration, options) => {
+    if (!walletState) {
+      throw new Error('Wallet required for registration. Configure wallet in createAgent options.')
+    }
+    const targetAgentId = options?.agentId ?? onChainAgentId
+    if (targetAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before publishing registration.')
+    }
+    if (targetAgentId > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('AgentId exceeds maximum safe integer')
+    }
+
+    const storageProvider = options?.storageProvider ?? config.reputation?.feedback?.storageProvider
+    if (!storageProvider) {
+      throw new Error('Storage provider required for registration publishing')
+    }
+    const storage = createProviderRegistrationStorage(storageProvider)
+    const locator = {
+      agentRegistry: formatGlobalId(chainId, identityRegistryAddress),
+      agentId: Number(targetAgentId),
+    }
+
+    const parsedRegistration = validateRegistration(registration)
+    const normalized = normalizeRegistration(parsedRegistration, locator)
+    const uri = await storage.store(normalized)
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+    const txHash = await setAgentURI(publicClient, walletClient, identityState, targetAgentId, uri)
+
+    return { agentId: targetAgentId, uri, txHash, registration: normalized }
+  }
+
+  const setAgentWalletForAgent: Agent['setAgentWallet'] = async (newWallet, deadline, signature, agentId) => {
+    if (!walletState) {
+      throw new Error('Wallet required for setAgentWallet. Configure wallet in createAgent options.')
+    }
+    const targetAgentId = agentId ?? onChainAgentId
+    if (targetAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before setting wallet.')
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+    return setAgentWallet(publicClient, walletClient, identityState, targetAgentId, newWallet, deadline, signature)
+  }
+
+  const verifyAgentWallet: Agent['verifyAgentWallet'] = async (params) => {
+    if (!walletState) {
+      throw new Error('Wallet required for verifyAgentWallet. Configure wallet in createAgent options.')
+    }
+    const targetAgentId = params.agentId ?? onChainAgentId
+    if (targetAgentId === null) {
+      throw new Error('Agent must be registered on-chain first. Call register() before setting wallet.')
+    }
+
+    const publicClient = getPublicClient(walletState, chainId)
+    const walletClient = getWalletClient(walletState, chainId)
+    const account = walletClient.account
+    if (!account) {
+      throw new Error('Wallet client has no account')
+    }
+
+    const typedData = createSetAgentWalletTypedData({
+      chainId,
+      registryAddress: identityRegistryAddress,
+      agentId: targetAgentId,
+      newWallet: params.newWallet,
+      deadline: params.deadline,
+      name: params.name,
+      version: params.version,
+    })
+
+    const signature = await walletClient.signTypedData({
+      account,
+      domain: typedData.domain,
+      types: typedData.types,
+      primaryType: typedData.primaryType,
+      message: typedData.message,
+    })
+
+    const txHash = await setAgentWallet(
+      publicClient,
+      walletClient,
+      identityState,
+      targetAgentId,
+      params.newWallet,
+      params.deadline,
+      signature
+    )
+
+    return { txHash, signature }
+  }
+
+  const ratePeer: Agent['ratePeer'] = async (peerId, value, options) => {
+    if (!walletState || !reputationState) {
+      throw new Error('Wallet required for rating. Configure wallet in createAgent options.')
+    }
+    return submitExplicitFeedback(reputationState, walletState, peerId, value, options)
+  }
+
   const walletAddress = walletState ? getAddress(walletState) : null
   let onChainAgentId: bigint | null = null
 
@@ -555,7 +670,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     query,
     onChainAgentId: null,
     register,
+    publishRegistration,
+    setAgentWallet: setAgentWalletForAgent,
+    verifyAgentWallet,
     ...stakingMethods,
+    ratePeer,
   }
 
   registerProcessCleanup()

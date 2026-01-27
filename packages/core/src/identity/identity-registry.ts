@@ -1,6 +1,8 @@
 import type { PublicClient, WalletClient } from 'viem';
 import { keccak256, toBytes } from 'viem';
+import { z } from 'zod';
 import type { IdentityRegistryState, AgentInfo, MetadataEntry } from './types';
+import { HexAddressSchema } from './types';
 import { formatGlobalId } from './global-id';
 
 const AGENT_IDENTITY_REGISTRY_ABI = [
@@ -108,6 +110,34 @@ const AGENT_IDENTITY_REGISTRY_ABI = [
   },
 ] as const;
 
+const SetAgentWalletDomainSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+  chainId: z.number().int().positive(),
+  verifyingContract: HexAddressSchema,
+});
+
+const SetAgentWalletMessageSchema = z.object({
+  agentId: z.bigint(),
+  newWallet: HexAddressSchema,
+  deadline: z.bigint(),
+});
+
+const SET_AGENT_WALLET_TYPES = [
+  { name: 'agentId', type: 'uint256' },
+  { name: 'newWallet', type: 'address' },
+  { name: 'deadline', type: 'uint256' },
+] as const;
+
+export interface SetAgentWalletTypedData {
+  domain: z.infer<typeof SetAgentWalletDomainSchema>;
+  types: {
+    SetAgentWallet: typeof SET_AGENT_WALLET_TYPES;
+  };
+  primaryType: 'SetAgentWallet';
+  message: z.infer<typeof SetAgentWalletMessageSchema>;
+}
+
 export function createIdentityRegistryState(
   chainId: number,
   registryAddress: `0x${string}`
@@ -121,6 +151,44 @@ export function createIdentityRegistryState(
 
 export function computePeerIdHash(peerId: string): `0x${string}` {
   return keccak256(toBytes(peerId));
+}
+
+export function createSetAgentWalletTypedData(params: {
+  chainId: number;
+  registryAddress: `0x${string}`;
+  agentId: bigint;
+  newWallet: `0x${string}`;
+  deadline: bigint;
+  name?: string;
+  version?: string;
+}): SetAgentWalletTypedData {
+  const domainInput = {
+    name: params.name ?? 'ERC8004IdentityRegistry',
+    version: params.version ?? '1',
+    chainId: params.chainId,
+    verifyingContract: params.registryAddress,
+  };
+
+  const domainResult = SetAgentWalletDomainSchema.safeParse(domainInput);
+  if (!domainResult.success) {
+    throw new Error('Invalid EIP-712 domain for setAgentWallet');
+  }
+
+  const messageResult = SetAgentWalletMessageSchema.safeParse({
+    agentId: params.agentId,
+    newWallet: params.newWallet,
+    deadline: params.deadline,
+  });
+  if (!messageResult.success) {
+    throw new Error('Invalid EIP-712 message for setAgentWallet');
+  }
+
+  return {
+    domain: domainResult.data,
+    types: { SetAgentWallet: SET_AGENT_WALLET_TYPES },
+    primaryType: 'SetAgentWallet',
+    message: messageResult.data,
+  };
 }
 
 export async function registerAgent(

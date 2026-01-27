@@ -4,6 +4,7 @@ import {
   createDefaultPeerResolver,
   createReputationState,
   resolveRegistryAddresses,
+  type FeedbackConfig,
   type ReputationState,
   type PeerResolver,
 } from '../reputation/reputation-state'
@@ -21,6 +22,7 @@ export interface WalletSetupConfig {
     peerResolver?: PeerResolver
     identityRegistryAddress?: `0x${string}`
     reputationRegistryAddress?: `0x${string}`
+    feedback?: FeedbackConfig
   }
 }
 
@@ -59,6 +61,7 @@ export function setupWallet(config: WalletSetupConfig): WalletSetupResult {
       peerResolver,
       identityRegistryAddress: addresses.identityRegistryAddress,
       reputationRegistryAddress: addresses.reputationRegistryAddress,
+      feedback: config.reputation?.feedback,
     })
   }
 

@@ -10,10 +10,12 @@ import type {
   ProtocolVersion,
 } from '../types'
 import type { StakeInfo } from '../identity'
+import type { AgentRegistrationInput, AgentRegistration } from '../identity/registration-storage'
+import type { StorageProviderConfig } from '../identity/provider-storage'
 import type { NodeState, StateRef } from '../networking/types'
 import type { WalletState } from '../payments/wallet'
 import type { LocalModelState } from '../llm/local-model'
-import type { PeerResolver } from '../reputation/reputation-state'
+import type { FeedbackConfig, FeedbackSubmissionResult, ExplicitFeedbackOptions, PeerResolver } from '../reputation/reputation-state'
 import type {
   MultiAgentConfig,
   AgentResponse,
@@ -204,6 +206,7 @@ export interface AgentReputationConfig {
   peerResolver?: PeerResolver
   identityRegistryAddress?: `0x${string}`
   reputationRegistryAddress?: `0x${string}`
+  feedback?: FeedbackConfig
 }
 
 export interface AgentConfig {
@@ -272,10 +275,39 @@ export interface Agent {
   query: (prompt: string, config?: QueryConfig) => Promise<ConsensusResult>
   onChainAgentId: bigint | null
   register: (agentURI?: string) => Promise<bigint>
+  publishRegistration: (registration: AgentRegistrationInput, options?: PublishRegistrationOptions) => Promise<PublishRegistrationResult>
+  setAgentWallet: (newWallet: `0x${string}`, deadline: bigint, signature: `0x${string}`, agentId?: bigint) => Promise<`0x${string}`>
+  verifyAgentWallet: (params: VerifyAgentWalletParams) => Promise<VerifyAgentWalletResult>
   stake: (amount: bigint) => Promise<string>
   unstake: (amount: bigint) => Promise<string>
   getStakeInfo: () => Promise<StakeInfo>
   resolveWalletForPeer: (peerId: string) => Promise<`0x${string}` | null>
+  ratePeer: (peerId: string, value: number, options?: ExplicitFeedbackOptions) => Promise<FeedbackSubmissionResult>
+}
+
+export interface PublishRegistrationOptions {
+  agentId?: bigint
+  storageProvider?: StorageProviderConfig
+}
+
+export interface PublishRegistrationResult {
+  agentId: bigint
+  uri: string
+  txHash: `0x${string}`
+  registration: AgentRegistration
+}
+
+export interface VerifyAgentWalletParams {
+  newWallet: `0x${string}`
+  deadline: bigint
+  agentId?: bigint
+  name?: string
+  version?: string
+}
+
+export interface VerifyAgentWalletResult {
+  txHash: `0x${string}`
+  signature: `0x${string}`
 }
 
 interface BaseNetworkQueryConfig {

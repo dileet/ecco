@@ -4,5 +4,7 @@ export * from './identity-registry';
 export * from './reputation-registry';
 export * from './validation-registry';
 export * from './feedback-storage';
+export * from './provider-storage';
+export * from './registration-storage';
 export * from './unified-scoring';
 export * from './stake-registry';
