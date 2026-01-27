@@ -17,8 +17,8 @@ export const AgentLocatorSchema = z.object({
 export type AgentLocator = z.infer<typeof AgentLocatorSchema>;
 
 export const MetadataEntrySchema = z.object({
-  key: z.string().min(1).max(64),
-  value: z.instanceof(Uint8Array),
+  metadataKey: z.string().min(1).max(64),
+  metadataValue: z.instanceof(Uint8Array),
 });
 export type MetadataEntry = z.infer<typeof MetadataEntrySchema>;
 

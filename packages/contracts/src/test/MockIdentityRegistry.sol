@@ -5,8 +5,8 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 contract MockIdentityRegistry is ERC721 {
     struct MetadataEntry {
-        string key;
-        bytes value;
+        string metadataKey;
+        bytes metadataValue;
     }
 
     uint256 private _nextTokenId;
@@ -16,7 +16,7 @@ contract MockIdentityRegistry is ERC721 {
 
     event Registered(uint256 indexed agentId, string agentURI, address indexed owner);
     event MetadataSet(uint256 indexed agentId, string indexed indexedMetadataKey, string metadataKey, bytes metadataValue);
-    event URIUpdated(uint256 indexed agentId, string agentURI);
+    event URIUpdated(uint256 indexed agentId, string newURI, address indexed updatedBy);
 
     constructor() ERC721("MockAgent", "MAGENT") {}
 
@@ -24,6 +24,7 @@ contract MockIdentityRegistry is ERC721 {
         uint256 tokenId = ++_nextTokenId;
         _mint(msg.sender, tokenId);
         emit Registered(tokenId, "", msg.sender);
+        emit MetadataSet(tokenId, "agentWallet", "agentWallet", abi.encode(msg.sender));
         return tokenId;
     }
 
@@ -32,6 +33,7 @@ contract MockIdentityRegistry is ERC721 {
         _mint(msg.sender, tokenId);
         _tokenURIs[tokenId] = agentURI;
         emit Registered(tokenId, agentURI, msg.sender);
+        emit MetadataSet(tokenId, "agentWallet", "agentWallet", abi.encode(msg.sender));
         return tokenId;
     }
 
@@ -41,20 +43,21 @@ contract MockIdentityRegistry is ERC721 {
         _tokenURIs[tokenId] = agentURI;
         for (uint256 i = 0; i < entries.length; i++) {
             require(
-                keccak256(bytes(entries[i].key)) != keccak256(bytes("agentWallet")),
+                keccak256(bytes(entries[i].metadataKey)) != keccak256(bytes("agentWallet")),
                 "Reserved key: agentWallet"
             );
-            _metadata[tokenId][entries[i].key] = entries[i].value;
-            emit MetadataSet(tokenId, entries[i].key, entries[i].key, entries[i].value);
+            _metadata[tokenId][entries[i].metadataKey] = entries[i].metadataValue;
+            emit MetadataSet(tokenId, entries[i].metadataKey, entries[i].metadataKey, entries[i].metadataValue);
         }
         emit Registered(tokenId, agentURI, msg.sender);
+        emit MetadataSet(tokenId, "agentWallet", "agentWallet", abi.encode(msg.sender));
         return tokenId;
     }
 
     function setAgentURI(uint256 agentId, string memory agentURI) external {
         require(ownerOf(agentId) == msg.sender, "Not owner");
         _tokenURIs[agentId] = agentURI;
-        emit URIUpdated(agentId, agentURI);
+        emit URIUpdated(agentId, agentURI, msg.sender);
     }
 
     function setMetadata(uint256 agentId, string memory metadataKey, bytes memory metadataValue) external {

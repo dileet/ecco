@@ -28,7 +28,7 @@ export function normalizeFeedbackValue(value: bigint, decimals: number): number 
 }
 
 export function normalizeValidationScore(validationScore: number): number {
-  return normalizeScore(validationScore, 0, 255);
+  return normalizeScore(validationScore, 0, 100);
 }
 
 export function combineScores(

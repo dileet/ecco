@@ -242,14 +242,14 @@ export async function registerAgentWithMetadata(
   const account = walletClient.account;
   if (!account) throw new Error('Wallet client has no account');
 
-  const hasReservedKey = metadata.some((entry) => entry.key === 'agentWallet');
+  const hasReservedKey = metadata.some((entry) => entry.metadataKey === 'agentWallet');
   if (hasReservedKey) {
     throw new Error('agentWallet is a reserved metadata key and cannot be set via register()');
   }
 
   const formattedMetadata = metadata.map((entry) => ({
-    metadataKey: entry.key,
-    metadataValue: Buffer.from(entry.value).length ? (`0x${Buffer.from(entry.value).toString('hex')}` as `0x${string}`) : '0x',
+    metadataKey: entry.metadataKey,
+    metadataValue: Buffer.from(entry.metadataValue).length ? (`0x${Buffer.from(entry.metadataValue).toString('hex')}` as `0x${string}`) : '0x',
   }));
 
   const { request } = await publicClient.simulateContract({
