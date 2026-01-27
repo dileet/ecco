@@ -227,23 +227,19 @@ export async function getSummary(
   publicClient: PublicClient,
   state: ReputationRegistryState,
   agentId: bigint,
-  clientAddresses: `0x${string}`[] = [],
+  clientAddresses: `0x${string}`[],
   tag1: string = '',
   tag2: string = ''
 ): Promise<FeedbackSummary> {
-  const resolvedClients = clientAddresses.length > 0
-    ? clientAddresses
-    : await getClients(publicClient, state, agentId);
-
-  if (resolvedClients.length === 0) {
-    return { count: 0, averageValue: 0n, maxDecimals: 0 };
+  if (clientAddresses.length === 0) {
+    throw new Error('clientAddresses MUST be provided (non-empty) per ERC-8004 spec');
   }
 
   const [count, averageValue, maxDecimals] = await publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,
     functionName: 'getSummary',
-    args: [agentId, resolvedClients, tag1, tag2],
+    args: [agentId, clientAddresses, tag1, tag2],
   });
 
   return {

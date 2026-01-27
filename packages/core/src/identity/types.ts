@@ -72,10 +72,15 @@ export const FeedbackSummarySchema = z.object({
 });
 export type FeedbackSummary = z.infer<typeof FeedbackSummarySchema>;
 
+export const Eip155AddressSchema = z.string().regex(
+  /^eip155:\d+:0x[a-fA-F0-9]{40}$/,
+  'clientAddress must be in eip155:{chainId}:{address} format'
+);
+
 export const OffChainFeedbackSchema = z.object({
   agentRegistry: z.string(),
   agentId: z.number().int().nonnegative(),
-  clientAddress: z.string(),
+  clientAddress: Eip155AddressSchema,
   createdAt: z.string(),
   value: z.string().regex(/^-?\d+$/, "value must be an integer string"),
   valueDecimals: z.number().int().min(0).max(18),
@@ -88,7 +93,11 @@ export const OffChainFeedbackSchema = z.object({
   task: z.string().optional(),
   capability: z.enum(["prompts", "resources", "tools", "completions"]).optional(),
   name: z.string().optional(),
-  mcp: z.string().optional(),
+  mcp: z.object({
+    tool: z.string().optional(),
+    prompt: z.string().optional(),
+    resource: z.string().optional(),
+  }).optional(),
   a2a: z.object({
     skills: z.array(z.string()).optional(),
     contextId: z.string().optional(),

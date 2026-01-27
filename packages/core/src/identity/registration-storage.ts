@@ -8,13 +8,17 @@ const RegistrationLocatorSchema = z.object({
   agentId: z.number().int().nonnegative(),
 });
 
-const RegistrationServiceSchema = z.object({ type: z.string().min(1) }).catchall(z.unknown());
+const RegistrationServiceSchema = z.object({
+  name: z.string().min(1),
+  endpoint: z.string().min(1),
+  version: z.string().optional(),
+}).catchall(z.unknown());
 
 const RegistrationInputSchema = z.object({
-  type: z.string().optional(),
-  name: z.string().optional(),
-  description: z.string().optional(),
-  image: z.string().optional(),
+  type: z.string().min(1).optional(),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  image: z.string().min(1),
   services: z.array(RegistrationServiceSchema).optional(),
   registrations: z.array(RegistrationLocatorSchema).optional(),
   supportedTrust: z.array(z.string()).optional(),

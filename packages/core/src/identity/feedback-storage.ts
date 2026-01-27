@@ -11,7 +11,7 @@ const IpfsStoreResponseSchema = z.object({ Hash: z.string() });
 export function createFeedbackContent(
   agentRegistry: string,
   agentId: number,
-  clientAddress: `0x${string}`,
+  clientAddress: { chainId: number; address: `0x${string}` },
   value: bigint | string,
   valueDecimals: number,
   options: {
@@ -25,7 +25,11 @@ export function createFeedbackContent(
     task?: string;
     capability?: 'prompts' | 'resources' | 'tools' | 'completions';
     name?: string;
-    mcp?: string;
+    mcp?: {
+      tool?: string;
+      prompt?: string;
+      resource?: string;
+    };
     a2a?: {
       skills?: string[];
       contextId?: string;
@@ -43,10 +47,11 @@ export function createFeedbackContent(
     };
   } = {}
 ): Omit<OffChainFeedback, 'signature'> {
+  const formattedClientAddress = `eip155:${clientAddress.chainId}:${clientAddress.address}`;
   return {
     agentRegistry,
     agentId,
-    clientAddress,
+    clientAddress: formattedClientAddress,
     createdAt: options.createdAt ?? new Date().toISOString(),
     value: String(value),
     valueDecimals,

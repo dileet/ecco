@@ -74,7 +74,11 @@ export interface FeedbackMetadata {
   task?: string;
   capability?: 'prompts' | 'resources' | 'tools' | 'completions';
   name?: string;
-  mcp?: string;
+  mcp?: {
+    tool?: string;
+    prompt?: string;
+    resource?: string;
+  };
   a2a?: {
     skills?: string[];
     contextId?: string;
@@ -626,7 +630,7 @@ async function submitFeedbackInternal(
   const feedbackContent = createFeedbackContent(
     registryId,
     Number(agentId),
-    clientAddress,
+    { chainId: state.chainId, address: clientAddress },
     value,
     valueDecimals,
     resolvedMetadata
