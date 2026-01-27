@@ -542,11 +542,15 @@ export async function handleVersionHandshake(
         );
         await state.sendMessage(peerId, notice);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[ecco] Failed to send handshake rejection:', err instanceof Error ? err.message : String(err));
+    }
 
     if (state.disconnectPeer) {
       const disconnectPeer = state.disconnectPeer;
-      delay(DISCONNECT_DELAY_MS).then(() => disconnectPeer(peerId)).catch(() => {});
+      delay(DISCONNECT_DELAY_MS).then(() => disconnectPeer(peerId)).catch((err) => {
+        console.warn(`[ecco] Failed to disconnect peer ${peerId}:`, err instanceof Error ? err.message : String(err));
+      });
     }
 
     state.onPeerRejected?.(peerId, responsePayload?.reason ?? 'Handshake rejected');

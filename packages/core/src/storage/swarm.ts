@@ -4,7 +4,7 @@ import { getDb, requireDb, ensureDbInitialized, isNoSuchTableError, handleLoadEr
 
 export const loadSwarmSplits = async (): Promise<Record<string, SwarmSplit>> => {
   const db = getDb();
-  if (!db) return {};
+  if (!db) throw new Error('Database not initialized when loading swarm splits');
   try {
     const rows = db.select().from(swarmSplits).all();
     const result: Record<string, SwarmSplit> = {};

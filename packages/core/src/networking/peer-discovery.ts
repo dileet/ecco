@@ -259,7 +259,9 @@ export function setupEventListeners(
       debug('discovery', `Peer connected: ${peerId}, handshake not required`);
     }
 
-    handlePeerConnect(stateRef).catch(() => {});
+    handlePeerConnect(stateRef).catch((err) => {
+      console.warn(`[ecco] Failed to handle peer connect:`, err instanceof Error ? err.message : String(err));
+    });
   }, { signal: abortController.signal });
 
   node.addEventListener('peer:disconnect', (evt: CustomEvent<PeerId>) => {

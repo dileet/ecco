@@ -13,7 +13,7 @@ import { getDb, requireDb, ensureDbInitialized, isNoSuchTableError, handleLoadEr
 
 export const loadPaymentLedger = async (): Promise<Record<string, PaymentLedgerEntry>> => {
   const db = getDb();
-  if (!db) return {};
+  if (!db) throw new Error('Database not initialized when loading payment ledger');
   try {
     const rows = db.select().from(paymentLedger).all();
     const result: Record<string, PaymentLedgerEntry> = {};
@@ -37,7 +37,7 @@ export const updatePaymentLedgerEntry = async (e: PaymentLedgerEntry): Promise<v
 
 export const loadPendingSettlements = async (): Promise<SettlementIntent[]> => {
   const db = getDb();
-  if (!db) return [];
+  if (!db) throw new Error('Database not initialized when loading pending settlements');
   try {
     return db.select().from(pendingSettlements).all();
   } catch (error) {
@@ -63,7 +63,7 @@ export const updateSettlement = async (e: SettlementIntent): Promise<void> => {
 
 export const isPaymentProofProcessed = async (txHash: string, chainId: number): Promise<boolean> => {
   const db = getDb();
-  if (!db) return false;
+  if (!db) throw new Error('Database not initialized when checking payment proof');
   try {
     const rows = db.select().from(processedPaymentProofs).where(eq(processedPaymentProofs.txHash, txHash)).all();
     return rows.length > 0 && rows[0].chainId === chainId;
@@ -101,7 +101,7 @@ export const writeTimedOutPayment = async (invoice: StoredInvoice, timedOutAt: n
 
 export const getTimedOutPayment = async (invoiceId: string): Promise<TimedOutPayment | null> => {
   const db = getDb();
-  if (!db) return null;
+  if (!db) throw new Error('Database not initialized when getting timed out payment');
   try {
     const rows = db.select().from(timedOutPayments).where(eq(timedOutPayments.invoiceId, invoiceId)).all();
     return rows.length > 0 ? rows[0] : null;
@@ -113,7 +113,7 @@ export const getTimedOutPayment = async (invoiceId: string): Promise<TimedOutPay
 
 export const loadPendingTimedOutPayments = async (): Promise<TimedOutPayment[]> => {
   const db = getDb();
-  if (!db) return [];
+  if (!db) throw new Error('Database not initialized when loading pending timed out payments');
   try {
     return db.select().from(timedOutPayments).where(eq(timedOutPayments.status, 'pending')).all();
   } catch (error) {

@@ -68,7 +68,9 @@ const sendRequests = async (
   const invoiceExpiresAt = Date.now() + 300000;
   await Promise.allSettled(
     requests.map(async (req) => {
-      writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch(() => {});
+      writeExpectedInvoice(req.message.id, req.message.to, invoiceExpiresAt).catch((err) => {
+        console.warn(`[ecco] Failed to write expected invoice for job ${req.message.id}:`, err instanceof Error ? err.message : String(err));
+      });
       try {
         await sendMessage(nodeRef, req.message.to, req.message);
       } catch (error) {

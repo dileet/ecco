@@ -310,12 +310,16 @@ export function initialize(state: Libp2pAdapterState): Libp2pAdapterState {
         console.warn('Failed to handle direct stream message:', error);
       }
     } finally {
-      await stream.close().catch(() => {});
+      await stream.close().catch((err) => {
+        console.warn('[ecco] Failed to close stream:', err instanceof Error ? err.message : String(err));
+      });
     }
   });
 
   cleanups.push(() => {
-    node.unhandle(protocol).catch(() => {});
+    node.unhandle(protocol).catch((err) => {
+      console.warn('[ecco] Failed to unhandle protocol:', err instanceof Error ? err.message : String(err));
+    });
   });
 
   const pubsub = node.services.pubsub;

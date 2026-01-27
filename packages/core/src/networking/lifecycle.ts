@@ -10,7 +10,7 @@ import { mdns } from '@libp2p/mdns';
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht';
 import { gossipsub } from '@libp2p/gossipsub';
 import { signMessage, createPublicKeyCache } from '../auth/authenticator';
-import { withTimeout, retryWithBackoff, debug } from '../utils';
+import { retryWithBackoff, debug } from '../utils';
 import * as storage from '../storage';
 import { closePool } from './connection-lifecycle';
 import { publish, shutdownMessaging } from './messaging';
@@ -497,17 +497,23 @@ export async function start(state: NodeState): Promise<StateRef<NodeState>> {
     const currentState = getState(stateRef);
 
     if (currentState.transport) {
-      await shutdownHybridDiscovery(currentState.transport).catch(() => {});
+      await shutdownHybridDiscovery(currentState.transport).catch((err) => {
+        console.warn('[ecco] Failed to shutdown hybrid discovery:', err instanceof Error ? err.message : String(err));
+      });
     }
 
     if (currentState.connectionPool) {
-      await closePool(currentState.connectionPool).catch(() => {});
+      await closePool(currentState.connectionPool).catch((err) => {
+        console.warn('[ecco] Failed to close connection pool:', err instanceof Error ? err.message : String(err));
+      });
     }
 
     if (currentState.node) {
       try {
         await currentState.node.stop();
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[ecco] Failed to stop libp2p node:', err instanceof Error ? err.message : String(err));
+      }
     }
 
     throw error;
@@ -534,7 +540,7 @@ export async function stop(stateRef: StateRef<NodeState>): Promise<void> {
   }
 
   if (state.node) {
-    await withTimeout(Promise.resolve(state.node.stop()), 5000, 'Libp2p node stop timeout').catch(() => {});
+    await state.node.stop();
   }
 }
 

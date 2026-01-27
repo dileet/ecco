@@ -70,7 +70,7 @@ export const ensureDbInitialized = async (): Promise<void> => {
 
 export const initialize = async (nodeId: string): Promise<void> => {
   currentNodeId = nodeId;
-  await initializeDatabase(nodeId, false);
+  await initializeDatabase(nodeId, true);
 };
 
 export const close = (): void => {

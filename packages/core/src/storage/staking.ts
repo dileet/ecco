@@ -4,7 +4,7 @@ import { getDb, requireDb, ensureDbInitialized, isNoSuchTableError, handleLoadEr
 
 export const loadStakePositions = async (): Promise<Record<string, StakePosition>> => {
   const db = getDb();
-  if (!db) return {};
+  if (!db) throw new Error('Database not initialized when loading stake positions');
   try {
     const rows = db.select().from(stakePositions).all();
     const result: Record<string, StakePosition> = {};

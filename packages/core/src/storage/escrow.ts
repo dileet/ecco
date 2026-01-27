@@ -4,7 +4,7 @@ import { getDb, requireDb, ensureDbInitialized, isNoSuchTableError, handleLoadEr
 
 export const loadEscrowAgreements = async (): Promise<Record<string, EscrowAgreement>> => {
   const db = getDb();
-  if (!db) return {};
+  if (!db) throw new Error('Database not initialized when loading escrow agreements');
   try {
     const rows = db.select().from(escrowAgreements).all();
     const result: Record<string, EscrowAgreement> = {};

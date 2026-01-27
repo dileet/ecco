@@ -10,7 +10,7 @@ export const writeExpectedInvoice = async (jobId: string, expectedRecipient: str
 
 export const getExpectedInvoice = async (jobId: string): Promise<ExpectedInvoice | null> => {
   const db = getDb();
-  if (!db) return null;
+  if (!db) throw new Error('Database not initialized when getting expected invoice');
   try {
     const rows = db.select().from(expectedInvoices).where(eq(expectedInvoices.jobId, jobId)).all();
     if (rows.length === 0) return null;

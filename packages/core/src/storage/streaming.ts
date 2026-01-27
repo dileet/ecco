@@ -4,7 +4,7 @@ import { getDb, requireDb, ensureDbInitialized, isNoSuchTableError, handleLoadEr
 
 export const loadStreamingChannels = async (): Promise<Record<string, StreamingAgreement>> => {
   const db = getDb();
-  if (!db) return {};
+  if (!db) throw new Error('Database not initialized when loading streaming channels');
   try {
     const rows = db.select().from(streamingChannels).all();
     const result: Record<string, StreamingAgreement> = {};
