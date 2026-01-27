@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const StorageProviderConfigSchema = z.object({
   uploadUrl: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   responseField: z.string().min(1),
   uriPrefix: z.string().optional(),
   gateway: z.string().url().optional(),

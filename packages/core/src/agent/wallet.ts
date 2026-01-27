@@ -1,4 +1,5 @@
 import type { PrivateKey } from '@libp2p/interface'
+import { generatePrivateKey } from 'viem/accounts'
 import { createWalletState, type WalletState } from '../payments/wallet'
 import {
   createDefaultPeerResolver,
@@ -13,6 +14,7 @@ import type { PaymentHelpers, FeeHelpers } from './types'
 
 export interface WalletSetupConfig {
   ethereumPrivateKey: `0x${string}` | undefined
+  walletEnabled?: boolean
   rpcUrls: Record<number, string>
   chainId: number
   libp2pPrivateKey: PrivateKey
@@ -35,10 +37,13 @@ export interface WalletSetupResult {
 }
 
 export function setupWallet(config: WalletSetupConfig): WalletSetupResult {
+  const ethereumPrivateKey = config.ethereumPrivateKey
+    ?? (config.walletEnabled ? generatePrivateKey() : undefined)
+
   let walletState: WalletState | null = null
-  if (config.ethereumPrivateKey) {
+  if (ethereumPrivateKey) {
     walletState = createWalletState({
-      privateKey: config.ethereumPrivateKey,
+      privateKey: ethereumPrivateKey,
       rpcUrls: config.rpcUrls,
     })
   }

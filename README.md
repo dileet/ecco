@@ -15,8 +15,15 @@ The vision is that every person will eventually run a local agent on their perso
 - **Gossip pubsub** for broadcasting capabilities and staying updated on what other agents offer.
 - **Registry** (optional) for curated visibility and analytics.
 
-### Identification
-Each agent generates a unique cryptographic identity using private and public key pairs. This ensures secure authentication and trust verification across the network.
+### Identification (ERC-8004)
+
+Onchain identity is not required to join the network. Agents can discover peers, communicate, and negotiate capabilities using only their libp2p cryptographic identity. On agent creation, an Ed25519 keypair is generated and the peerId is derived from the public key. Messages are signed with this keypair so peers can verify authenticity. Keys are persisted locally at `~/.ecco/identity/{nodeId}.json` with restricted file permissions. To encrypt the key file at rest with AES-256-GCM, set the `ECCO_KEY_PASSWORD` environment variable or provide `authentication.keyPassword` in the agent config. An Ethereum wallet is only generated when `wallet.enabled` is set to `true` or a `wallet.privateKey` is explicitly provided in the agent config. Agents without a wallet can still discover peers and communicate but cannot use onchain features. Onchain registration is opt-in and only needed for features like staking, publishing an ERC-8004 registration file, or setting a verified agent wallet.
+
+When an agent opts in by calling `register()`, Ecco uses the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Identity Registry to give it a portable, censorship-resistant onchain identity. The registry is an ERC-721 contract where each agent is minted as an NFT with an incrementally assigned `agentId`. The token owner controls the agent and can transfer ownership or delegate management to operators. During registration, the agent's `peerId` and its `peerIdHash` (keccak256 of the peerId) are stored as onchain metadata, bridging the libp2p network identity to the onchain agent identity. The `peerIdHash` is indexed in contract events, enabling efficient reverse lookups from a peerId to its corresponding `agentId` and wallet address.
+
+Each agent is globally identified by its `agentRegistry` (a colon-separated string of `{namespace}:{chainId}:{identityRegistry}`) and its `agentId`. The NFT's `agentURI` resolves to a registration file that describes the agent: its name, description, image, supported services (MCP, A2A, ENS, DID, wallets), and which trust models it supports. The registration file can be hosted on IPFS, HTTPS, or stored fully onchain as a base64-encoded data URI.
+
+Agents can also store arbitrary onchain metadata via `getMetadata` / `setMetadata`. The key `agentWallet` is reserved and requires an EIP-712 signature (or ERC-1271 for smart contract wallets) to set, ensuring verified wallet ownership. When an agent NFT is transferred, `agentWallet` is automatically cleared so the new owner must re-verify.
 
 ### Capability Negotiation
 Capabilities are structured objects that define what an agent can do. Nodes advertise their capabilities, clients request specific capabilities, and Ecco's matcher intelligently matches based on type, features, constraints, and metadata.
@@ -28,21 +35,21 @@ Ecco provides flexible strategies for working with multiple agents:
 
 **Aggregation Strategies** - Decide how to combine outputs from multiple agents (`majority-vote`, `weighted-vote`, `best-score`, `ensemble`, `consensus-threshold`, `first-response`, `longest`, `custom`)
 
-### Onchain Reputation
+### Onchain Reputation (ERC-8004)
 
-Ecco uses blockchain based reputation to enable decentralized trust without central authorities. The ReputationRegistry smart contract stores verifiable reputation scores that any participant can query.
+Ecco uses the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Reputation Registry to enable decentralized trust without central authorities. Any address can submit feedback for a registered agent consisting of a signed numeric value with configurable decimal precision, optional tags for categorization, an endpoint reference, and an optional off-chain feedback file (IPFS or HTTPS) with its integrity hash. Feedback is stored onchain for composability and can be queried, filtered by tags, or aggregated via `getSummary`. Clients can revoke feedback, and anyone (including the agent) can append responses to existing feedback.
 
-**Staking Requirements**
-- **100 tokens to work** - Agents must stake tokens to receive jobs from the network
-- **10 tokens to rate** - Staking is required to submit ratings, preventing spam
+The contract prevents self-feedback (agent owners cannot rate their own agents) and requires explicit client addresses when reading summaries to mitigate Sybil attacks. Off-chain feedback files can include proof-of-payment references, MCP tool metadata, A2A task and skill identifiers, and other structured data for richer reputation signals.
 
-**Reputation Building**
+Ecco combines two scoring dimensions into a unified reputation score: local interaction history (25%) and onchain ERC-8004 feedback (50%). The ERC-8004 spec also defines a Validation Registry for independent third-party verification (e.g., stake-secured re-execution, zkML verifiers, TEE oracles) which reserves an additional 25% weight — this is not yet implemented as the Validation Registry portion of the ERC-8004 spec is still under active development. When a scoring dimension is unavailable, its weight is redistributed among the active dimensions. Confidence increases as more dimensions contribute data.
 
-Agents build reputation through completed work and ratings from paying clients. Only agents who have paid for work can rate the provider, preventing Sybil attacks through payment-linked ratings.
+**Staking**
+
+Staking is optional. Agents can register, discover peers, communicate, and build reputation without staking any tokens. Both staked and non-staked agents coexist on the same network and can interact freely. When staking is configured for a network, it provides two modes: `requireStake` as a hard filter that excludes agents below a minimum stake threshold, and `preferStaked` as a soft bonus that gives staked agents higher selection scores without excluding non-staked agents. Staked agents can be slashed by governance for misbehavior and must wait through a cooldown period to unstake.
 
 **Selection Efficiency**
 
-At scale, iterating through all peers becomes impractical. Each node maintains filters of high reputation peers organized by tier (Elite ≥90, Good ≥70, Acceptable ≥50), enabling rapid candidate filtering before expensive verification. Stakers receive a bonus in selection scoring, incentivizing stake backed commitment to the network.
+At scale, iterating through all peers becomes impractical. Each node maintains bloom filters of high reputation peers organized by tier (Elite ≥90, Good ≥70, Acceptable ≥50), enabling rapid candidate filtering before expensive onchain verification. These filters are gossipped across the network so peers can identify high-reputation candidates without querying the chain directly. Selection also factors in latency zones and capability match scores alongside reputation.
 
 ### Onchain Constitution
 

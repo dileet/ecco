@@ -106,10 +106,11 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
   const ethereumPrivateKey = config.wallet?.privateKey
     ? (config.wallet.privateKey as `0x${string}`)
-    : identity.ethereumPrivateKey
+    : undefined
 
   const { walletState, reputationState, paymentState, payments, fees } = setupWallet({
     ethereumPrivateKey,
+    walletEnabled: config.wallet?.enabled,
     rpcUrls,
     chainId,
     libp2pPrivateKey: identity.libp2pPrivateKey,

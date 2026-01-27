@@ -50,6 +50,7 @@ export interface EccoConfig {
     enabled: boolean;
     keyPath?: string;
     keyPassword?: string;
+    ethereumPrivateKey?: `0x${string}`;
     walletRpcUrls?: Record<number, string>;
   };
   retry?: {

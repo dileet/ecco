@@ -2,7 +2,6 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { generatePrivateKey } from 'viem/accounts';
 import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from '@libp2p/crypto/keys';
 import { peerIdFromPrivateKey } from '@libp2p/peer-id';
 import type { PrivateKey } from '@libp2p/interface';
@@ -42,7 +41,6 @@ function ensureCSPRNGValidated(): void {
 
 const PersistedKeyFileSchema = z.object({
   libp2pPrivateKey: z.string(),
-  ethereumPrivateKey: z.string().startsWith('0x') as z.ZodType<`0x${string}`>,
 });
 
 const EncryptedKeyFileSchema = z.object({
@@ -155,7 +153,6 @@ async function ensureDir(dirPath: string): Promise<void> {
 
 export interface NodeIdentity {
   libp2pPrivateKey: PrivateKey;
-  ethereumPrivateKey: `0x${string}`;
   peerId: string;
   keyFilePath: string;
   created: boolean;
@@ -200,7 +197,6 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<Node
 
     return {
       libp2pPrivateKey,
-      ethereumPrivateKey: data.ethereumPrivateKey,
       peerId: peerId.toString(),
       keyFilePath,
       created: false,
@@ -210,12 +206,10 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<Node
   ensureCSPRNGValidated();
 
   const libp2pPrivateKey = await generateKeyPair('Ed25519');
-  const ethereumPrivateKey = generatePrivateKey();
   const peerId = peerIdFromPrivateKey(libp2pPrivateKey);
 
   const persist: PersistedKeyFile = {
     libp2pPrivateKey: Buffer.from(privateKeyToProtobuf(libp2pPrivateKey)).toString('base64'),
-    ethereumPrivateKey,
   };
 
   await ensureDir(path.dirname(keyFilePath));
@@ -230,7 +224,6 @@ export async function loadOrCreateNodeIdentity(config: EccoConfig): Promise<Node
 
   return {
     libp2pPrivateKey,
-    ethereumPrivateKey,
     peerId: peerId.toString(),
     keyFilePath,
     created: true,

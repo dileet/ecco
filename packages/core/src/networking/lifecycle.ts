@@ -192,11 +192,12 @@ async function setupAuthentication(stateRef: StateRef<NodeState>): Promise<void>
   }));
 
   const walletRpcUrls = state.config.authentication?.walletRpcUrls;
+  const ethereumPrivateKey = state.config.authentication?.ethereumPrivateKey;
   const hasWalletRpcUrls = walletRpcUrls && Object.keys(walletRpcUrls).length > 0;
 
-  if (hasWalletRpcUrls) {
+  if (hasWalletRpcUrls && ethereumPrivateKey) {
     const walletState = createWalletState({
-      privateKey: identity.ethereumPrivateKey,
+      privateKey: ethereumPrivateKey,
       chains: [],
       rpcUrls: walletRpcUrls,
     });

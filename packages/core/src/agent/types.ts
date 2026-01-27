@@ -42,6 +42,7 @@ export type StreamGenerateFn = (options: {
 export type EmbedFn = (texts: string[]) => Promise<number[][]>
 
 export interface AgentWalletConfig {
+  enabled?: boolean
   privateKey?: string
   rpcUrls?: Record<number, string>
 }

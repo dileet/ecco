@@ -406,7 +406,6 @@ export {
   type FeedbackConfig,
   type FeedbackDefaults,
   type FeedbackMetadata,
-  type FeedbackStorageConfig,
   type ExplicitFeedbackOptions,
   type FeedbackSubmissionResult,
   type PeerResolver,
