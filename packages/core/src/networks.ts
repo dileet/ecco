@@ -3,12 +3,18 @@ import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Cons
 
 export const MAINNET_CHAIN_ID = 143;
 export const TESTNET_CHAIN_ID = 11155111;
+export const ETH_MAINNET_CHAIN_ID = 1;
 
 export const ERC8004_ADDRESSES: Record<number, {
   identityRegistry: `0x${string}`;
   reputationRegistry: `0x${string}`;
   validationRegistry: `0x${string}`;
 }> = {
+  [ETH_MAINNET_CHAIN_ID]: {
+    identityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+    reputationRegistry: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+    validationRegistry: zeroAddress,
+  },
   [TESTNET_CHAIN_ID]: {
     identityRegistry: '0x8004A818BFB912233c491871b3d84c89A494BD9e',
     reputationRegistry: '0x8004B663056A597Dffe9eCcC1965A193B7388713',
@@ -158,6 +164,7 @@ export const DEFAULT_CHAIN_IDS: Record<NetworkName, number> = {
 export const DEFAULT_RPC_URLS: Record<number, string> = {
   [MAINNET_CHAIN_ID]: 'https://rpc.monad.xyz',
   [TESTNET_CHAIN_ID]: 'https://rpc.sepolia.org',
+  [ETH_MAINNET_CHAIN_ID]: 'https://eth.llamarpc.com',
 };
 
 export function getDefaultChainId(network: NetworkName): number {
