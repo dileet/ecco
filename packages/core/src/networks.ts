@@ -1,7 +1,29 @@
+import { zeroAddress } from 'viem';
 import type { EccoConfig, DiscoveryMethod, ProtocolVersion, ProtocolConfig, Constitution } from './types';
 
 export const MAINNET_CHAIN_ID = 143;
 export const TESTNET_CHAIN_ID = 11155111;
+
+export const ERC8004_ADDRESSES: Record<number, {
+  identityRegistry: `0x${string}`;
+  reputationRegistry: `0x${string}`;
+  validationRegistry: `0x${string}`;
+}> = {
+  [TESTNET_CHAIN_ID]: {
+    identityRegistry: '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+    reputationRegistry: '0x8004B663056A597Dffe9eCcC1965A193B7388713',
+    validationRegistry: zeroAddress,
+  },
+};
+
+export function getERC8004Addresses(chainId: number) {
+  return ERC8004_ADDRESSES[chainId];
+}
+
+export function hasOfficialERC8004(chainId: number): boolean {
+  const addresses = ERC8004_ADDRESSES[chainId];
+  return addresses !== undefined && addresses.identityRegistry !== zeroAddress;
+}
 
 export const SDK_PROTOCOL_VERSION: ProtocolVersion = {
   major: 1,
@@ -24,11 +46,6 @@ export interface NetworkConfig {
   };
   protocol: ProtocolConfig;
   constitution: Constitution;
-  onChainConstitution?: {
-    enabled: boolean;
-    chainId: number;
-    rpcUrl?: string;
-  };
 }
 
 export const OFFICIAL_BOOTSTRAP_PEERS: string[] = [
@@ -62,10 +79,6 @@ export const ECCO_MAINNET: NetworkConfig = {
     upgradeUrl: 'https://github.com/dileet/ecco',
   },
   constitution: DEFAULT_CONSTITUTION,
-  onChainConstitution: {
-    enabled: true,
-    chainId: MAINNET_CHAIN_ID,
-  },
 };
 
 export const ECCO_TESTNET: NetworkConfig = {
@@ -83,10 +96,6 @@ export const ECCO_TESTNET: NetworkConfig = {
     enforcementLevel: 'warn',
   },
   constitution: DEFAULT_CONSTITUTION,
-  onChainConstitution: {
-    enabled: true,
-    chainId: TESTNET_CHAIN_ID,
-  },
 };
 
 export function formatBootstrapPeer(host: string, port: number, peerId: string): string {

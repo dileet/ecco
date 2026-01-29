@@ -230,14 +230,12 @@ async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
     escrowAgreements,
     paymentLedger,
     streamingChannels,
-    stakePositions,
     swarmSplits,
     pendingSettlements,
   ] = await Promise.all([
     storage.loadEscrowAgreements(),
     storage.loadPaymentLedger(),
     storage.loadStreamingChannels(),
-    storage.loadStakePositions(),
     storage.loadSwarmSplits(),
     storage.loadPendingSettlements(),
   ]);
@@ -247,7 +245,6 @@ async function initializeStorage(stateRef: StateRef<NodeState>): Promise<void> {
     escrowAgreements,
     paymentLedger,
     streamingChannels,
-    stakePositions,
     swarmSplits,
     pendingSettlements,
   }));

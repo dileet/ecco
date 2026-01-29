@@ -5,13 +5,13 @@ export {
   type EscrowMilestone,
   type PaymentLedgerEntry,
   type StreamingAgreement,
-  type StakePosition,
   type SwarmSplit,
   type SwarmParticipant,
   type SettlementIntent,
   type StoredInvoice,
   type TimedOutPayment,
   type ExpectedInvoice,
+  type LocalReputationRecord,
 } from './schema';
 
 export {
@@ -47,12 +47,6 @@ export {
 } from './streaming';
 
 export {
-  loadStakePositions,
-  writeStakePosition,
-  updateStakePosition,
-} from './staking';
-
-export {
   loadSwarmSplits,
   writeSwarmSplit,
   updateSwarmSplit,
@@ -64,3 +58,11 @@ export {
   getExpectedInvoice,
   deleteExpectedInvoice,
 } from './invoices';
+
+export {
+  loadLocalReputation,
+  writeLocalReputation,
+  updateLocalReputation,
+  deleteLocalReputation,
+  deleteStaleReputation,
+} from './reputation';

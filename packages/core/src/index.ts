@@ -99,7 +99,6 @@ export {
   loadEscrowAgreements,
   loadPaymentLedger,
   loadStreamingChannels,
-  loadStakePositions,
   loadSwarmSplits,
   loadPendingSettlements,
   writeEscrowAgreement,
@@ -108,8 +107,6 @@ export {
   updatePaymentLedgerEntry,
   writeStreamingChannel,
   updateStreamingChannel,
-  writeStakePosition,
-  updateStakePosition,
   writeSwarmSplit,
   updateSwarmSplit,
   writeSettlement,
@@ -188,7 +185,6 @@ export type {
   EscrowAgreement,
   EscrowMilestone,
   StakeRequirement,
-  StakePosition,
   SwarmSplit,
   SwarmParticipant,
   SettlementIntent,
@@ -220,7 +216,6 @@ export type {
   LoadBalancingConfig,
   AgentLoadState,
   SemanticSimilarityConfig,
-  StakeRequirementConfig,
 } from './orchestrator/types';
 
 export {
@@ -304,12 +299,6 @@ export {
 } from './protocol/constitution';
 
 export {
-  fetchOnChainConstitution,
-  clearConstitutionCache,
-  getConstitutionCacheAge,
-} from './protocol/on-chain-constitution';
-
-export {
   createAgent,
   extractPromptText,
   createLLMHandler,
@@ -345,43 +334,10 @@ export {
 } from './agent';
 
 export {
-  getGovernorSettings,
-  propose,
-  getProposalId,
-  getProposalState,
-  castVote,
-  castVoteWithReason,
-  queueProposal,
-  executeProposal,
-  cancelProposal,
-  getVotes,
-  hasVoted,
-  getProposalVotes,
-  getQuorum,
-  getTimelockMinDelay,
-  encodeProposalAction,
-  hashDescription,
-  type ProposalState,
-  type ProposalInfo,
-  type GovernorSettings,
-  type ProposalAction,
-} from './governance/governor';
-
-export {
-  calculateFee,
-  collectFee,
-  getPendingRewards,
-  claimRewards,
-  distributeFees,
-  getFeeStats,
-  type FeeInfo,
-  type FeeStats,
-} from './payments/fee-collector';
-
-export {
   createReputationState,
   resolveRegistryAddresses,
   getLocalReputation,
+  getChainReputation,
   recordLocalSuccess,
   recordLocalFailure,
   queueRating,
@@ -392,14 +348,14 @@ export {
   syncAllPeersFromChain,
   getEffectiveScore,
   getPeersByScore,
-  getStakedPeers,
   getCachedWallet,
   setCachedWallet,
   resolveWalletForPeer,
   resolvePeerIdentity,
   resolveAgentIdForPeer,
   resolveAndSyncPeer,
-  type LocalPeerReputation,
+  type LocalReputation,
+  type ChainReputation,
   type ReputationState,
   type ReputationConfig,
   type PendingRating,

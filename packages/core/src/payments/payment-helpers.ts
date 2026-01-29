@@ -1,7 +1,7 @@
 import type { PrivateKey } from '@libp2p/interface'
 import type { Invoice, PaymentProof, EscrowAgreement, StreamingAgreement, SignedInvoice, PaymentLedgerEntry } from '../types'
 import type { WalletState } from './wallet'
-import type { BatchSettlementResult, WorkRewardOptions, WorkRewardResult, FeeHelpers, FeeCalculation, PayWithFeeResult } from '../agent/types'
+import type { BatchSettlementResult } from '../agent/types'
 import { verifyPayment as verifyPaymentOnChain, getAddress, batchSettle } from './wallet'
 import { releaseEscrowMilestone, recordStreamingTick } from './payment-processor'
 import {
@@ -20,13 +20,6 @@ import {
 } from '../storage'
 import type { MessageContext, PricingConfig, PaymentHelpers, RecordTokensOptions, RecordTokensResult, DistributeToSwarmOptions, DistributeToSwarmResult, ReleaseMilestoneOptions } from '../agent/types'
 import { createSwarmSplit, distributeSwarmSplit } from './payment-processor'
-import { distributeReward, estimateReward, generateJobId } from './work-rewards'
-import {
-  calculateFee as calculateFeeOnChain,
-  collectFee as collectFeeOnChain,
-  claimRewards as claimRewardsOnChain,
-  getPendingRewards as getPendingRewardsOnChain,
-} from './fee-collector'
 import { bigintToDecimalString, toWei, validateMilestonesTotal, validateStreamingRate, validateEscrowAmounts } from '../utils/wei'
 import { createInvoice, createSignedInvoice } from '../agent/invoice-factory'
 
@@ -431,29 +424,6 @@ export function createPaymentHelpers(
 
   const getPendingInvoices = (): Invoice[] => [...paymentState.invoiceQueue]
 
-  const rewardPeer = async (
-    jobId: string,
-    peerAddress: string,
-    chainId: number,
-    options?: WorkRewardOptions
-  ): Promise<WorkRewardResult | null> => {
-    if (!wallet) return null
-
-    try {
-      const jobIdHash = generateJobId(jobId)
-      const difficulty = BigInt(options?.difficulty ?? 1000)
-      const consensusAchieved = options?.consensusAchieved ?? false
-      const fastResponse = options?.fastResponse ?? false
-
-      const estimated = await estimateReward(wallet, chainId, peerAddress as `0x${string}`, difficulty, consensusAchieved, fastResponse)
-      const txHash = await distributeReward(wallet, chainId, jobIdHash, peerAddress as `0x${string}`, difficulty, consensusAchieved, fastResponse)
-
-      return { txHash, estimatedReward: estimated }
-    } catch {
-      return null
-    }
-  }
-
   return {
     requirePayment,
     createInvoice: createInvoiceFromCtx,
@@ -467,7 +437,6 @@ export function createPaymentHelpers(
     queueInvoice,
     settleAll,
     getPendingInvoices,
-    rewardPeer,
   }
 }
 
@@ -639,42 +608,4 @@ export async function setupStreamingAgreement(
   }
 
   return agreement
-}
-
-export function createFeeHelpers(wallet: WalletState | null): FeeHelpers | null {
-  if (!wallet) return null
-
-  return {
-    calculateFee: async (chainId: number, amount: bigint): Promise<FeeCalculation> => {
-      const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
-      return {
-        feePercent: feeInfo.feePercent,
-        feeAmount: feeInfo.feeAmount,
-        netAmount: amount - feeInfo.feeAmount,
-        isEccoDiscount: false,
-      }
-    },
-
-    payWithFee: async (chainId: number, recipient: `0x${string}`, amount: bigint): Promise<PayWithFeeResult> => {
-      const feeInfo = await calculateFeeOnChain(wallet, chainId, amount)
-      const feeHash = await collectFeeOnChain(wallet, chainId, recipient, amount)
-      return {
-        paymentHash: feeHash,
-        feeHash,
-        feeAmount: feeInfo.feeAmount,
-        netAmount: amount - feeInfo.feeAmount,
-      }
-    },
-
-    collectFeeWithEcco: (chainId: number, payee: `0x${string}`, amount: bigint): Promise<string> =>
-      collectFeeOnChain(wallet, chainId, payee, amount),
-
-    claimRewards: (chainId: number): Promise<string> =>
-      claimRewardsOnChain(wallet, chainId),
-
-    getPendingRewards: async (chainId: number): Promise<{ ethPending: bigint; eccoPending: bigint }> => {
-      const pending = await getPendingRewardsOnChain(wallet, chainId, wallet.account.address)
-      return { ethPending: 0n, eccoPending: pending }
-    },
-  }
 }

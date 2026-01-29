@@ -17,55 +17,6 @@ export const defaultLoadState = (peerId: string): AgentLoadState => ({
   successRate: 0.5,
 });
 
-const applyStakeFilter = (
-  candidates: CapabilityMatch[],
-  config: MultiAgentConfig,
-  nodeState: NodeState | undefined
-): CapabilityMatch[] => {
-  if (!config.stakeRequirement?.requireStake) {
-    return candidates;
-  }
-
-  if (!nodeState?.reputationState) {
-    throw new Error('Stake requirement enabled but reputation state is not configured');
-  }
-
-  const minStake = config.stakeRequirement.minStake ?? 0n;
-  return candidates.filter((match) => {
-    const rep = nodeState.reputationState?.peers.get(match.peer.id);
-    if (!rep) {
-      console.warn(`[orchestrator] Peer ${match.peer.id} excluded: no reputation data`);
-      return false;
-    }
-    if (!rep.canWork || rep.stake < minStake) {
-      console.warn(`[orchestrator] Peer ${match.peer.id} excluded: canWork=${rep.canWork}, stake=${rep.stake}, required=${minStake}`);
-      return false;
-    }
-    return true;
-  });
-};
-
-const applyStakeBonus = (
-  candidates: CapabilityMatch[],
-  config: MultiAgentConfig,
-  nodeState: NodeState | undefined
-): CapabilityMatch[] => {
-  if (!config.stakeRequirement?.preferStaked || !nodeState?.reputationState) {
-    return candidates;
-  }
-
-  const stakedBonus = config.stakeRequirement.stakedBonus ?? 0.2;
-  const boosted = candidates.map((match) => {
-    const rep = nodeState.reputationState?.peers.get(match.peer.id);
-    if (rep?.canWork) {
-      return { ...match, matchScore: match.matchScore + stakedBonus };
-    }
-    return match;
-  });
-
-  return boosted.sort((a, b) => b.matchScore - a.matchScore);
-};
-
 const applyZoneFilter = (
   candidates: CapabilityMatch[],
   config: MultiAgentConfig,
@@ -184,9 +135,7 @@ export const selectAgents = (
 ): CapabilityMatch[] => {
   const count = config.agentCount ?? 3;
 
-  let candidates = applyStakeFilter(matches, config, nodeState);
-  candidates = applyStakeBonus(candidates, config, nodeState);
-  candidates = applyZoneFilter(candidates, config, nodeState, count);
+  const candidates = applyZoneFilter(matches, config, nodeState, count);
 
   return selectByStrategy(candidates, config, loadStates, count);
 };

@@ -1,4 +1,5 @@
 import type { PublicClient, WalletClient } from 'viem';
+import { zeroAddress } from 'viem';
 import type { ReputationRegistryState, FeedbackSummary } from './types';
 
 const AGENT_REPUTATION_REGISTRY_ABI = [
@@ -132,8 +133,6 @@ const AGENT_REPUTATION_REGISTRY_ABI = [
     outputs: [{ name: '', type: 'address' }],
   },
 ] as const;
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 export function createReputationRegistryState(
   chainId: number,
@@ -343,7 +342,7 @@ export async function getResponseCount(
   feedbackIndex: bigint = 0n,
   responders: `0x${string}`[] = []
 ): Promise<bigint> {
-  const resolvedClient = clientAddress ?? ZERO_ADDRESS;
+  const resolvedClient = clientAddress ?? zeroAddress;
   return publicClient.readContract({
     address: state.registryAddress,
     abi: AGENT_REPUTATION_REGISTRY_ABI,

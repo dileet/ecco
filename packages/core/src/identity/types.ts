@@ -22,29 +22,12 @@ export const MetadataEntrySchema = z.object({
 });
 export type MetadataEntry = z.infer<typeof MetadataEntrySchema>;
 
-export const AgentStakeSchema = z.object({
-  stake: z.bigint(),
-  lastActive: z.bigint(),
-  unstakeRequestTime: z.bigint(),
-  unstakeAmount: z.bigint(),
-});
-export type AgentStake = z.infer<typeof AgentStakeSchema>;
-
-export const StakeInfoSchema = z.object({
-  stake: z.bigint(),
-  canWork: z.boolean(),
-  effectiveScore: z.bigint(),
-  agentId: z.bigint().optional(),
-});
-export type StakeInfo = z.infer<typeof StakeInfoSchema>;
-
 export const AgentInfoSchema = z.object({
   agentId: z.bigint(),
   owner: HexAddressSchema,
   agentURI: z.string(),
   peerId: z.string().optional(),
   peerIdHash: HexBytes32Schema.optional(),
-  stake: AgentStakeSchema.optional(),
   registryId: z.string(),
 });
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
@@ -181,12 +164,6 @@ export interface ReputationRegistryState {
 }
 
 export interface ValidationRegistryState {
-  chainId: number;
-  registryAddress: `0x${string}`;
-  identityRegistryAddress: `0x${string}`;
-}
-
-export interface StakeRegistryState {
   chainId: number;
   registryAddress: `0x${string}`;
   identityRegistryAddress: `0x${string}`;

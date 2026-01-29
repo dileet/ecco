@@ -279,8 +279,8 @@ export function buildLocalFilters(
       const filter = createFilter(bloomState, capability, tier, selfId);
       let updatedFilter = filter;
 
-      for (const [peerId, peer] of reputationState.peers) {
-        const score = getDiscoveryReputationScore(peer);
+      for (const peerId of reputationState.local.keys()) {
+        const score = getDiscoveryReputationScore(reputationState, peerId);
         if (score >= TIER_THRESHOLDS[tier]) {
           updatedFilter = addToFilter(bloomState, updatedFilter, peerId);
         }

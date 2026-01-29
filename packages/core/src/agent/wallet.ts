@@ -4,13 +4,14 @@ import { createWalletState, type WalletState } from '../payments/wallet'
 import {
   createDefaultPeerResolver,
   createReputationState,
+  loadReputationFromStorage,
   resolveRegistryAddresses,
   type FeedbackConfig,
   type ReputationState,
   type PeerResolver,
 } from '../reputation/reputation-state'
-import { createPaymentHelpers, createPaymentState, createFeeHelpers, type PaymentState } from '../payments/payment-helpers'
-import type { PaymentHelpers, FeeHelpers } from './types'
+import { createPaymentHelpers, createPaymentState, type PaymentState } from '../payments/payment-helpers'
+import type { PaymentHelpers } from './types'
 
 export interface WalletSetupConfig {
   ethereumPrivateKey: `0x${string}` | undefined
@@ -33,10 +34,9 @@ export interface WalletSetupResult {
   reputationState: ReputationState | null
   paymentState: PaymentState
   payments: PaymentHelpers
-  fees: FeeHelpers | null
 }
 
-export function setupWallet(config: WalletSetupConfig): WalletSetupResult {
+export async function setupWallet(config: WalletSetupConfig): Promise<WalletSetupResult> {
   const ethereumPrivateKey = config.ethereumPrivateKey
     ?? (config.walletEnabled ? generatePrivateKey() : undefined)
 
@@ -68,17 +68,16 @@ export function setupWallet(config: WalletSetupConfig): WalletSetupResult {
       reputationRegistryAddress: addresses.reputationRegistryAddress,
       feedback: config.reputation?.feedback,
     })
+    await loadReputationFromStorage(reputationState)
   }
 
   const paymentState = createPaymentState()
   const payments = createPaymentHelpers(walletState, paymentState, config.libp2pPrivateKey)
-  const fees = createFeeHelpers(walletState)
 
   return {
     walletState,
     reputationState,
     paymentState,
     payments,
-    fees,
   }
 }

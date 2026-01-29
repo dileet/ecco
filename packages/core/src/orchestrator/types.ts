@@ -43,13 +43,6 @@ export interface ZoneSelectionConfig {
   ignoreLatency?: boolean;
 }
 
-export interface StakeRequirementConfig {
-  requireStake?: boolean;
-  minStake?: bigint;
-  preferStaked?: boolean;
-  stakedBonus?: number;
-}
-
 export interface MultiAgentConfig {
   selectionStrategy: SelectionStrategy;
   agentCount?: number;
@@ -62,7 +55,6 @@ export interface MultiAgentConfig {
   loadBalancing?: LoadBalancingConfig;
   semanticSimilarity?: SemanticSimilarityConfig;
   zoneSelection?: ZoneSelectionConfig;
-  stakeRequirement?: StakeRequirementConfig;
   nodeRef?: StateRef<NodeState>;
   onStream?: (chunk: { text: string; peerId: string }) => void;
   maxStreamBufferBytes?: number;

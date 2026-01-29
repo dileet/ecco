@@ -4,7 +4,6 @@ import type {
   PaymentLedgerEntry,
   StreamingAgreement,
   EscrowAgreement,
-  StakePosition,
   SwarmSplit,
   SettlementIntent,
   EccoConfig,
@@ -72,7 +71,6 @@ export const createInitialState = (config: EccoConfig): NodeState => {
     paymentLedger: {},
     streamingChannels: {},
     escrowAgreements: {},
-    stakePositions: {},
     swarmSplits: {},
     pendingSettlements: [],
     floodProtection: createFloodProtection(fullConfig),
@@ -374,34 +372,6 @@ export const updateEscrowAgreement = async (
   return {
     ...state,
     escrowAgreements: { ...state.escrowAgreements, [agreementId]: updatedAgreement },
-  };
-};
-
-export const setStakePosition = async (
-  state: NodeState,
-  position: StakePosition
-): Promise<NodeState> => {
-  await storage.writeStakePosition(position);
-  return {
-    ...state,
-    stakePositions: { ...state.stakePositions, [position.id]: position },
-  };
-};
-
-export const updateStakePosition = async (
-  state: NodeState,
-  positionId: string,
-  updater: (position: StakePosition) => StakePosition
-): Promise<NodeState> => {
-  const position = state.stakePositions[positionId];
-  if (!position) return state;
-
-  const updatedPosition = updater(position);
-  await storage.updateStakePosition(updatedPosition);
-
-  return {
-    ...state,
-    stakePositions: { ...state.stakePositions, [positionId]: updatedPosition },
   };
 };
 

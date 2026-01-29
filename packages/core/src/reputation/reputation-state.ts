@@ -1,7 +1,7 @@
 import type { PublicClient } from 'viem';
-import { decodeEventLog, keccak256, parseAbiItem, toBytes } from 'viem';
+import { decodeEventLog, keccak256, parseAbiItem, toBytes, zeroAddress } from 'viem';
 import { z } from 'zod';
-import { getERC8004Addresses } from '@ecco/contracts/addresses';
+import { getERC8004Addresses } from '../networks';
 import type { WalletState } from '../payments/wallet';
 import { getAddress, getPublicClient, getWalletClient } from '../payments/wallet';
 import {
@@ -16,8 +16,7 @@ import {
   readAllFeedback,
   valueToNumber,
 } from '../identity';
-import type { IdentityRegistryState, ReputationRegistryState, StakeInfo, StakeRegistryState } from '../identity';
-import { createStakeRegistryState, fetchStakeInfo, canWork } from '../identity/stake-registry';
+import type { IdentityRegistryState, ReputationRegistryState } from '../identity';
 import {
   createFeedbackContent,
   computeFeedbackHash,
@@ -30,11 +29,40 @@ import { formatGlobalId } from '../identity/global-id';
 import { combineScoresWithAvailability, scoreToDisplay } from '../identity/unified-scoring';
 import { REPUTATION } from '../networking/constants';
 import { clamp } from '../utils/validation';
+import {
+  loadLocalReputation,
+  writeLocalReputation,
+  type LocalReputationRecord,
+} from '../storage';
 
-const ZERO_ADDRESS: `0x${string}` = '0x0000000000000000000000000000000000000000';
 const METADATA_SET_EVENT = parseAbiItem('event MetadataSet(uint256 indexed agentId,string indexed indexedMetadataKey,string metadataKey,bytes metadataValue)');
 
-const STAKE_REGISTRY_ADDRESS: `0x${string}` = ZERO_ADDRESS;
+function recordToLocalReputation(record: LocalReputationRecord): LocalReputation {
+  return {
+    peerId: record.peerId,
+    walletAddress: record.walletAddress,
+    agentId: record.agentId ? BigInt(record.agentId) : undefined,
+    localScore: record.localScore,
+    totalJobs: record.totalJobs,
+    successfulJobs: record.successfulJobs,
+    failedJobs: record.failedJobs,
+    lastInteractionAt: record.lastInteractionAt,
+  };
+}
+
+function localReputationToRecord(peer: LocalReputation): LocalReputationRecord {
+  return {
+    peerId: peer.peerId,
+    walletAddress: peer.walletAddress,
+    agentId: peer.agentId?.toString() ?? null,
+    localScore: peer.localScore,
+    totalJobs: peer.totalJobs,
+    successfulJobs: peer.successfulJobs,
+    failedJobs: peer.failedJobs,
+    lastSyncedAt: 0,
+    lastInteractionAt: peer.lastInteractionAt,
+  };
+}
 
 const FeedbackDefaultsSchema = z.object({
   tag1: z.string().optional(),
@@ -106,24 +134,23 @@ export interface FeedbackSubmissionResult {
   feedbackHash: `0x${string}`;
 }
 
-export interface LocalPeerReputation {
+export interface LocalReputation {
   peerId: string;
   walletAddress: string | null;
   agentId?: bigint;
   localScore: number;
-  onChainScore: bigint | null;
-  feedbackScore: number | null;
-  feedbackValue: bigint | null;
-  feedbackDecimals: number;
-  feedbackCount: number;
-  stake: bigint;
-  canWork: boolean;
   totalJobs: number;
   successfulJobs: number;
   failedJobs: number;
-  pendingRatings: PendingRating[];
-  lastSyncedAt: number;
   lastInteractionAt: number;
+}
+
+export interface ChainReputation {
+  feedbackScore: number;
+  feedbackValue: bigint;
+  feedbackDecimals: number;
+  feedbackCount: number;
+  lastSyncedAt: number;
 }
 
 export interface PendingRating {
@@ -142,7 +169,8 @@ export interface PendingRating {
 }
 
 export interface ReputationState {
-  peers: Map<string, LocalPeerReputation>;
+  local: Map<string, LocalReputation>;
+  chain: Map<string, ChainReputation>;
   peerIdToWallet: Map<string, `0x${string}`>;
   peerIdToAgentId: Map<string, bigint>;
   pendingCommits: PendingRating[];
@@ -185,8 +213,8 @@ export function resolveRegistryAddresses(
 ): { identityRegistryAddress: `0x${string}`; reputationRegistryAddress: `0x${string}` } {
   const addresses = getERC8004Addresses(chainId);
   return {
-    identityRegistryAddress: overrides.identityRegistryAddress ?? addresses?.identityRegistry ?? ZERO_ADDRESS,
-    reputationRegistryAddress: overrides.reputationRegistryAddress ?? addresses?.reputationRegistry ?? ZERO_ADDRESS,
+    identityRegistryAddress: overrides.identityRegistryAddress ?? addresses?.identityRegistry ?? zeroAddress,
+    reputationRegistryAddress: overrides.reputationRegistryAddress ?? addresses?.reputationRegistry ?? zeroAddress,
   };
 }
 
@@ -240,10 +268,6 @@ function getReputationRegistryState(
   return createReputationRegistryState(chainId, reputationRegistryAddress, identityRegistryAddress);
 }
 
-function getStakeState(chainId: number, identityRegistryAddress: `0x${string}`): StakeRegistryState {
-  return createStakeRegistryState(chainId, STAKE_REGISTRY_ADDRESS, identityRegistryAddress);
-}
-
 export function createReputationState(config: ReputationConfig): ReputationState {
   const addresses = resolveRegistryAddresses(config.chainId, {
     identityRegistryAddress: config.identityRegistryAddress,
@@ -251,7 +275,8 @@ export function createReputationState(config: ReputationConfig): ReputationState
   });
   const feedback = resolveFeedbackConfig(config.feedback);
   return {
-    peers: new Map(),
+    local: new Map(),
+    chain: new Map(),
     peerIdToWallet: new Map(),
     peerIdToAgentId: new Map(),
     pendingCommits: [],
@@ -268,6 +293,20 @@ export function createReputationState(config: ReputationConfig): ReputationState
   };
 }
 
+export async function loadReputationFromStorage(state: ReputationState): Promise<void> {
+  const records = await loadLocalReputation();
+  for (const record of records) {
+    const local = recordToLocalReputation(record);
+    state.local.set(local.peerId, local);
+    if (local.walletAddress) {
+      state.peerIdToWallet.set(local.peerId, local.walletAddress as `0x${string}`);
+    }
+    if (local.agentId !== undefined) {
+      state.peerIdToAgentId.set(local.peerId, local.agentId);
+    }
+  }
+}
+
 export function createDefaultPeerResolver(config: {
   chainId: number;
   wallet: WalletState;
@@ -277,7 +316,7 @@ export function createDefaultPeerResolver(config: {
   const identityState = createIdentityRegistryState(config.chainId, config.identityRegistryAddress);
 
   return async (peerId: string): Promise<PeerResolverResult | null> => {
-    if (config.identityRegistryAddress === ZERO_ADDRESS) {
+    if (config.identityRegistryAddress === zeroAddress) {
       return null;
     }
 
@@ -343,7 +382,7 @@ export function createDefaultPeerResolver(config: {
     let walletAddress: `0x${string}` | null = null;
     try {
       const agentWallet = await getAgentWallet(publicClient, identityState, agentId);
-      if (agentWallet !== ZERO_ADDRESS) {
+      if (agentWallet !== zeroAddress) {
         walletAddress = agentWallet;
       }
     } catch {
@@ -364,100 +403,89 @@ export function createDefaultPeerResolver(config: {
   };
 }
 
-export function getLocalReputation(state: ReputationState, peerId: string): LocalPeerReputation | undefined {
-  return state.peers.get(peerId);
+export function getLocalReputation(state: ReputationState, peerId: string): LocalReputation | undefined {
+  return state.local.get(peerId);
 }
 
-export function updateLocalScore(state: ReputationState, peerId: string, delta: number): void {
-  const peer = state.peers.get(peerId);
-  if (!peer) return;
+export function getChainReputation(state: ReputationState, peerId: string): ChainReputation | undefined {
+  return state.chain.get(peerId);
+}
 
-  const newScore = peer.localScore + delta;
+export async function updateLocalScore(state: ReputationState, peerId: string, delta: number): Promise<void> {
+  const local = state.local.get(peerId);
+  if (!local) return;
+
+  const newScore = local.localScore + delta;
   const clampedScore = Math.max(REPUTATION.MIN_LOCAL_SCORE, Math.min(REPUTATION.MAX_LOCAL_SCORE, newScore));
   if (clampedScore !== newScore) {
     console.warn(`[reputation] Score for peer ${peerId} clamped: ${newScore} -> ${clampedScore}`);
   }
 
-  const updatedPeer: LocalPeerReputation = {
-    ...peer,
+  const updated: LocalReputation = {
+    ...local,
     localScore: clampedScore,
     lastInteractionAt: Date.now(),
-    successfulJobs: delta > 0 ? peer.successfulJobs + 1 : peer.successfulJobs,
-    failedJobs: delta < 0 ? peer.failedJobs + 1 : peer.failedJobs,
-    totalJobs: peer.totalJobs + 1,
+    successfulJobs: delta > 0 ? local.successfulJobs + 1 : local.successfulJobs,
+    failedJobs: delta < 0 ? local.failedJobs + 1 : local.failedJobs,
+    totalJobs: local.totalJobs + 1,
   };
 
-  state.peers.set(peerId, updatedPeer);
+  state.local.set(peerId, updated);
+  await writeLocalReputation(localReputationToRecord(updated));
 }
 
-export function recordLocalSuccess(state: ReputationState, peerId: string, walletAddress?: string): void {
+export async function recordLocalSuccess(state: ReputationState, peerId: string, walletAddress?: string): Promise<void> {
   const now = Date.now();
-  const existingPeer = state.peers.get(peerId);
+  const existing = state.local.get(peerId);
 
-  const basePeer: LocalPeerReputation = existingPeer ?? {
+  const base: LocalReputation = existing ?? {
     peerId,
     walletAddress: walletAddress ?? null,
     localScore: 0,
-    onChainScore: null,
-    feedbackScore: null,
-    feedbackValue: null,
-    feedbackDecimals: 0,
-    feedbackCount: 0,
-    stake: 0n,
-    canWork: false,
     totalJobs: 0,
     successfulJobs: 0,
     failedJobs: 0,
-    pendingRatings: [],
-    lastSyncedAt: 0,
     lastInteractionAt: now,
   };
 
-  const updatedPeer: LocalPeerReputation = {
-    ...basePeer,
-    localScore: Math.min(REPUTATION.MAX_LOCAL_SCORE, basePeer.localScore + 1),
-    successfulJobs: basePeer.successfulJobs + 1,
-    totalJobs: basePeer.totalJobs + 1,
+  const updated: LocalReputation = {
+    ...base,
+    localScore: Math.min(REPUTATION.MAX_LOCAL_SCORE, base.localScore + 1),
+    successfulJobs: base.successfulJobs + 1,
+    totalJobs: base.totalJobs + 1,
     lastInteractionAt: now,
-    walletAddress: walletAddress && !basePeer.walletAddress ? walletAddress : basePeer.walletAddress,
+    walletAddress: walletAddress && !base.walletAddress ? walletAddress : base.walletAddress,
   };
 
-  state.peers.set(peerId, updatedPeer);
+  state.local.set(peerId, updated);
+  await writeLocalReputation(localReputationToRecord(updated));
 }
 
-export function recordLocalFailure(state: ReputationState, peerId: string, walletAddress?: string): void {
+export async function recordLocalFailure(state: ReputationState, peerId: string, walletAddress?: string): Promise<void> {
   const now = Date.now();
-  const existingPeer = state.peers.get(peerId);
+  const existing = state.local.get(peerId);
 
-  const basePeer: LocalPeerReputation = existingPeer ?? {
+  const base: LocalReputation = existing ?? {
     peerId,
     walletAddress: walletAddress ?? null,
     localScore: 0,
-    onChainScore: null,
-    feedbackScore: null,
-    feedbackValue: null,
-    feedbackDecimals: 0,
-    feedbackCount: 0,
-    stake: 0n,
-    canWork: false,
     totalJobs: 0,
     successfulJobs: 0,
     failedJobs: 0,
-    pendingRatings: [],
-    lastSyncedAt: 0,
     lastInteractionAt: now,
   };
 
-  const updatedPeer: LocalPeerReputation = {
-    ...basePeer,
-    localScore: Math.max(REPUTATION.MIN_LOCAL_SCORE, basePeer.localScore - 1),
-    failedJobs: basePeer.failedJobs + 1,
-    totalJobs: basePeer.totalJobs + 1,
+  const updated: LocalReputation = {
+    ...base,
+    localScore: Math.max(REPUTATION.MIN_LOCAL_SCORE, base.localScore - 1),
+    failedJobs: base.failedJobs + 1,
+    totalJobs: base.totalJobs + 1,
     lastInteractionAt: now,
-    walletAddress: walletAddress && !basePeer.walletAddress ? walletAddress : basePeer.walletAddress,
+    walletAddress: walletAddress && !base.walletAddress ? walletAddress : base.walletAddress,
   };
 
-  state.peers.set(peerId, updatedPeer);
+  state.local.set(peerId, updated);
+  await writeLocalReputation(localReputationToRecord(updated));
 }
 
 export function generatePaymentId(
@@ -512,20 +540,6 @@ export async function queueRating(
     metadata,
   };
 
-  const peer = state.peers.get(peerId);
-  if (peer) {
-    const trimmedRatings =
-      peer.pendingRatings.length >= REPUTATION.MAX_PENDING_RATINGS
-        ? peer.pendingRatings.slice(1)
-        : peer.pendingRatings;
-
-    const updatedPeer: LocalPeerReputation = {
-      ...peer,
-      pendingRatings: [...trimmedRatings, rating],
-    };
-    state.peers.set(peerId, updatedPeer);
-  }
-
   state.pendingCommits = [...state.pendingCommits, rating];
 }
 
@@ -539,7 +553,7 @@ export async function commitPendingRatings(
     return { committed: 0, failed: 0 };
   }
 
-  if (state.reputationRegistryAddress === ZERO_ADDRESS || !state.feedbackStorage) {
+  if (state.reputationRegistryAddress === zeroAddress || !state.feedbackStorage) {
     return { committed: 0, failed: unrecorded.length };
   }
 
@@ -580,11 +594,6 @@ export async function commitPendingRatings(
       );
 
       committed += 1;
-      const peer = state.peers.get(rating.peerId);
-      if (peer) {
-        const updatedRatings = peer.pendingRatings.filter((r) => r.paymentId !== rating.paymentId);
-        state.peers.set(rating.peerId, { ...peer, pendingRatings: updatedRatings });
-      }
     } catch {
       failed += 1;
       remaining.push(rating);
@@ -605,7 +614,7 @@ async function submitFeedbackInternal(
   valueDecimals: number,
   metadata: FeedbackMetadata
 ): Promise<FeedbackSubmissionResult> {
-  if (state.reputationRegistryAddress === ZERO_ADDRESS) {
+  if (state.reputationRegistryAddress === zeroAddress) {
     throw new Error('Reputation registry not configured');
   }
   if (!state.feedbackStorage) {
@@ -819,9 +828,8 @@ export async function syncPeerFromChain(
   wallet: WalletState,
   peerId: string,
   walletAddress: `0x${string}`
-): Promise<LocalPeerReputation> {
+): Promise<void> {
   const publicClient = getPublicClient(wallet, state.chainId);
-  const stakeState = getStakeState(state.chainId, state.identityRegistryAddress);
   const reputationRegistryState = getReputationRegistryState(
     state.chainId,
     state.reputationRegistryAddress,
@@ -829,75 +837,52 @@ export async function syncPeerFromChain(
   );
 
   const now = Date.now();
-  const existingPeer = state.peers.get(peerId);
 
-  let stakeInfo: StakeInfo | null = null;
   let resolvedAgentId: bigint | null = null;
-  let feedbackScore = existingPeer?.feedbackScore ?? null;
-  let feedbackValue = existingPeer?.feedbackValue ?? null;
-  let feedbackDecimals = existingPeer?.feedbackDecimals ?? 0;
-  let feedbackCount = existingPeer?.feedbackCount ?? 0;
-
   try {
     resolvedAgentId = await resolveAgentIdForPeer(state, wallet, peerId);
-    if (resolvedAgentId !== null) {
-      stakeInfo = await fetchStakeInfo(publicClient, stakeState, resolvedAgentId);
-    }
   } catch {
   }
 
-  if (resolvedAgentId !== null && state.reputationRegistryAddress !== ZERO_ADDRESS) {
+  if (resolvedAgentId !== null && state.reputationRegistryAddress !== zeroAddress) {
     try {
       const feedback = await fetchFeedbackSignal(publicClient, reputationRegistryState, resolvedAgentId);
-      feedbackScore = feedback.score;
-      feedbackCount = feedback.count;
-      feedbackValue = feedback.value;
-      feedbackDecimals = feedback.decimals;
+      if (feedback.score !== null && feedback.value !== null) {
+        state.chain.set(peerId, {
+          feedbackScore: feedback.score,
+          feedbackValue: feedback.value,
+          feedbackDecimals: feedback.decimals,
+          feedbackCount: feedback.count,
+          lastSyncedAt: now,
+        });
+      }
     } catch {
     }
   }
 
-  let canWorkResult = false;
-  try {
-    canWorkResult = await canWork(publicClient, stakeState, walletAddress);
-  } catch {
+  const existing = state.local.get(peerId);
+  if (existing) {
+    const updated: LocalReputation = {
+      ...existing,
+      agentId: resolvedAgentId ?? existing.agentId,
+      walletAddress,
+    };
+    state.local.set(peerId, updated);
+    await writeLocalReputation(localReputationToRecord(updated));
+  } else {
+    const newLocal: LocalReputation = {
+      peerId,
+      walletAddress,
+      agentId: resolvedAgentId ?? undefined,
+      localScore: 0,
+      totalJobs: 0,
+      successfulJobs: 0,
+      failedJobs: 0,
+      lastInteractionAt: now,
+    };
+    state.local.set(peerId, newLocal);
+    await writeLocalReputation(localReputationToRecord(newLocal));
   }
-
-  const basePeer: LocalPeerReputation = existingPeer ?? {
-    peerId,
-    walletAddress,
-    localScore: 0,
-    onChainScore: null,
-    feedbackScore: null,
-    feedbackValue: null,
-    feedbackDecimals: 0,
-    feedbackCount: 0,
-    stake: 0n,
-    canWork: false,
-    totalJobs: 0,
-    successfulJobs: 0,
-    failedJobs: 0,
-    pendingRatings: [],
-    lastSyncedAt: now,
-    lastInteractionAt: now,
-  };
-
-  const updatedPeer: LocalPeerReputation = {
-    ...basePeer,
-    agentId: resolvedAgentId ?? basePeer.agentId,
-    onChainScore: stakeInfo?.effectiveScore ?? null,
-    feedbackScore,
-    feedbackValue,
-    feedbackDecimals,
-    feedbackCount,
-    stake: stakeInfo?.stake ?? 0n,
-    canWork: canWorkResult,
-    lastSyncedAt: now,
-    walletAddress,
-  };
-
-  state.peers.set(peerId, updatedPeer);
-  return updatedPeer;
 }
 
 export async function syncAllPeersFromChain(
@@ -905,13 +890,16 @@ export async function syncAllPeersFromChain(
   wallet: WalletState
 ): Promise<number> {
   const now = Date.now();
-  const staleThreshold = now - state.syncIntervalMs;
   let synced = 0;
 
-  for (const [peerId, peer] of state.peers) {
-    if (peer.walletAddress && peer.lastSyncedAt < staleThreshold) {
+  for (const [peerId, local] of state.local) {
+    const chainRep = state.chain.get(peerId);
+    const lastSyncedAt = chainRep?.lastSyncedAt ?? 0;
+    const staleThreshold = now - state.syncIntervalMs;
+
+    if (local.walletAddress && lastSyncedAt < staleThreshold) {
       try {
-        await syncPeerFromChain(state, wallet, peerId, peer.walletAddress as `0x${string}`);
+        await syncPeerFromChain(state, wallet, peerId, local.walletAddress as `0x${string}`);
         synced += 1;
       } catch {
         continue;
@@ -922,28 +910,33 @@ export async function syncAllPeersFromChain(
   return synced;
 }
 
-export function getEffectiveScore(peer: LocalPeerReputation): number {
-  let score = peer.localScore;
+export function getEffectiveScore(state: ReputationState, peerId: string): number {
+  const local = state.local.get(peerId);
+  if (!local) return 0;
 
-  if (peer.onChainScore !== null) {
-    score += Number(peer.onChainScore) / 1e18;
-  }
+  let score = local.localScore;
+  const chainRep = state.chain.get(peerId);
 
-  if (peer.feedbackScore !== null) {
-    const clamped = clamp(peer.feedbackScore, -100, 100);
-    const weight = peer.feedbackCount > 0 ? Math.min(1, Math.log10(peer.feedbackCount + 1)) : 0;
+  if (chainRep && chainRep.feedbackScore !== null) {
+    const clamped = clamp(chainRep.feedbackScore, -100, 100);
+    const weight = chainRep.feedbackCount > 0 ? Math.min(1, Math.log10(chainRep.feedbackCount + 1)) : 0;
     score += clamped * weight;
   }
 
   return score;
 }
 
-export function getDiscoveryReputationScore(peer: LocalPeerReputation): number {
-  const feedbackValue = peer.feedbackValue;
-  const feedbackDecimals = peer.feedbackDecimals;
+export function getDiscoveryReputationScore(state: ReputationState, peerId: string): number {
+  const local = state.local.get(peerId);
+  if (!local) return 0;
+
+  const chainRep = state.chain.get(peerId);
+  const feedbackValue = chainRep?.feedbackValue ?? null;
+  const feedbackDecimals = chainRep?.feedbackDecimals ?? 0;
   const validationScore = 0;
+
   const { combined } = combineScoresWithAvailability(
-    peer.localScore,
+    local.localScore,
     feedbackValue,
     feedbackDecimals,
     validationScore
@@ -952,18 +945,14 @@ export function getDiscoveryReputationScore(peer: LocalPeerReputation): number {
   return clamp(displayScore, 0, 100);
 }
 
-export function getPeersByScore(state: ReputationState, limit?: number): LocalPeerReputation[] {
-  const peers = Array.from(state.peers.values());
-  peers.sort((a, b) => getEffectiveScore(b) - getEffectiveScore(a));
+export function getPeersByScore(state: ReputationState, limit?: number): LocalReputation[] {
+  const peers = Array.from(state.local.values());
+  peers.sort((a, b) => getEffectiveScore(state, b.peerId) - getEffectiveScore(state, a.peerId));
 
   if (limit) {
     return peers.slice(0, limit);
   }
   return peers;
-}
-
-export function getStakedPeers(state: ReputationState): LocalPeerReputation[] {
-  return Array.from(state.peers.values()).filter((p) => p.canWork);
 }
 
 export function getCachedWallet(state: ReputationState, peerId: string): `0x${string}` | undefined {
@@ -972,9 +961,9 @@ export function getCachedWallet(state: ReputationState, peerId: string): `0x${st
 
 export function setCachedWallet(state: ReputationState, peerId: string, wallet: `0x${string}`): void {
   state.peerIdToWallet.set(peerId, wallet);
-  const peer = state.peers.get(peerId);
-  if (peer) {
-    state.peers.set(peerId, { ...peer, walletAddress: wallet });
+  const local = state.local.get(peerId);
+  if (local) {
+    state.local.set(peerId, { ...local, walletAddress: wallet });
   }
 }
 
@@ -985,12 +974,12 @@ function cachePeerResolution(state: ReputationState, peerId: string, result: Pee
   if (result.walletAddress) {
     state.peerIdToWallet.set(peerId, result.walletAddress);
   }
-  const peer = state.peers.get(peerId);
-  if (peer) {
-    state.peers.set(peerId, {
-      ...peer,
-      walletAddress: result.walletAddress ?? peer.walletAddress,
-      agentId: result.agentId ?? peer.agentId,
+  const local = state.local.get(peerId);
+  if (local) {
+    state.local.set(peerId, {
+      ...local,
+      walletAddress: result.walletAddress ?? local.walletAddress,
+      agentId: result.agentId ?? local.agentId,
     });
   }
 }
@@ -1030,11 +1019,11 @@ export async function resolvePeerIdentity(
 
   if (!walletAddress && agentId !== null) {
     const publicClient = getPublicClient(wallet, state.chainId);
-    if (state.identityRegistryAddress !== ZERO_ADDRESS) {
+    if (state.identityRegistryAddress !== zeroAddress) {
       const identityState = getIdentityState(state.chainId, state.identityRegistryAddress);
       try {
         const agentWallet = await getAgentWallet(publicClient, identityState, agentId);
-        if (agentWallet !== ZERO_ADDRESS) {
+        if (agentWallet !== zeroAddress) {
           walletAddress = agentWallet;
         }
       } catch {
@@ -1076,18 +1065,19 @@ export async function resolveAndSyncPeer(
   state: ReputationState,
   wallet: WalletState,
   peerId: string
-): Promise<LocalPeerReputation | null> {
+): Promise<LocalReputation | null> {
   const { walletAddress } = await resolvePeerIdentity(state, wallet, peerId);
   if (!walletAddress) {
     return null;
   }
 
-  return syncPeerFromChain(state, wallet, peerId, walletAddress);
+  await syncPeerFromChain(state, wallet, peerId, walletAddress);
+  return state.local.get(peerId) ?? null;
 }
 
-export function calculateLocalSuccessRate(peer: LocalPeerReputation): number {
-  if (peer.totalJobs === 0) return 0;
-  return peer.successfulJobs / peer.totalJobs;
+export function calculateLocalSuccessRate(local: LocalReputation): number {
+  if (local.totalJobs === 0) return 0;
+  return local.successfulJobs / local.totalJobs;
 }
 
 export function clearStaleEntries(state: ReputationState, maxAgeMs: number): number {
@@ -1095,9 +1085,10 @@ export function clearStaleEntries(state: ReputationState, maxAgeMs: number): num
   const threshold = now - maxAgeMs;
   let removed = 0;
 
-  for (const [peerId, peer] of state.peers) {
-    if (peer.lastInteractionAt < threshold && peer.pendingRatings.length === 0) {
-      state.peers.delete(peerId);
+  for (const [peerId, local] of state.local) {
+    if (local.lastInteractionAt < threshold) {
+      state.local.delete(peerId);
+      state.chain.delete(peerId);
       removed += 1;
     }
   }
@@ -1110,10 +1101,6 @@ export function createReputationScorer(state: ReputationState | undefined): (pee
     if (!state) {
       return 0;
     }
-    const rep = state.peers.get(peerId);
-    if (!rep) {
-      return 0;
-    }
-    return getDiscoveryReputationScore(rep);
+    return getDiscoveryReputationScore(state, peerId);
   };
 }

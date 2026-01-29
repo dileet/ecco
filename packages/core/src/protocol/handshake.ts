@@ -7,12 +7,10 @@ import type {
   VersionHandshakeResponse,
   VersionIncompatibleNotice,
   ConstitutionHash,
-  Constitution,
 } from '../types';
 import type { NetworkConfig } from '../networks';
 import { isCompatible, formatVersion } from './version';
 import { computeConstitutionHash, validateConstitution } from './constitution';
-import { fetchOnChainConstitution } from './on-chain-constitution';
 
 const ProtocolVersionSchema = z.object({
   major: z.number().int().nonnegative(),
@@ -44,25 +42,12 @@ const HandshakeResponseSchema = z.object({
 export const HANDSHAKE_TIMEOUT_MS = 5000;
 export const DISCONNECT_DELAY_MS = 1000;
 
-export async function getEffectiveConstitution(networkConfig: NetworkConfig): Promise<Constitution> {
-  const onChainConfig = networkConfig.onChainConstitution;
-  if (onChainConfig?.enabled) {
-    try {
-      return await fetchOnChainConstitution(onChainConfig.chainId, onChainConfig.rpcUrl);
-    } catch {
-      return networkConfig.constitution;
-    }
-  }
-  return networkConfig.constitution;
-}
-
 export async function createHandshakeMessage(
   fromPeerId: string,
   toPeerId: string,
   networkConfig: NetworkConfig
 ): Promise<Message> {
-  const constitution = await getEffectiveConstitution(networkConfig);
-  const constitutionHash = await computeConstitutionHash(constitution);
+  const constitutionHash = await computeConstitutionHash(networkConfig.constitution);
 
   const payload: VersionHandshakePayload = {
     protocolVersion: networkConfig.protocol.currentVersion,
@@ -93,8 +78,7 @@ export async function createHandshakeResponse(
   const protocolConfig = networkConfig.protocol;
   const compatibility = isCompatible(peerVersion, protocolConfig.minVersion);
 
-  const constitution = await getEffectiveConstitution(networkConfig);
-  const localConstitutionHash = await computeConstitutionHash(constitution);
+  const localConstitutionHash = await computeConstitutionHash(networkConfig.constitution);
   const constitutionValidation = validateConstitution(localConstitutionHash, peerConstitutionHash);
 
   const versionAccepted = compatibility.compatible || protocolConfig.enforcementLevel === 'none';

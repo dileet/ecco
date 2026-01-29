@@ -7,7 +7,6 @@ import type {
   PaymentLedgerEntry,
   StreamingAgreement,
   EscrowAgreement,
-  StakePosition,
   SwarmSplit,
   SettlementIntent,
   ProtocolVersion,
@@ -71,7 +70,6 @@ export interface NodeState {
   paymentLedger: Record<string, PaymentLedgerEntry>;
   streamingChannels: Record<string, StreamingAgreement>;
   escrowAgreements: Record<string, EscrowAgreement>;
-  stakePositions: Record<string, StakePosition>;
   swarmSplits: Record<string, SwarmSplit>;
   pendingSettlements: SettlementIntent[];
   transport?: HybridDiscoveryState;

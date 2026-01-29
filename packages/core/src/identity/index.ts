@@ -7,4 +7,3 @@ export * from './feedback-storage';
 export * from './provider-storage';
 export * from './registration-storage';
 export * from './unified-scoring';
-export * from './stake-registry';

@@ -1,13 +1,11 @@
 import * as crypto from 'crypto';
-import { isAddress } from 'viem';
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+import { isAddress, zeroAddress } from 'viem';
 
 export function validateAddress(address: string, name: string): asserts address is `0x${string}` {
   if (!isAddress(address)) {
     throw new Error(`Invalid ${name} address format: ${address}`);
   }
-  if (address === ZERO_ADDRESS) {
+  if (address === zeroAddress) {
     throw new Error(`${name} address cannot be zero address`);
   }
 }

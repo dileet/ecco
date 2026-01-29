@@ -273,12 +273,11 @@ export {
   syncAllPeersFromChain,
   getEffectiveScore,
   getPeersByScore,
-  getStakedPeers as getStakedPeersFromReputation,
   resolveWalletForPeer,
   resolvePeerIdentity,
   resolveAgentIdForPeer,
 } from '../reputation/reputation-state';
-export type { LocalPeerReputation, ReputationState, ReputationConfig, PendingRating, PeerResolver, PeerResolverResult } from '../reputation/reputation-state';
+export type { LocalReputation, ChainReputation, ReputationState, ReputationConfig, PendingRating, PeerResolver, PeerResolverResult } from '../reputation/reputation-state';
 
 export {
   createPeerTracker,
@@ -287,7 +286,6 @@ export {
   getPeerScore,
   getAllPeerScores,
   getTopPeers,
-  getStakedPeers,
   syncPeerReputation,
   commitRatings,
   getPendingRatingsCount,

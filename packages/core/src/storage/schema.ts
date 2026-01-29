@@ -80,23 +80,6 @@ export const streamingChannels = sqliteTable('streaming_channels', {
   closedAt: integer('closed_at'),
 });
 
-export const stakePositions = sqliteTable('stake_positions', {
-  id: text('id').primaryKey(),
-  stakeRequirementId: text('stake_requirement_id').notNull(),
-  jobId: text('job_id').notNull(),
-  staker: text('staker').notNull(),
-  chainId: integer('chain_id').notNull(),
-  token: text('token').notNull(),
-  amount: text('amount').notNull(),
-  status: text('status').notNull().$type<'locked' | 'released' | 'slashed'>(),
-  lockedAt: integer('locked_at').notNull(),
-  releasedAt: integer('released_at'),
-  slashedAt: integer('slashed_at'),
-  txHash: text('tx_hash'),
-  releaseTxHash: text('release_tx_hash'),
-  slashTxHash: text('slash_tx_hash'),
-});
-
 export const swarmSplits = sqliteTable('swarm_splits', {
   id: text('id').primaryKey(),
   jobId: text('job_id').notNull(),
@@ -150,19 +133,30 @@ export const expectedInvoices = sqliteTable('expected_invoices', {
   expiresAt: integer('expires_at').notNull(),
 });
 
+export const localReputation = sqliteTable('local_reputation', {
+  peerId: text('peer_id').primaryKey(),
+  walletAddress: text('wallet_address'),
+  agentId: text('agent_id'),
+  localScore: integer('local_score').notNull().default(0),
+  totalJobs: integer('total_jobs').notNull().default(0),
+  successfulJobs: integer('successful_jobs').notNull().default(0),
+  failedJobs: integer('failed_jobs').notNull().default(0),
+  lastSyncedAt: integer('last_synced_at').notNull().default(0),
+  lastInteractionAt: integer('last_interaction_at').notNull(),
+});
+
 export type EscrowAgreement = typeof escrowAgreements.$inferSelect;
 export type PaymentLedgerEntry = typeof paymentLedger.$inferSelect;
 export type StreamingAgreement = typeof streamingChannels.$inferSelect;
-export type StakePosition = typeof stakePositions.$inferSelect;
 export type SwarmSplit = typeof swarmSplits.$inferSelect;
 export type SettlementIntent = typeof pendingSettlements.$inferSelect;
 export type TimedOutPayment = typeof timedOutPayments.$inferSelect;
 export type ExpectedInvoice = typeof expectedInvoices.$inferSelect;
 export type ProcessedPaymentProof = typeof processedPaymentProofs.$inferSelect;
+export type LocalReputationRecord = typeof localReputation.$inferSelect;
 
 export const escrowAgreementSchema = createSelectSchema(escrowAgreements);
 export const paymentLedgerSchema = createSelectSchema(paymentLedger);
 export const streamingChannelSchema = createSelectSchema(streamingChannels);
-export const stakePositionSchema = createSelectSchema(stakePositions);
 export const swarmSplitSchema = createSelectSchema(swarmSplits);
 export const settlementIntentSchema = createSelectSchema(pendingSettlements);

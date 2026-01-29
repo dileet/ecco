@@ -1,3 +1,4 @@
+import { zeroAddress } from 'viem'
 import type { Message, CapabilityQuery, CapabilityMatch, EmbeddingCapability, ModelCapability } from '../types'
 import {
   createAgent as createBaseAgent,
@@ -14,16 +15,12 @@ import { getAddress, getPublicClient, getWalletClient, type WalletState } from '
 import { formatProtocolVersion } from '../networks'
 import {
   createIdentityRegistryState,
-  createStakeRegistryState,
-  fetchStakeInfo,
-  canWork,
   registerAgentWithMetadata,
   computePeerIdHash,
   setAgentURI,
   setAgentWallet,
   createSetAgentWalletTypedData,
 } from '../identity'
-import type { StakeInfo } from '../identity'
 import {
   executeOrchestration,
   initialOrchestratorState,
@@ -50,12 +47,11 @@ import { setupWallet } from './wallet'
 import { setupModels, createEmbedFunction } from './models'
 import { createMessageDispatcher } from './dispatch'
 import { createRequestMethod, createSendMethod } from './requests'
-import { createStakingMethods } from '../reputation/staking'
-import { submitExplicitFeedback } from '../reputation/reputation-state'
+import { submitExplicitFeedback, resolveWalletForPeer } from '../reputation/reputation-state'
 import { normalizeRegistration, validateRegistration, createProviderRegistrationStorage } from '../identity/registration-storage'
 import { formatGlobalId } from '../identity/global-id'
 import { StorageProviderConfigSchema } from '../identity/provider-storage'
-import { getERC8004Addresses } from '@ecco/contracts/addresses'
+import { getERC8004Addresses } from '../networks'
 
 type StopFn = () => Promise<void>
 const activeAgents = new Map<string, StopFn>()
@@ -108,7 +104,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     ? (config.wallet.privateKey as `0x${string}`)
     : undefined
 
-  const { walletState, reputationState, paymentState, payments, fees } = setupWallet({
+  const { walletState, reputationState, paymentState, payments } = await setupWallet({
     ethereumPrivateKey,
     walletEnabled: config.wallet?.enabled,
     rpcUrls,
@@ -266,60 +262,12 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
   const identityRegistryAddress: `0x${string}` =
     config.reputation?.identityRegistryAddress ??
     getERC8004Addresses(chainId)?.identityRegistry ??
-    '0x0000000000000000000000000000000000000000'
-  const stakeRegistryAddress: `0x${string}` = '0x0000000000000000000000000000000000000000'
+    zeroAddress
   const identityState = createIdentityRegistryState(chainId, identityRegistryAddress)
-  const stakeState = createStakeRegistryState(chainId, stakeRegistryAddress, identityRegistryAddress)
 
   const findPeers = async (query?: FindPeersOptions): Promise<CapabilityMatch[]> => {
     const effectiveQuery: CapabilityQuery = query ?? { requiredCapabilities: [] }
-    const peers = await findPeersBase(baseAgent.ref, effectiveQuery)
-
-    if (!query?.requireStake && !query?.minStake) return peers
-    if (!walletState || !reputationState) return peers
-
-    const publicClient = getPublicClient(walletState, chainId)
-    const filteredPeers: CapabilityMatch[] = []
-
-    for (const match of peers) {
-      const { walletAddress: peerWallet, agentId } = await resolvePeerIdentity(reputationState, walletState, match.peer.id)
-      if (!peerWallet) {
-        if (!query.requireStake) filteredPeers.push(match)
-        continue
-      }
-
-      try {
-        let stakeInfo: StakeInfo
-
-        if (agentId !== null) {
-          stakeInfo = await fetchStakeInfo(publicClient, stakeState, agentId)
-        } else {
-          const canWorkResult = await canWork(publicClient, stakeState, peerWallet)
-          stakeInfo = { stake: 0n, canWork: canWorkResult, effectiveScore: 0n, agentId: undefined }
-        }
-
-
-        if (query.requireStake && !stakeInfo.canWork) continue
-        if (query.minStake && (stakeInfo.agentId === undefined || stakeInfo.stake < query.minStake)) continue
-
-        filteredPeers.push({
-          ...match,
-          peer: {
-            ...match.peer,
-            walletAddress: peerWallet,
-            onChainReputation: {
-              stake: stakeInfo.stake,
-              canWork: stakeInfo.canWork,
-              score: stakeInfo.effectiveScore,
-            },
-          },
-        })
-      } catch {
-        if (!query.requireStake) filteredPeers.push(match)
-      }
-    }
-
-    return filteredPeers
+    return findPeersBase(baseAgent.ref, effectiveQuery)
   }
 
   const request = createRequestMethod({ ref: baseAgent.ref, agentId: baseAgent.id })
@@ -627,8 +575,8 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     const peerId = getLibp2pPeerId(baseAgent.ref) ?? identity.peerId
     const peerIdHash = computePeerIdHash(peerId)
     const metadata = [
-      { key: 'peerId', value: Buffer.from(peerId, 'utf8') },
-      { key: 'peerIdHash', value: Buffer.from(peerIdHash.slice(2), 'hex') },
+      { metadataKey: 'peerId', metadataValue: new Uint8Array(Buffer.from(peerId, 'utf8')) },
+      { metadataKey: 'peerIdHash', metadataValue: new Uint8Array(Buffer.from(peerIdHash.slice(2), 'hex')) },
     ]
 
     const { agentId } = await registerAgentWithMetadata(
@@ -643,13 +591,6 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     return agentId
   }
 
-  const stakingMethods = createStakingMethods({
-    walletState,
-    reputationState,
-    chainId,
-    getAgentId: () => onChainAgentId,
-  })
-
   agentInstance = {
     id: baseAgent.id,
     addrs: baseAgent.addrs,
@@ -659,7 +600,6 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     chainId,
     capabilities: allCapabilities,
     payments,
-    fees,
     hasEmbedding: hasEmbeddingConfig || (hasLocalModel && config.localModel?.supportsEmbedding === true),
     protocolVersion: networkConfig.protocol.currentVersion,
     embed,
@@ -674,7 +614,10 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     publishRegistration,
     setAgentWallet: setAgentWalletForAgent,
     verifyAgentWallet,
-    ...stakingMethods,
+    resolveWalletForPeer: async (peerId: string): Promise<`0x${string}` | null> => {
+      if (!walletState || !reputationState) return null
+      return resolveWalletForPeer(reputationState, walletState, peerId)
+    },
     ratePeer,
   }
 
@@ -698,4 +641,4 @@ function extractTextFromResult(result: unknown): string {
 
 export * from './types'
 export { extractPromptText, createLLMHandler, isAgentRequest } from './handlers'
-export { createPaymentHelpers, createPaymentState, createFeeHelpers } from '../payments/payment-helpers'
+export { createPaymentHelpers, createPaymentState } from '../payments/payment-helpers'

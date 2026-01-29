@@ -3,7 +3,6 @@ export {
   type EscrowAgreement,
   type PaymentLedgerEntry,
   type StreamingAgreement,
-  type StakePosition,
   type SwarmParticipant,
   type SwarmSplit,
   type SettlementIntent,
@@ -134,11 +133,6 @@ export interface PeerInfo {
   servicesConsumed?: number;
   reputation?: number;
   walletAddress?: `0x${string}`;
-  onChainReputation?: {
-    score: bigint;
-    stake: bigint;
-    canWork: boolean;
-  };
 }
 
 export interface Message {

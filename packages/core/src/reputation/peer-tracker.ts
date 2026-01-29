@@ -46,7 +46,6 @@ export interface PeerScore {
   performanceScore: number;
   reputationScore: number;
   combinedScore: number;
-  canWork: boolean;
 }
 
 export function createPeerTracker(
@@ -72,7 +71,7 @@ export async function trackSuccess(
   recordPerformanceSuccess(state.performance, peerId, options.latencyMs, options.throughput);
 
   if (state.reputation) {
-    recordLocalSuccess(state.reputation, peerId, options.walletAddress);
+    await recordLocalSuccess(state.reputation, peerId, options.walletAddress);
 
     if (state.wallet && options.txHash && options.paymentAmount && options.walletAddress) {
       const delta = options.ratingDelta ?? 3;
@@ -102,7 +101,7 @@ export async function trackFailure(
   recordPerformanceFailure(state.performance, peerId, options?.errorCode);
 
   if (state.reputation) {
-    recordLocalFailure(state.reputation, peerId, options?.walletAddress);
+    await recordLocalFailure(state.reputation, peerId, options?.walletAddress);
   }
 }
 
@@ -111,13 +110,11 @@ export function getPeerScore(state: PeerTrackerState, peerId: string): PeerScore
   const perfScore = perfMetrics ? calculatePerformanceScore(perfMetrics) : 0;
 
   let repScore = 0;
-  let canWork = false;
 
   if (state.reputation) {
-    const rep = getLocalReputation(state.reputation, peerId);
-    if (rep) {
-      repScore = getEffectiveScore(rep);
-      canWork = rep.canWork;
+    const local = getLocalReputation(state.reputation, peerId);
+    if (local) {
+      repScore = getEffectiveScore(state.reputation, peerId);
     }
   }
 
@@ -135,7 +132,6 @@ export function getPeerScore(state: PeerTrackerState, peerId: string): PeerScore
     performanceScore: perfScore,
     reputationScore: repScore,
     combinedScore,
-    canWork,
   };
 }
 
@@ -147,7 +143,7 @@ export function getAllPeerScores(state: PeerTrackerState): PeerScore[] {
   }
 
   if (state.reputation) {
-    for (const peerId of state.reputation.peers.keys()) {
+    for (const peerId of state.reputation.local.keys()) {
       peerIds.add(peerId);
     }
   }
@@ -169,10 +165,6 @@ export function getAllPeerScores(state: PeerTrackerState): PeerScore[] {
 
 export function getTopPeers(state: PeerTrackerState, limit: number): PeerScore[] {
   return getAllPeerScores(state).slice(0, limit);
-}
-
-export function getStakedPeers(state: PeerTrackerState): PeerScore[] {
-  return getAllPeerScores(state).filter((p) => p.canWork);
 }
 
 export async function syncPeerReputation(

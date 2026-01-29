@@ -368,10 +368,7 @@ function getPeerScoringFactors(
 
   let reputationScore = 0;
   if (state.reputationState) {
-    const rep = getLocalReputation(state.reputationState, peerId);
-    if (rep) {
-      reputationScore = getDiscoveryReputationScore(rep);
-    }
+    reputationScore = getDiscoveryReputationScore(state.reputationState, peerId);
   }
 
   let latencyZone: LatencyZone | null = null;
